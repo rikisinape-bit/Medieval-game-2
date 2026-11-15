@@ -1,7 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
 import { createGame } from "@/game3d/engine";
-import { loadCharacters } from "@/game3d/characters";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import GameMenu from "@/components/GameMenu";
@@ -75,7 +74,6 @@ export default function Village3D() {
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
     (async () => {
       const saved = loadSave();
-      await loadCharacters(); // rigged GLB characters; on failure the block models are used
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,

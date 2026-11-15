@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { ITEMS, SWORD_TIER } from "./items";
 import { BODY_MAT, bodyGeometries, variantOf } from "./body";
 import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
+import { itemModel, toolModel, hasItemModel } from "./items3d";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -44,48 +45,23 @@ export const LOOKS = {
   herbalist: { body: "#46503a", legs: "#30302a", head: "kerchief", hat: "#5a5446", dress: true, female: true, apron: "#6a6250", pouch: "#4a3a28", satchel: "#4a3a28", dirt: 0.35 },
 };
 
-const HOLD = (o) => { at(o, 0, -0.66, 0.04); o.rotation.x = Math.PI / 2 - 0.3; return o; };
+// Hand tools of the NPCs' daily routines, in the new item style (items3d.js). Same palm point as weapons.
+const GRIP_TOOLS = new Set(["ascia", "martello", "scopa"]);
 export function makeTool(id) {
-  const g = new THREE.Group();
-  switch (id) {
-    case "ascia": add(g, at(box(0.05, 0.05, 0.85, "#5e3c1e"), 0, 0, 0.3), at(box(0.3, 0.05, 0.16, "#a8a8b0"), 0.12, 0, 0.65)); return HOLD(g);
-    case "martello": add(g, at(box(0.05, 0.05, 0.45, "#5e3c1e"), 0, 0, 0.15), at(box(0.2, 0.1, 0.1, "#3a3a42"), 0, 0, 0.38)); return HOLD(g);
-    case "scopa": add(g, at(box(0.04, 0.04, 1.3, "#8a6a3a"), 0, 0, 0.3), at(box(0.22, 0.08, 0.26, "#c9a95a"), 0, 0, 0.98)); return HOLD(g);
-    case "pane": return at(add(g, box(0.22, 0.12, 0.14, "#a8783e")), 0, -0.7, 0.06);
-    case "acqua": return at(add(g, cyl(0.07, 0.085, 0.2, "#5a6470"), at(cyl(0.03, 0.03, 0.05, "#3a2410"), 0, 0.12, 0)), 0, -0.72, 0.06);
-    case "secchio": return at(add(g, cyl(0.14, 0.11, 0.22, "#4e3420", 10), at(box(0.02, 0.18, 0.02, "#3a3a3a"), 0, 0.18, 0)), 0, -0.9, 0.04);
-    default: return g;
-  }
+  const t = toolModel(id);
+  if (GRIP_TOOLS.has(id)) { at(t, 0, -0.635, 0.015); t.rotation.x = 0.62; }
+  else at(t, 0, -0.64, 0.02);
+  return t;
 }
 // World representation of an inventory item lying on the ground.
 export function makeItem(id, color) {
   const g = new THREE.Group();
+  if (hasItemModel(id)) { g.add(itemModel(id)); return g; }
   switch (id) {
-    case "pane": g.add(at(box(0.42, 0.22, 0.26, "#c9944a"), 0, 0.11, 0)); break;
-    case "acqua": add(g, at(cyl(0.12, 0.15, 0.36, "#6a7a8a"), 0, 0.18, 0), at(cyl(0.05, 0.05, 0.08, "#3a2410"), 0, 0.4, 0)); break;
-    case "pozione": add(g, at(cyl(0.1, 0.14, 0.3, "#a02030"), 0, 0.15, 0), at(cyl(0.04, 0.04, 0.12, "#4a6a4a"), 0, 0.36, 0)); break;
-    case "oro": [[0, 0.02, 0], [0.12, 0.02, 0.1], [-0.1, 0.02, 0.08], [0.02, 0.07, 0.03]].forEach(([x, y, z]) => g.add(at(cyl(0.11, 0.11, 0.04, "#e8c050", 10), x, y, z))); break;
-    case "argento": g.add(at(mesh(new THREE.OctahedronGeometry(0.26, 0), "#d8e4f0", "#4a6a88"), 0, 0.26, 0)); break;
     case "pugnale": case "spada_corta": case "ascia_guerra": case "spada_lunga": case "spadone": case "spada_roccanera": {
       const s = makeSword(0, ITEMS[id].sword); g.add(at(s, 0, 0.03, -0.3, 0.4)); break; }   // lying flat on the ground (blade thickness is along Y)
-    case "cuoio": case "maglia": case "piastre": add(g, at(box(0.6, 0.7, 0.34, color), 0, 0.36, 0), at(box(0.64, 0.1, 0.38, "#3a2410"), 0, 0.45, 0)); break;
-    case "cappuccio": case "elmo_ferro": case "elmo_piastre": g.add(at(mesh(new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), color), 0, 0.1, 0)); break;
-    case "torcia": { const t = makeTorch(false); t.rotation.z = 1.2; g.add(at(t, 0, 0.12, 0)); break; }
     case "scudo_legno": case "scudo_ferro": { const sh = makeShield(ITEMS[id].color, SHIELD_KIND[id]); sh.rotation.x = -Math.PI / 2 + 0.12; g.add(at(sh, 0, 0.06, 0)); break; }
-    case "formaggio": g.add(at(cyl(0.22, 0.22, 0.14, "#e8c860", 10), 0, 0.07, 0)); break;
-    case "carne": add(g, at(box(0.42, 0.18, 0.24, "#8a3a2a"), 0, 0.1, 0), at(box(0.1, 0.1, 0.4, "#e8dcc4"), 0.2, 0.1, 0)); break;
-    case "mela": g.add(at(mesh(new THREE.SphereGeometry(0.14, 8, 6), "#c03030"), 0, 0.14, 0)); break;
-    case "vino": add(g, at(cyl(0.11, 0.13, 0.34, "#3a1a2a"), 0, 0.17, 0), at(cyl(0.04, 0.04, 0.14, "#3a1a2a"), 0, 0.4, 0)); break;
-    case "erbe": add(g, at(cone(0.14, 0.3, "#4a8a3a", 6), 0, 0.15, 0), at(cone(0.12, 0.26, "#6aa84a", 6), 0.12, 0.13, 0.08)); break;
-    case "pozione_grande": add(g, at(cyl(0.14, 0.18, 0.36, "#a02030"), 0, 0.18, 0), at(cyl(0.05, 0.05, 0.14, "#4a6a4a"), 0, 0.42, 0)); break;
-    case "martello": { const t = makeTool("martello"); t.rotation.set(-Math.PI / 2, 0, 0.5); g.add(at(t, 0, 0.05, -0.2)); break; }
-    case "corda": g.add(at(mesh(new THREE.TorusGeometry(0.2, 0.06, 6, 12), "#b89a5a"), 0, 0.06, 0)); g.children[0].rotation.x = Math.PI / 2; break;
-    case "pelliccia": g.add(at(box(0.5, 0.1, 0.4, "#6a5a4a"), 0, 0.05, 0)); break;
-    case "gemma": g.add(at(mesh(new THREE.OctahedronGeometry(0.18, 0), "#6ad0c0", "#2a6a60"), 0, 0.18, 0)); break;
-    case "libro": add(g, at(box(0.3, 0.06, 0.4, "#5a2a1a"), 0, 0.03, 0), at(box(0.26, 0.04, 0.36, "#e8dcc4"), 0, 0.07, 0)); break;
-    case "ascia": { const t = makeTool("ascia"); t.rotation.set(-Math.PI / 2, 0, 0.5); g.add(at(t, 0, 0.05, -0.3)); break; }
-    case "testa_morn": add(g, at(mesh(new THREE.SphereGeometry(0.22, 8, 6), "#c89a78"), 0, 0.22, 0), at(box(0.46, 0.2, 0.46, "#1e2616"), 0, 0.36, 0)); break;
-    default: g.add(at(box(0.3, 0.3, 0.3, "#7a5434"), 0, 0.15, 0));
+    default: g.add(at(box(0.3, 0.3, 0.3, "#5a4030"), 0, 0.15, 0));
   }
   return g;
 }
@@ -356,10 +332,12 @@ export function makeCityWall() {
 }
 
 
+const FLAME_MAT = new THREE.MeshStandardMaterial({ color: "#ffb048", emissive: "#ff7a18", emissiveIntensity: 1.6, flatShading: true });
+const FLAME_GEO = new THREE.ConeGeometry(0.055, 0.16, 5);
 export function makeTorch(lit = true) {
   const g = new THREE.Group();
-  add(g, at(cyl(0.03, 0.035, 0.5, "#5e3c1e"), 0, 0, 0), at(cyl(0.05, 0.04, 0.1, "#3a2410"), 0, 0.28, 0));
-  const flame = mesh(new THREE.SphereGeometry(0.08, 6, 5), "#ffb040", "#ff7a10"); flame.castShadow = false; at(flame, 0, 0.4, 0); g.add(flame);
+  add(g, at(cyl(0.022, 0.027, 0.5, "#3a2618", 6), 0, 0, 0), at(cyl(0.048, 0.038, 0.11, "#2a2420", 7), 0, 0.29, 0), at(cyl(0.05, 0.05, 0.02, "#8a7650", 7), 0, 0.25, 0));
+  const flame = new THREE.Mesh(FLAME_GEO, FLAME_MAT); flame.position.set(0, 0.42, 0); g.add(flame);
   g.userData = { flame };
   if (lit) { const l = new THREE.PointLight("#ffa040", 0, 14); l.position.set(0, 0.5, 0); g.add(l); g.userData.light = l; }
   return g;
@@ -377,17 +355,19 @@ export function makeLantern() {
   return g;
 }
 // First-person arms, attached to the camera.
+// First-person arms: the player's own arm geometry (sleeves, armour, gloves) from body.js, attached to the camera.
+// rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
+export const VM_REST = { R: { pos: [0.17, -0.1, 0.06], rx: 1.4 }, L: { pos: [-0.24, -0.14, 0.06], rx: 1.3 } };
 export function makeViewmodel(look) {
+  const geo = bodyGeometries(look, variantOf(look, "player"));
   const g = new THREE.Group();
-  const armR = new THREE.Group(), armL = new THREE.Group();
-  armR.add(at(box(0.14, 0.5, 0.14, look.body), 0, -0.25, 0), at(box(0.15, 0.12, 0.15, "#e0b890"), 0, -0.55, 0));
-  armL.add(at(box(0.14, 0.5, 0.14, look.body), 0, -0.25, 0), at(box(0.15, 0.12, 0.15, "#e0b890"), 0, -0.55, 0));
-  const handR = at(new THREE.Group(), 0, -0.58, 0), handL = at(new THREE.Group(), 0, -0.58, 0);
-  armR.add(handR); armL.add(handL);
-  at(armR, 0.3, -0.3, -0.6); armR.rotation.x = 1.1; armR.scale.setScalar(0.7);
-  at(armL, -0.3, -0.3, -0.6); armL.rotation.x = 1.1; armL.scale.setScalar(0.7);
-  g.add(armR, armL);
-  g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
+  const arm = (geometry, rest) => {
+    const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
+    const m = new THREE.Mesh(geometry, BODY_MAT); p.add(m);
+    const hand = at(new THREE.Group(), 0, -0.635, 0.015); p.add(hand);
+    g.add(p); return [p, hand];
+  };
+  const [armR, handR] = arm(geo.armR, VM_REST.R), [armL, handL] = arm(geo.armL, VM_REST.L);
   return { g, armR, armL, handR, handL };
 }
 
@@ -403,7 +383,8 @@ const HELM_LOOK = {
   elmo_ferro: { head: "nasal", hat: "#6a6d72" },
   elmo_piastre: { head: "helm", greatHelm: true, hat: "#8c9095" },
 };
-export function makePlayerModel(eq) {
+// Look of the player's body for the current equipment (also used by the first-person arms).
+export function playerLook(eq) {
   const off = eq.off && ITEMS[eq.off];
   const look = {
     ...LOOKS.player,
@@ -413,7 +394,10 @@ export function makePlayerModel(eq) {
   };
   if (eq.body === "piastre") delete look.straps;
   if (eq.body) delete look.cape;   // the cape would hide the armour seen from behind (third person)
-  const g = makeHuman(look, eq.hand || "corta", "player");
+  return look;
+}
+export function makePlayerModel(eq) {
+  const g = makeHuman(playerLook(eq), eq.hand || "corta", "player");
   if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.66, 0.06)); }
   return g;
 }

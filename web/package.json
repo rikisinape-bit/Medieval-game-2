@@ -7,7 +7,7 @@
     "dev": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "build:artifact": "VITE_MODEL_EXT=js vite build && node tools/glb-to-js.mjs dist/models/personaggi"
+    "build:artifact": "vite build"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",

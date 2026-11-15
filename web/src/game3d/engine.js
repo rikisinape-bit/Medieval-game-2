@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
@@ -9,7 +9,6 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
-import { hasRig, makeRig, makePlayerBody, makePlayerRig, animateNpcRig } from "./characters";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -170,35 +169,35 @@ export function createGame(canvas, hooks, saved) {
   Object.defineProperty(P, "sword", { get: () => P.eq.hand, set: (v) => { P.eq.hand = v; }, enumerable: false });
 
   // First-person view model (arms + weapon + off-hand)
-  const vm = makeViewmodel(LOOKS.player);
+  let vm = makeViewmodel(playerLook(P.eq));
   camera.add(vm.g);
   let torchLight = null;
   let view = saved?.view === "third" ? "third" : "first";
   let playerMesh = null;
   const buildPlayerMesh = () => {
     if (playerMesh) scene.remove(playerMesh);
-    playerMesh = makePlayerBody(P.eq);
+    playerMesh = makePlayerModel(P.eq);
     playerMesh.visible = view === "third";
     scene.add(playerMesh);
   };
   // First person: arms and hands of the rigged player model (head/legs hidden), attached to the camera.
   // The old block arms (vm) remain only as a fallback if the model did not load.
-  let fpRig = null;
-  const FP_Y = -1.6;
   // One torch light always on the camera (constant light count); its intensity is 0 without a torch.
   const torchLamp = new THREE.PointLight("#ffa040", 0, 14);
   torchLamp.position.set(-0.35, -0.1, -0.45); camera.add(torchLamp);
-  const setView = (v) => { view = v; vm.g.visible = v === "first" && !fpRig; if (fpRig) fpRig.visible = v === "first"; if (playerMesh) playerMesh.visible = v === "third"; };
+  const setView = (v) => { view = v; vm.g.visible = v === "first"; if (playerMesh) playerMesh.visible = v === "third"; };
   const equip = () => {
-    vm.handR.clear(); vm.handL.clear(); torchLight = null; torchLamp.intensity = 0;
-    if (fpRig) camera.remove(fpRig);
-    fpRig = hasRig("adventurer") ? makePlayerRig(P.eq, true) : null;
-    if (fpRig) { fpRig.position.set(0, FP_Y, 0.02); fpRig.rotation.y = Math.PI; camera.add(fpRig); }
+    // First-person arms: same sleeves/armour/gloves as the body, rebuilt whenever the equipment changes.
+    camera.remove(vm.g); vm = makeViewmodel(playerLook(P.eq)); camera.add(vm.g);
+    torchLight = null; torchLamp.intensity = 0;
     const s = makeSword(0, P.eq.hand);
-    s.rotation.x = 2.4; vm.handR.add(s);
-    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = torchLamp; }
-    else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color, SHIELD_KIND[P.eq.off]); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
-    vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
+    s.rotation.x = 2.4; vm.handR.add(s);                                                    // blade up and forward
+    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = -1.2; vm.handL.add(at(t, 0, -0.02, 0.02)); torchLight = torchLamp; }
+    else if (P.eq.off) {                                                                    // shield held low on the left, edge-on, face turned outwards
+      const sh = makeShield(ITEMS[P.eq.off].color, SHIELD_KIND[P.eq.off]); sh.scale.setScalar(0.85);
+      const w = new THREE.Group(); w.rotation.set(1.85, 0, 0); sh.rotation.y = -1.15; w.add(sh); vm.handL.add(at(w, -0.06, -0.02, 0));
+    }
+    vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
     buildPlayerMesh();
     setView(view);
   };
@@ -212,7 +211,6 @@ export function createGame(canvas, hooks, saved) {
     if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
     // All NPCs use the procedural low-poly humans (body.js); seed = id gives each one stable variation.
     n.mesh = makeHuman({ ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) }, d.weapon, d.id);
-    if (n.mesh.userData.rig && !n.alive) n.mesh.userData.play("Death", { once: true, end: true });
     scene.add(n.mesh);
     if (d.rider) {
       const start = RIDER_ROUTE[d.rider > 0 ? 0 : RIDER_ROUTE.length - 1];
@@ -232,14 +230,12 @@ export function createGame(canvas, hooks, saved) {
   const keys = {};
   let pitch = 0, atkT = -1, combo = 0, queued = false;
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
-  let paused = false, hurtT = 0, swingN = 0;
-  // First-person slash, phase p 0..1 -> [x: negative raises the arm, y: positive moves it to the screen's right]
-  // (measured on the Adventurer rig): wind up high on the right, cut down across to the lower left, recover.
+  let paused = false;
   const lerp = (a, b, t) => a + (b - a) * t;
-  const fpSwing = (p) => p < 0.25 ? [lerp(0, -0.35, p / 0.25), lerp(0, 0.35, p / 0.25)]
-    : p < 0.65 ? [lerp(-0.35, 0.3, (p - 0.25) / 0.4), lerp(0.35, -0.55, (p - 0.25) / 0.4)]
-    : [lerp(0.3, 0, (p - 0.65) / 0.35), lerp(-0.55, 0, (p - 0.65) / 0.35)];
-  const RIDE_Y = 0.86; // rigged rider: hips on the saddle (saddle top ~1.7 m)
+  // phase p 0..1 -> [raise (x, + = up), sweep (y, + = towards the left)]
+  const fpSwing = (p) => p < 0.25 ? [lerp(0, 0.45, p / 0.25), lerp(0, -0.45, p / 0.25)]
+    : p < 0.65 ? [lerp(0.45, -0.12, (p - 0.25) / 0.4), lerp(-0.45, 0.62, (p - 0.25) / 0.4)]
+    : [lerp(-0.12, 0, (p - 0.65) / 0.35), lerp(0.62, 0, (p - 0.65) / 0.35)];
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
   const setSneak = (v) => {
@@ -303,7 +299,7 @@ export function createGame(canvas, hooks, saved) {
     let raw = n.spar ? Math.ceil(n.dmg * 0.6) : n.dmg + (n.role === "bandit" && S.night ? 3 : 0);
     if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
-    P.hp -= dmg; shake = 0.35; hurtT = 0.35;
+    P.hp -= dmg; shake = 0.35;
     sfx.hit(0.9);
     fx.burst(P.x + Math.sin(P.yaw) * 0.5, 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
     hooks.onFloat(`-${dmg}`, "#ff5252");
@@ -512,7 +508,7 @@ export function createGame(canvas, hooks, saved) {
     sfx.unlock();
     if (dialogOpen || paused) return;
     if (kind === "interact") interact();
-    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; swingN++; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
+    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
     if (kind === "camera") setView(view === "first" ? "third" : "first");
     if (kind === "dodge" && dodgeCd <= 0) {
@@ -754,12 +750,12 @@ export function createGame(canvas, hooks, saved) {
       moving = true; bobT += dt * (P.mounted ? 7 : 9);
     } else [P.x, P.z] = collide(P.x, P.z);
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
-    iframe -= dt; dodgeCd -= dt; hurtT -= dt; shake = Math.max(0, shake - dt);
+    iframe -= dt; dodgeCd -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
-      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; swingN++; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
+      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
     if (h) { h.x = P.x; h.z = P.z; h.yaw = P.yaw; }
@@ -772,25 +768,13 @@ export function createGame(canvas, hooks, saved) {
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
     npcs.forEach((n) => {
       if (n.horse) at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw);
-      if (!n.alive && n.mesh.userData.rig) {
-        const u = n.mesh.userData;
-        at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; u.setOverride(null);
-        if (u.current !== "Death") u.play("Death", { once: true, fade: 0.1 });
-        if (Math.hypot(n.x - P.x, n.z - P.z) < 45) u.update(dt);
-        u.prop.visible = false; showTool(n.mesh, null); return;
-      }
       if (!n.alive) { at(n.mesh, n.x, 0.25, n.z, n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "dead"); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); return; }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
-      if (n.mesh.userData.rig) {
-        // Rigged NPC: animation clips instead of procedural poses. Far away ones are not animated (saves CPU).
-        if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], (n.bedY ?? 0.62) - 0.05, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; }
-        else { at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; }
-        if (Math.hypot(n.x - P.x, n.z - P.z) < 45) animateNpcRig(n, r, dt);
-      } else if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
+      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
       else {
         const y = poseHuman(n.mesh, nt, r.walk, r.mode, r.k);
         at(n.mesh, n.x, n.riding ? 1.05 : n.ms === "seat" ? 0.35 : y, n.z, n.yaw);
@@ -817,22 +801,10 @@ export function createGame(canvas, hooks, saved) {
     if (view === "third") {
       // Player body
       const pm = playerMesh;
-      if (pm.userData.rig) {
-        const u = pm.userData;
-        at(pm, P.x, P.mounted ? RIDE_Y : 0, P.z, P.yaw); pm.rotation.x = 0;
-        u.setOverride(P.mounted ? "ride" : P.sneak ? "crouch" : null);
-        if (dodgeT > 0) u.play("Roll", { speed: u.duration("Roll") / 0.45 });
-        else if (atkT >= 0) { if (u.swing !== swingN) { u.swing = swingN; u.play("Sword_Slash", { once: true, restart: true, fade: 0.08, speed: u.duration("Sword_Slash") / 0.5 }); } }
-        else if (hurtT > 0) u.play("HitRecieve", { once: true, fade: 0.08 });
-        else if (moving && !P.mounted) u.play(P.sneak ? "Walk" : "Run", { speed: P.sneak ? 0.7 : 1 });
-        else u.play(npcs.some((n) => n.alive && n.hostile && n.fights && Math.hypot(n.x - P.x, n.z - P.z) < 12) ? "Idle_Sword" : "Idle");
-        u.update(dt);
-      } else {
-        const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
-        at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
-        pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
-        pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
-      }
+      const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
+      at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
+      pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
+      pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
       // Camera behind the right shoulder; pulled in if a wall is in the way.
       const headY = (P.mounted ? 2.45 : 1.75) - crouch;
       const rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
@@ -850,21 +822,14 @@ export function createGame(canvas, hooks, saved) {
     } else {
       camera.position.set(P.x + shk * 0.8, eyeY, P.z);
       camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);
-      vm.armR.rotation.set(1.1 - sw * 1.1, combo === 2 ? sw * 0.9 : -sw * 0.9, -sw * 0.6);
-      vm.armR.position.set(0.3, -0.3 + Math.sin(bobT * 0.5) * 0.01 - sw * 0.1, -0.6 - sw * 0.15);
-      vm.armL.rotation.set(1.1, 0, 0);
-      vm.armL.position.set(-0.3, -0.3 + Math.cos(bobT * 0.5) * 0.01, -0.6);
-      vm.g.position.y = bob * 0.5;
-      if (fpRig) {
-        const u = fpRig.userData;
-        fpRig.position.y = FP_Y + bob * 0.5;
-        // Sword swing drawn on top of the raised arms: the clip's slash happens mostly out of the first-person view.
-        const side = combo === 2 ? -1 : 1;
-        const [ax, ay] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
-        u.setOverride("fpHold", atkT >= 0 ? [["UpperArm.R", "x", ax], ["UpperArm.R", "y", side * ay], ["LowerArm.R", "x", ax * 0.4], ["Torso", "y", side * ay * 0.25]] : []);
-        u.play("Idle_Sword", { fade: 0.15 });
-        u.update(dt);
-      }
+      // Slash: wind up high on the right, cut down across to the left, recover (mirrored on the 2nd combo hit).
+      const side = combo === 2 ? -1 : 1, R = VM_REST.R, L = VM_REST.L;
+      const [raise, sweep] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
+      vm.armR.rotation.set(R.rx + raise, side * sweep, -side * sweep * 0.5);
+      vm.armR.position.set(R.pos[0], R.pos[1] + Math.sin(bobT * 0.5) * 0.01, R.pos[2]);
+      vm.armL.rotation.set(L.rx, 0, 0);
+      vm.armL.position.set(L.pos[0], L.pos[1] + Math.cos(bobT * 0.5) * 0.01, L.pos[2]);
+      vm.g.position.y = bob * 0.5 - (P.sneak && !P.mounted ? 0.03 : 0);
     }
 
     updateHud(dt);

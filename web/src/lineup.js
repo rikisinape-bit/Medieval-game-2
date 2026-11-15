@@ -24,6 +24,12 @@ if (q.get("weapons")) {
   list.length = 0;
   list.push(["soldier", "soldier1"], ["knight", "alaric"], ["bandit", "bandit3"]);
 }
+if (q.get("items")) {
+  const ids = ["pane", "formaggio", "carne", "mela", "acqua", "vino", "erbe", "pozione", "pozione_grande", "oro", "argento", "gemma", "libro", "corda", "pelliccia", "torcia", "testa_morn",
+    "cuoio", "maglia", "piastre", "cappuccio", "elmo_ferro", "elmo_piastre", "martello", "ascia", "pugnale", "spada_corta", "ascia_guerra", "spada_lunga", "spadone", "spada_roccanera", "scudo_legno", "scudo_ferro"];
+  ids.forEach((id, i) => { const it = makeItem(id); it.position.set((i % 11) * 0.62 - 3.1, 0, Math.floor(i / 11) * 0.75 - 0.6); scene.add(it); });
+  list.length = 0;
+}
 if (q.get("eq")) {
   list.length = 0;
   [{ hand: "corta" }, { hand: "pugnale", body: "cuoio", head: "cappuccio", off: "torcia" }, { hand: "spada_lunga" === 1 ? 0 : "lunga", body: "maglia", head: "elmo_ferro", off: "scudo_legno" },
@@ -40,11 +46,12 @@ list.forEach(([look, id, extra], i) => {
 });
 const zoom = q.get("zoom");
 const cam = new THREE.PerspectiveCamera(zoom ? 18 : 30, W / H, 0.1, 100);
+if (q.get("items")) { cam.fov = 38; cam.updateProjectionMatrix(); cam.position.set(0.2, 3.6, 4.6); cam.lookAt(0.2, 0, 0.2); }
 const hand = q.get("hand");
-if (hand != null) { const x = (+hand - (n - 1) / 2) * sp; cam.fov = 22; cam.updateProjectionMatrix(); cam.position.set(x + 1.3, 1.2, 1.6); cam.lookAt(x + 0.15, 0.85, 0); }
+if (q.get("items")) {} else if (hand != null) { const x = (+hand - (n - 1) / 2) * sp; cam.fov = 22; cam.updateProjectionMatrix(); cam.position.set(x + 1.3, 1.2, 1.6); cam.lookAt(x + 0.15, 0.85, 0); }
 else if (q.get("weapons")) { cam.fov = 34; cam.updateProjectionMatrix(); cam.position.set(-0.6, 2.3, 6.2); cam.lookAt(-0.6, 0.55, 0.6); }
 const range = q.get("range");
-if (hand != null || q.get("weapons")) {} else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
+if (hand != null || q.get("weapons") || q.get("items")) {} else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.position.set(x, 1.75, 3.2); cam.lookAt(x, 1.7, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
 r.render(scene, cam);
