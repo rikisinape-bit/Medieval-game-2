@@ -81,7 +81,7 @@ const attach = (bone, obj, pos = [0, 0, 0], rot = [0, 0, 0], s = 1) => {
   w.add(obj); bone.add(w);
   return w;
 };
-const SWORD_SCALE = 0.75; // block-model swords are long for these smaller hands
+const SWORD_SCALE = 0.95; // block-model swords are long for these smaller hands
 const grip = (bone, obj, s = 1) => attach(bone, obj, GRIP.pos, GRIP.rot, s);
 
 /**
@@ -151,7 +151,7 @@ export function makeRig(id, opts = {}) {
 
   // Hand-held objects (same API as the block human: sword, tools, carried crate)
   let sword = null;
-  if (opts.weapon && handR) sword = grip(handR, makeSword(opts.weapon === "long"), SWORD_SCALE);
+  if (opts.weapon && handR) sword = grip(handR, makeSword(0, opts.weapon === "long" ? "lunga" : opts.weapon === "short" ? "corta" : opts.weapon), SWORD_SCALE);
   const tools = {};
   if (handR) ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((t) => {
     const tool = makeTool(t);
@@ -180,10 +180,9 @@ export const animateIdle = (g, t, dt) => { if (g.userData.rig) { g.userData.play
 export function makePlayerRig(eq, fp = false) {
   const armor = eq.body && ITEMS[eq.body];
   const colors = armor ? { Green: armor.color, LightGreen: armor.color } : {};
-  const g = makeRig("adventurer", { colors, weapon: (SWORD_TIER[eq.hand] || 0) >= 1 ? "long" : "short", hide: fp ? ["Adventurer_Head", "Adventurer_Legs", "Adventurer_Feet", "Backpack"] : [] });
+  const g = makeRig("adventurer", { colors, weapon: eq.hand || "corta", hide: fp ? ["Adventurer_Head", "Adventurer_Legs", "Adventurer_Feet", "Backpack"] : [] });
   const u = g.userData;
   if (fp) g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
-  if (u.sword) u.sword.children[0].scale.setScalar(eq.hand === "pugnale" ? 0.6 : eq.hand === "spadone" ? 1.15 : 1);
   if (eq.head && u.bones.Head && !fp) {
     const helm = new THREE.Group();
     const c = ITEMS[eq.head].color;
@@ -193,7 +192,7 @@ export function makePlayerRig(eq, fp = false) {
   }
   if (eq.off && u.handL) {
     if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2; grip(u.handL, t); }
-    else { const sh = makeShield(ITEMS[eq.off].color); sh.rotation.set(0, Math.PI / 2, 0); attach(u.handL, sh, [-0.08, 0.1, 0]); }
+    else { const sh = makeShield(ITEMS[eq.off].color, eq.off === "scudo_legno" ? "round" : "heater"); sh.rotation.set(0, Math.PI / 2, 0); attach(u.handL, sh, [-0.08, 0.1, 0]); }
   }
   return g;
 }

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { ITEMS, SWORD_TIER } from "./items";
 import { BODY_MAT, bodyGeometries, variantOf } from "./body";
+import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -33,7 +34,7 @@ export const LOOKS = {
   smith: { body: "#3c3632", legs: "#2b2621", head: "hair", apron: "#45311f", apronBib: true, sleeves: "rolled", gloves: "#2a1e16", boots: "#2a2119", dirt: 0.5 },
   merchant: { body: "#5a4b30", legs: "#3a3024", head: "hat", hat: "#4a2b24", coat: "coat", coatColor: "#4e3f2a", collar: "#6a5c4a", pouch: "#3a2a1c", trim: "#6e5a32", tallBoots: true },
   knight: { body: "#4a3030", legs: "#3a3236", head: "helm", greatHelm: true, hat: "#74777c", metal: "#7a7d82", armor: "plate", tabard: "#4e1a1a", emblem: "#8a7a4a", plume: "#5e1414", cape: "#3a1414", shield: "#4e1a1a", dirt: 0.25 },
-  soldier: { body: "#5a5040", legs: "#3a3530", head: "helm", hat: "#686b70", armor: "gambeson", tabard: "#521c1c", bracers: "#3a2c20", shield: "#4a1818", tallBoots: true, dirt: 0.35 },
+  soldier: { body: "#5a5040", legs: "#3a3530", head: "helm", hat: "#686b70", armor: "gambeson", tabard: "#521c1c", bracers: "#3a2c20", shield: "#4a1818", shieldKind: "round", tallBoots: true, dirt: 0.35 },
   noble: { body: "#382a40", legs: "#241c28", head: "hat", hatStyle: "chaperon", hat: "#2c1f30", coat: "robe", coatColor: "#3a2a44", collar: "#6e6456", trim: "#7a6430", cape: "#2c2134", dirt: 0.2 },
   bandit: { body: "#3a3a2e", legs: "#2a2721", head: "hood", hat: "#262a21", cape: "#2a2822", capeLen: 0.85, mask: "#2e2a22", straps: "#2a1e14", bracers: "#2e241a", tallBoots: true, angry: true, dirt: 0.5 },
   coachman: { body: "#4a3b2b", legs: "#2e2820", head: "hat", hat: "#221b15", coat: "coat", coatColor: "#3a2f23", collar: "#2e261c", tallBoots: true, gloves: "#2a2018", dirt: 0.4 },
@@ -66,12 +67,11 @@ export function makeItem(id, color) {
     case "oro": [[0, 0.02, 0], [0.12, 0.02, 0.1], [-0.1, 0.02, 0.08], [0.02, 0.07, 0.03]].forEach(([x, y, z]) => g.add(at(cyl(0.11, 0.11, 0.04, "#e8c050", 10), x, y, z))); break;
     case "argento": g.add(at(mesh(new THREE.OctahedronGeometry(0.26, 0), "#d8e4f0", "#4a6a88"), 0, 0.26, 0)); break;
     case "pugnale": case "spada_corta": case "ascia_guerra": case "spada_lunga": case "spadone": case "spada_roccanera": {
-      const s = makeSword({ pugnale: 0, spada_corta: 0, ascia_guerra: 1, spada_lunga: 1, spadone: 2, spada_roccanera: 2 }[id]);
-      s.scale.setScalar(id === "pugnale" ? 0.6 : id === "spadone" ? 1.15 : 1); s.rotation.x = -Math.PI / 2; s.rotation.z = 0.4; g.add(at(s, 0, 0.06, 0)); break; }
+      const s = makeSword(0, ITEMS[id].sword); g.add(at(s, 0, 0.03, -0.3, 0.4)); break; }   // lying flat on the ground (blade thickness is along Y)
     case "cuoio": case "maglia": case "piastre": add(g, at(box(0.6, 0.7, 0.34, color), 0, 0.36, 0), at(box(0.64, 0.1, 0.38, "#3a2410"), 0, 0.45, 0)); break;
     case "cappuccio": case "elmo_ferro": case "elmo_piastre": g.add(at(mesh(new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), color), 0, 0.1, 0)); break;
     case "torcia": { const t = makeTorch(false); t.rotation.z = 1.2; g.add(at(t, 0, 0.12, 0)); break; }
-    case "scudo_legno": case "scudo_ferro": { const sh = makeShield(color); sh.rotation.x = -1.2; g.add(at(sh, 0, 0.3, 0)); break; }
+    case "scudo_legno": case "scudo_ferro": { const sh = makeShield(ITEMS[id].color, SHIELD_KIND[id]); sh.rotation.x = -Math.PI / 2 + 0.12; g.add(at(sh, 0, 0.06, 0)); break; }
     case "formaggio": g.add(at(cyl(0.22, 0.22, 0.14, "#e8c860", 10), 0, 0.07, 0)); break;
     case "carne": add(g, at(box(0.42, 0.18, 0.24, "#8a3a2a"), 0, 0.1, 0), at(box(0.1, 0.1, 0.4, "#e8dcc4"), 0.2, 0.1, 0)); break;
     case "mela": g.add(at(mesh(new THREE.SphereGeometry(0.14, 8, 6), "#c03030"), 0, 0.14, 0)); break;
@@ -89,13 +89,11 @@ export function makeItem(id, color) {
   }
   return g;
 }
-export function makeSword(tier) {
-  const t = tier === true ? 1 : tier || 0;
-  const len = [0.8, 1.05, 1.2][t];
-  const g = new THREE.Group();
-  add(g, at(box(0.07, 0.07, 0.25, "#3a2410"), 0, 0, 0.05), at(box(0.3, 0.05, 0.06, t === 2 ? "#3a3a48" : "#c9a24a"), 0, 0, 0.2),
-    at(box(0.06, 0.03, len, t === 2 ? "#9ec8ff" : "#dcdce4", t === 2 ? "#2a4a8a" : undefined), 0, 0, 0.22 + len / 2));
-  return g;
+// Weapon model. tier 0/1/2 (or true = 1) picks the generic short/long/great sword; kind (a sword key such as
+// "pugnale", "corta", "ascia", "lunga", "spadone", "di Roccanera") picks the exact weapon. Grip at origin, blade +Z.
+const TIER_KIND = ["corta", "lunga", "spadone"];
+export function makeSword(tier, kind) {
+  return makeWeapon(kind || TIER_KIND[tier === true ? 1 : tier || 0]);
 }
 
 // Human character. Same pivots and userData as always (hipL, hipR, armL, armR, head, prop, tools, sword, tool),
@@ -118,8 +116,9 @@ export function makeHuman(look, weapon, seed) {
   const head = pivot(0, 1.8, geo.head);
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
-  if (weapon) { sword = makeSword(weapon === "long"); at(sword, 0, -0.66, 0.04); sword.rotation.x = Math.PI / 2 - 0.3; armR.add(sword); }
-  if (look.shield) armL.add(at(box(0.06, 0.6, 0.5, look.shield), -0.08, -0.45, 0.12));
+  // weapon: "short" | "long" (NPCs) or any sword key (player)
+  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); at(sword, 0, -0.66, 0.04); sword.rotation.x = Math.PI / 2 - 0.3; armR.add(sword); }
+  if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, -0.07, -0.45, 0.08, -Math.PI / 2)); }
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id); t.visible = false; armR.add(t); tools[id] = t; });
   g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null, variant: v };
@@ -302,7 +301,7 @@ export function makeForge() {
 export function makeSwordRack() {
   const g = new THREE.Group();
   g.add(at(box(1.6, 0.12, 0.3, "#3a2410"), 0, 1.2, 0));
-  [-0.5, 0, 0.5].forEach((x) => { const s = makeSword(true); s.rotation.x = -Math.PI / 2; g.add(at(s, x, 0.1, 0.05)); });
+  [-0.5, 0, 0.5].forEach((x) => { const s = makeSword(0, "lunga"); s.rotation.x = -Math.PI / 2; g.add(at(s, x, 0.1, 0.05)); });
   return g;
 }
 
@@ -365,11 +364,9 @@ export function makeTorch(lit = true) {
   if (lit) { const l = new THREE.PointLight("#ffa040", 0, 14); l.position.set(0, 0.5, 0); g.add(l); g.userData.light = l; }
   return g;
 }
-export function makeShield(color) {
-  const g = new THREE.Group();
-  add(g, at(box(0.5, 0.65, 0.06, color), 0, 0, 0), at(cyl(0.08, 0.08, 0.08, "#c9a24a", 8), 0, 0, 0.05));
-  g.children[1].rotation.x = Math.PI / 2;
-  return g;
+// Shield model: kind "round" (wood) or "heater" (iron, painted). Face +Z, centred on the grip.
+export function makeShield(color, kind = "heater") {
+  return makeShieldMesh(color, kind);
 }
 export function makeLantern() {
   const g = new THREE.Group();
@@ -401,9 +398,9 @@ export function makePlayerModel(eq) {
     ...LOOKS.player,
     body: ITEMS[eq.body]?.color || LOOKS.player.body,
     ...(eq.head ? { head: "helm", hat: ITEMS[eq.head].color } : {}),
-    ...(off?.block ? { shield: off.color } : {}),
+    ...(off?.block ? { shield: off.color, shieldKind: SHIELD_KIND[eq.off] } : {}),
   };
-  const g = makeHuman(look, (SWORD_TIER[eq.hand] || 0) >= 1 ? "long" : "short");
-  if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.75, 0.1)); }
+  const g = makeHuman(look, eq.hand || "corta", "player");
+  if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.66, 0.06)); }
   return g;
 }

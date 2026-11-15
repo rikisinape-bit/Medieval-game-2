@@ -8,6 +8,7 @@ import { createAI, FIGHT } from "./ai";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
+import { SHIELD_KIND } from "./weapons";
 import { hasRig, makeRig, makePlayerBody, makePlayerRig, animateNpcRig } from "./characters";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -193,10 +194,10 @@ export function createGame(canvas, hooks, saved) {
     if (fpRig) camera.remove(fpRig);
     fpRig = hasRig("adventurer") ? makePlayerRig(P.eq, true) : null;
     if (fpRig) { fpRig.position.set(0, FP_Y, 0.02); fpRig.rotation.y = Math.PI; camera.add(fpRig); }
-    const s = makeSword(SWORDS[P.eq.hand].tier); s.scale.setScalar(P.eq.hand === "pugnale" ? 0.6 : P.eq.hand === "spadone" ? 1.15 : 1);
+    const s = makeSword(0, P.eq.hand);
     s.rotation.x = 2.4; vm.handR.add(s);
     if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = torchLamp; }
-    else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
+    else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color, SHIELD_KIND[P.eq.off]); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
     vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
     buildPlayerMesh();
     setView(view);
