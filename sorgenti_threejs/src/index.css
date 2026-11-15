@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=IM+Fell+English:ital@0;1&family=VT323&display=swap');
+
+:root {
+    color-scheme: dark;
+}
+
+body {
+    margin: 0;
+    font-family: 'IM Fell English', Georgia, serif;
+    background-color: #0d0a08;
+    color: #e8dcc4;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    letter-spacing: 0.01em;
+}
+
+.font-title {
+    font-family: 'Cinzel', 'IM Fell English', serif;
+    letter-spacing: 0.08em;
+}
+
+.font-pixel {
+    font-family: 'VT323', monospace;
+    letter-spacing: 0.03em;
+}
+
+@layer base {
+    :root {
+        --background: 28 20% 6%;
+        --foreground: 40 45% 84%;
+        --card: 26 18% 9%;
+        --card-foreground: 40 45% 84%;
+        --popover: 26 20% 8%;
+        --popover-foreground: 40 45% 84%;
+        --primary: 38 62% 55%;
+        --primary-foreground: 26 30% 8%;
+        --secondary: 24 15% 16%;
+        --secondary-foreground: 40 45% 84%;
+        --muted: 24 12% 14%;
+        --muted-foreground: 36 25% 62%;
+        --accent: 12 55% 42%;
+        --accent-foreground: 40 45% 90%;
+        --destructive: 0 65% 42%;
+        --destructive-foreground: 40 45% 92%;
+        --border: 30 22% 18%;
+        --input: 30 22% 18%;
+        --ring: 38 62% 55%;
+        --chart-1: 38 62% 55%;
+        --chart-2: 12 55% 42%;
+        --chart-3: 200 40% 48%;
+        --chart-4: 100 30% 45%;
+        --chart-5: 320 40% 55%;
+        --radius: 0.25rem;
+    }
+    .dark {
+        --background: 28 20% 6%;
+        --foreground: 40 45% 84%;
+    }
+}
+
+@layer base {
+    * { @apply border-border; }
+    body { @apply bg-background text-foreground; }
+}
+
+/* Parchment card texture */
+.parchment {
+    background:
+      radial-gradient(circle at 20% 10%, rgba(200,150,80,0.06), transparent 60%),
+      radial-gradient(circle at 80% 90%, rgba(120,60,30,0.08), transparent 60%),
+      linear-gradient(180deg, #1a130d 0%, #120c07 100%);
+    border: 1px solid #3a2a17;
+    box-shadow:
+      inset 0 0 24px rgba(0,0,0,0.6),
+      0 8px 24px rgba(0,0,0,0.5);
+}
+
+.parchment-light {
+    background:
+      radial-gradient(ellipse at top, rgba(230,190,120,0.10), transparent 65%),
+      linear-gradient(180deg, #221812 0%, #17100b 100%);
+    border: 1px solid #4a341c;
+}
+
+.inv-btn {
+    font-family: inherit;
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 2px;
+    border: 1px solid #5a4424;
+    background: #2f2823;
+    color: #e8dcc4;
+    transition: background-color 150ms, transform 120ms;
+}
+.inv-btn:hover:not(:disabled) { background: #c9a24a; color: #1b140e; }
+.inv-btn:active:not(:disabled) { transform: scale(0.95); }
+.inv-btn:disabled { opacity: 0.45; }
+.inv-btn-danger { border-color: #7a2a1a; background: #4a1c14; }
+.inv-btn-danger:hover:not(:disabled) { background: #8b1e1e; color: #ffe8e0; }
+
+
+/* Grain overlay */
+.grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.08;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.9'/></svg>");
+}
+
+.pixelated {
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+}
+
+/* Bar */
+.bar-track {
+    background: #1a120c;
+    border: 1px solid #3a2a17;
+    height: 10px;
+    position: relative;
+    overflow: hidden;
+}
+.bar-fill {
+    height: 100%;
+    transition: width 300ms ease;
+}
+
+/* Torch flicker */
+@keyframes torch {
+    0%, 100% { opacity: 0.9; filter: brightness(1); }
+    45% { opacity: 0.75; filter: brightness(0.85); }
+    72% { opacity: 1; filter: brightness(1.12); }
+}
+.torch { animation: torch 2.4s infinite ease-in-out; }
+
+/* Blood pulse */
+@keyframes blood-pulse {
+    0%, 100% { box-shadow: 0 0 0 rgba(180,30,30,0.0); }
+    50% { box-shadow: 0 0 24px rgba(180,30,30,0.55); }
+}
+.pulse-danger { animation: blood-pulse 1.6s infinite ease-in-out; }
+
+/* Reveal */
+@keyframes reveal-up {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.reveal { animation: reveal-up 320ms ease-out both; }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #12100a; }
+::-webkit-scrollbar-thumb { background: #3a2a17; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #6a4b28; }
+
+/* Selection */
+::selection { background: #b8862a; color: #1a120c; }
+
+button, [role="button"] { cursor: pointer; }
+
+@layer base {
+    [data-debug-wrapper="true"] { display: contents !important; }
+}
+
+html, body { overscroll-behavior: none; touch-action: manipulation; }
+
+.portrait-warning { display: none; }
+@media (orientation: portrait) and (max-width: 820px) {
+    .portrait-warning {
+        display: flex; position: fixed; inset: 0; z-index: 70;
+        align-items: center; justify-content: center; text-align: center; padding: 2rem;
+        background: #0d0a08; color: #c9a24a; font-family: 'Cinzel', serif; letter-spacing: 0.1em;
+    }
+}
+
+@keyframes hex-hit {
+    0%, 100% { transform: translate(0, 0); filter: none; }
+    20% { transform: translate(-4px, 0); filter: brightness(2) saturate(0.4); }
+    40% { transform: translate(4px, 0); }
+    60% { transform: translate(-2px, 0); filter: brightness(1.5); }
+}
+.hex-hit { animation: hex-hit 380ms ease-out; }
+
+@keyframes hex-lunge {
+    0%, 100% { transform: scale(1); }
+    40% { transform: scale(1.18) translateY(-3px); }
+}
+.hex-lunge { animation: hex-lunge 320ms ease-out; transform-box: fill-box; transform-origin: bottom center; }
+
+@keyframes hex-float {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(-26px); }
+}
+.hex-float { animation: hex-float 1100ms ease-out forwards; }
+
+@keyframes hex-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.hex-pulse { animation: hex-pulse 1s infinite; }

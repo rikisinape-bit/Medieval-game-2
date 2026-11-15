@@ -1,0 +1,99 @@
+// Single open-world map: village at the centre, winding forest path north (-z) to the walls of Valdoro, mine cave in the hill to the west (-x).
+import { SWORD_DMG, SWORD_ITEM, SWORD_TIER } from "./items";
+export const FZ = -36;            // forest start
+export const WZ = FZ - 68;        // Valdoro wall
+export const CX = -45, CZ = 0;    // cave centre
+export const regionOf = (x, z) => (x < -31 && Math.abs(z) < 12 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
+export const zoneOf = (x, z) => (regionOf(x, z) === "mine" ? "mine" : "out");
+export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
+export const SWORDS = Object.fromEntries(Object.keys(SWORD_DMG).map((k) => [k, { dmg: SWORD_DMG[k], tier: SWORD_TIER[k], item: SWORD_ITEM[k] }]));
+// Winding path through the forest (centre line); walkable area is the whole forest.
+export const PATH = [[0, -30], [5, -42], [-5, -54], [-11, -66], [-3, -78], [7, -88], [2, -98], [0, WZ + 1]];
+export const CAMP = [1, -74];
+export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14.5, -8.5], [6.8, -14.5], [-6, 12], [12, 20], [2, -29], [0, WZ - 7], [-8, WZ - 20], [8, WZ - 20], [0, WZ - 28], [CX + 15.5, 2.6]];
+
+const R = (x, z, act, dur, extra = {}) => ({ at: [x, z], act, dur, ...extra });
+
+export const NPC_DEFS = [
+  { id: "torin", name: "Torin", role: "miner", look: "miner", pos: [-11, -20], hp: 40, dmg: 5, loot: 6, home: 1,
+    routine: [R(-12.2, -22, "chop", 7, { face: [-12.2, -25] }), R(-6.4, 5.6, "talk", 4, { face: [-8, 5.9], carry: true }), R(-11, -19, "eat", 4), R(-26, 0.8, "look", 4, { face: [-31, 0] })] },
+  { id: "bruno", name: "Bruno il Fabbro", role: "smith", look: "smith", pos: [14.6, -3.5], hp: 70, dmg: 12, loot: 15, weapon: "short", fights: true, home: 5,
+    routine: [R(14.6, -3.5, "hammer", 8, { face: [14.6, -4.6] }), R(12.8, -4.4, "pump", 4, { face: [12.8, -6] }), R(15.5, -2.2, "drink", 3)] },
+  { id: "lena", name: "Lena", role: "merchant", look: "merchant", pos: [-8, 5.9], hp: 40, dmg: 4, loot: 20, home: 0,
+    routine: [R(-8, 5.9, "sell", 6, { face: [-8, 3] }), R(-6, 9.6, "carry", 3, { face: [-7, 8], carry: true }), R(-8, 5.9, "talk", 5, { face: [-8, 3] }), R(-8, 6.4, "eat", 3, { face: [-8, 3] })] },
+  { id: "alaric", name: "Ser Alaric", role: "knight", look: "knight", pos: [2, 12], hp: 140, dmg: 16, loot: 40, weapon: "long", guard: true, fights: true,
+    routine: [R(2, 12, "look", 6), R(11, 20.4, "look", 6, { face: [12.5, 23] }), R(-2, -3.5, "look", 5)] },
+  { id: "soldier1", name: "Soldato Gerd", role: "soldier", look: "soldier", pos: [8, 18], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true,
+    routine: [R(8, 18, "look", 2), R(-8, 16, "look", 2), R(-12, 2, "look", 2), R(-2, -6, "look", 2), R(8, 3, "look", 2)] },
+  { id: "soldier2", name: "Soldato Ulf", role: "soldier", look: "soldier", pos: [11, 21.6], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true,
+    routine: [R(11, 21.6, "train", 9, { face: [11, 23] }), R(14, 21.6, "train", 7, { face: [14, 23] }), R(-2, -4, "look", 4), R(8, 3, "look", 3)] },
+  { id: "silas", name: "Silas l'Esattore", role: "noble", look: "noble", pos: [22.6, 15.2], hp: 35, dmg: 3, loot: 30, home: 2,
+    routine: [R(22.6, 15.2, "read", 7), R(2.5, 2.2, "read", 6, { face: [0, 0] }), R(6, 9, "talk", 4)] },
+  { id: "marta", name: "Marta", role: "villager", look: "woman", pos: [1.5, 0.9], home: 0,
+    routine: [R(1.5, 0.9, "water", 5, { face: [0, 0] }), R(1.8, 1.6, "drink", 3, { face: [0, 0] }), R(-16.6, 12.8, "sweep", 7), R(-9.6, 5, "talk", 4, { face: [-8, 5.9] })] },
+  { id: "ugo", name: "Ugo", role: "villager", look: "villager", pos: [5.5, -10.6], home: 4,
+    routine: [R(5.5, -10.6, "chop", 8, { face: [5.5, -12] }), R(9, -12.4, "look", 2, { carry: true }), R(3, -6, "eat", 4), R(3, -6, "talk", 3)] },
+  { id: "elsa", name: "Elsa", role: "villager", look: "woman", pos: [-11, 13], home: 3,
+    routine: [R(-11, 13, "sweep", 6), R(-9.4, 4.6, "talk", 5, { face: [-8, 5.9] }), R(-1.2, -1.4, "water", 4, { face: [0, 0] }), R(-1.6, -1.8, "drink", 3, { face: [0, 0] })] },
+  { id: "piero", name: "Piero", role: "villager", look: "villager2", pos: [8.4, 6.6], home: 2,
+    routine: [R(8.4, 6.6, "sit", 9, { face: [8.4, 0] }), R(8.4, 6.6, "eat", 5, { face: [8.4, 0] }), R(12.5, 20.4, "cheer", 6, { face: [12.5, 23] }), R(3, 4, "talk", 4)] },
+  { id: "nino", name: "Nino", role: "villager", look: "villager", pos: [-11, -4], home: 1,
+    routine: [R(-11, -4, "chop", 7), R(-9, -5.5, "chop", 6), R(-1.4, 1.4, "drink", 3, { face: [0, 0] }), R(-6.4, 5.4, "talk", 3, { face: [-8, 5.9], carry: true })] },
+  { id: "cocchiere", name: "Cocchiere Brac", role: "villager", look: "coachman", pos: [19.5, 17], hp: 40, dmg: 4, loot: 10, scripted: true },
+  { id: "messenger1", name: "Messaggero Aldric", role: "messenger", look: "messenger", pos: [4, 9], hp: 45, dmg: 5, loot: 8, scripted: true, rider: 1 },
+  { id: "messenger2", name: "Messaggero Teo", role: "messenger", look: "messenger", pos: [1.5, WZ + 9], hp: 45, dmg: 5, loot: 8, scripted: true, rider: -1 },
+  { id: "bandit1", name: "Bandito Rask", role: "bandit", look: "bandit", pos: [7, -46], hp: 55, dmg: 9, loot: 14, weapon: "short", fights: true, routine: [R(7, -46, "look", 9, { face: [1.5, -46] })] },
+  { id: "bandit2", name: "Bandito Vesk", role: "bandit", look: "bandit", pos: [-13.5, -60], hp: 55, dmg: 9, loot: 14, weapon: "short", fights: true, routine: [R(-13.5, -60, "look", 9, { face: [-8, -60] })] },
+  { id: "bandit3", name: "Capo Morn", role: "bandit", look: "bandit", pos: [-1, -73.5], hp: 90, dmg: 13, loot: 30, weapon: "long", fights: true, boss: true,
+    routine: [R(-1, -73.5, "look", 7, { face: [-7, -72] }), R(2.6, -75.6, "eat", 8, { face: [1, -74] })] },
+  { id: "bandit4", name: "Predone Krell", role: "bandit", look: "bandit", pos: [9, -84], hp: 60, dmg: 10, loot: 18, weapon: "short", fights: true, routine: [R(9, -84, "look", 9, { face: [3, -84] })] },
+  { id: "brann", name: "Cavaliere Brann", role: "knight", look: "knight", pos: [-3, WZ + 5], hp: 140, dmg: 16, loot: 35, weapon: "long", guard: true, fights: true, valdoro: true,
+    routine: [R(-3, WZ + 5, "look", 8, { face: [-3, WZ + 20] })] },
+  { id: "oswin", name: "Cavaliere Oswin", role: "knight", look: "knight", pos: [3, WZ + 5], hp: 140, dmg: 16, loot: 35, weapon: "long", guard: true, fights: true, valdoro: true,
+    routine: [R(3, WZ + 5, "look", 8, { face: [3, WZ + 20] })] },
+  { id: "hal", name: "Guardia Hal", role: "soldier", look: "soldier", pos: [-3.5, WZ - 4], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true, valdoro: true,
+    routine: [R(-3.5, WZ - 4, "look", 6, { face: [0, WZ - 16] }), R(-8, WZ - 16, "look", 4), R(-3.5, WZ - 4, "drink", 3)] },
+  { id: "rolf", name: "Guardia Rolf", role: "soldier", look: "soldier", pos: [3.5, WZ - 4], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true, valdoro: true,
+    routine: [R(3.5, WZ - 4, "look", 6, { face: [0, WZ - 16] }), R(8, WZ - 22, "look", 4)] },
+  { id: "aldo", name: "Mastro Aldo", role: "armorer", look: "smith", pos: [6, WZ - 17], hp: 60, dmg: 8, loot: 25, weapon: "short", fights: true, valdoro: true, home: 6,
+    routine: [R(6, WZ - 17, "hammer", 8, { face: [6, WZ - 19] }), R(4.5, WZ - 16, "talk", 4), R(6, WZ - 17, "drink", 3)] },
+  { id: "garrick", name: "Garrick l'Armaiolo", role: "weaponsmith", look: "smith", pos: [-7, WZ - 12], hp: 65, dmg: 11, loot: 25, weapon: "long", fights: true, valdoro: true, home: 7,
+    routine: [R(-7, WZ - 12, "hammer", 8, { face: [-7, WZ - 14] }), R(-5.5, WZ - 11, "sell", 5, { face: [-3, WZ - 11] }), R(-7, WZ - 12, "eat", 3)] },
+  { id: "mira", name: "Speziale Mira", role: "herbalist", look: "woman", pos: [8, WZ - 8], hp: 35, dmg: 3, loot: 18, valdoro: true, home: 6,
+    routine: [R(8, WZ - 8, "sell", 7, { face: [5, WZ - 8] }), R(-1.5, WZ - 14, "water", 4, { face: [0, WZ - 16] }), R(8, WZ - 8, "read", 5, { face: [5, WZ - 8] })] },
+  { id: "bodo", name: "Locandiere Bodo", role: "innkeeper", look: "villager2", pos: [-6, WZ - 27], hp: 50, dmg: 6, loot: 22, valdoro: true, home: 8,
+    routine: [R(-6, WZ - 27, "sell", 7, { face: [-6, WZ - 24] }), R(-7.5, WZ - 26, "carry", 4, { carry: true }), R(-6, WZ - 27, "drink", 3, { face: [-6, WZ - 24] })] },
+  { id: "osric", name: "Mercante Osric", role: "trader", look: "merchant", pos: [4, WZ - 28], hp: 40, dmg: 4, loot: 35, valdoro: true, home: 9,
+    routine: [R(4, WZ - 28, "sell", 8, { face: [4, WZ - 25] }), R(1.5, WZ - 19, "talk", 4, { face: [0, WZ - 16] }), R(4, WZ - 28, "eat", 3, { face: [4, WZ - 25] })] },
+  { id: "isolde", name: "Dama Isolde", role: "noble", look: "noble", pos: [-5, WZ - 21], hp: 35, dmg: 3, loot: 30, valdoro: true, home: 9,
+    routine: [R(-5, WZ - 21, "read", 7), R(-1.8, WZ - 16, "water", 4, { face: [0, WZ - 16] }), R(-6, WZ - 25, "eat", 4), R(-2, WZ - 21, "talk", 4)] },
+];
+
+export const OBJECTS = [
+  { id: "well", x: 0, z: 0, label: "Pozzo" }, { id: "rack", x: 15.6, z: -6.2, label: "Rastrelliera spade" },
+  { id: "carriage", x: 19.5, z: 17, label: "Carrozza" }, { id: "fountain", x: 0, z: WZ - 16, label: "Fontana di Valdoro" },
+];
+// [x, z, rotation]; index >= 6 are the stone houses of Valdoro
+export const HOUSES = [[-18, 10, 0.4], [-17, -9, 1.2], [17, 5, -1.4], [-4, 19, 3.1], [9, -16, 0], [21, -11, -0.6], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];
+export const CHESTS = [[["pane", 2], ["oro", 8]], [["cuoio", 1], ["torcia", 1]], [["acqua", 1], ["pane", 1], ["corda", 1]], [["oro", 15], ["libro", 1]], [["pozione", 1], ["cappuccio", 1]], [["spada_lunga", 1]], [["maglia", 1]], [["oro", 25], ["pozione", 1], ["gemma", 1]], [["carne", 1], ["vino", 2]], [["oro", 10], ["elmo_ferro", 1]]];
+export const ORES = [[CX - 6, 3], [CX + 5, 1], [CX - 4, -4], [CX + 6, -6], [CX, -8.5], [CX - 8, -8]];
+export const DUMMIES = [[11, 23], [14, 23]];
+// Items lying in the world. owned => taking them in front of a witness is theft.
+export const PICKUPS = [
+  { id: "w1", item: "pane", x: -6.3, z: 9.6, owned: true }, { id: "w2", item: "ascia", x: 4.6, z: -12.8, owned: true },
+  { id: "w3", item: "acqua", x: 1.3, z: 1.5 }, { id: "w4", item: "oro", qty: 6, x: 9.3, z: 7.4 },
+  { id: "w5", item: "spada_corta", x: 2.6, z: -75.8 }, { id: "w6", item: "pane", x: -4.2, z: -45.5 }, { id: "w7", item: "cuoio", x: 3.2, z: -72.4 }, { id: "w13", item: "torcia", x: -0.6, z: -71.8 },
+  { id: "w8", item: "argento", x: CX - 2, z: 6 }, { id: "w9", item: "pozione", x: CX + 8, z: -8 }, { id: "w10", item: "acqua", x: CX + 9, z: 7 }, { id: "w14", item: "gemma", x: CX - 9, z: 9 },
+  { id: "w11", item: "oro", qty: 12, x: 2.2, z: WZ - 18, owned: true }, { id: "w12", item: "pane", x: -6.6, z: WZ - 22, owned: true },
+  { id: "w15", item: "pelliccia", x: -18, z: -70 }, { id: "w16", item: "mela", x: 16, z: -52 }, { id: "w17", item: "erbe", x: -20, z: -90 },
+];
+
+export const ROUTE = [
+  { at: [19.5, 17], stop: 8 }, { at: [10, 12] },
+  { at: [-4.5, 11], stop: 5, msg: "La carrozza scarica merci al banco di Lena." },
+  { at: [-4, 3] }, { at: [-6, -7] },
+  { at: [-10, -15], stop: 5, msg: "I minatori caricano casse d'argento sulla carrozza." },
+  { at: [0, -12] }, { at: [11, -1] }, { at: [13, 10] },
+];
+// Mounted messengers ride between Ser Alaric's post and the knights at the wall, following the forest path.
+export const RIDER_ROUTE = [[4, 9], [1.5, -12], ...PATH.slice(1, -1), [1.5, WZ + 9]];
