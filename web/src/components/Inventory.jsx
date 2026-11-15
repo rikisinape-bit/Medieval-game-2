@@ -51,7 +51,7 @@ export default function Inventory({ hud, onAct, onClose }) {
   const act = (kind, id) => { onAct(kind, id); if (kind === "drop" || kind === "equip") setSel(null); };
   const nameOf = (slot) => (slot === "hand" ? ITEMS[SWORD_ITEM[eq.hand]]?.name : eq[slot] ? ITEMS[eq[slot]].name : "—");
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-3" data-testid="inventory-panel" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-3" data-ui="" data-testid="inventory-panel" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="parchment rounded-md w-full max-w-3xl max-h-[92dvh] overflow-y-auto p-4 border border-[color:hsl(var(--border))]">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-title text-xl tracking-wider text-[color:hsl(var(--primary))] flex items-center gap-2"><Backpack size={18} />Equipaggiamento e zaino</h2>

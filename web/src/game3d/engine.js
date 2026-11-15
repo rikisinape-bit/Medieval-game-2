@@ -170,6 +170,18 @@ export function createGame(canvas, hooks, saved) {
   const vm = makeViewmodel(LOOKS.player);
   camera.add(vm.g);
   let torchLight = null;
+  let view = saved?.view === "third" ? "third" : "first";
+  let playerMesh = null;
+  const buildPlayerMesh = () => {
+    if (playerMesh) scene.remove(playerMesh);
+    const off = P.eq.off && ITEMS[P.eq.off];
+    const look = { ...LOOKS.player, body: ITEMS[P.eq.body]?.color || LOOKS.player.body, ...(P.eq.head ? { head: "helm", hat: ITEMS[P.eq.head].color } : {}), ...(off?.block ? { shield: off.color } : {}) };
+    playerMesh = makeHuman(look, SWORDS[P.eq.hand].tier >= 1 ? "long" : "short");
+    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; playerMesh.userData.armL.add(at(t, 0, -0.75, 0.1)); }
+    playerMesh.visible = view === "third";
+    scene.add(playerMesh);
+  };
+  const setView = (v) => { view = v; vm.g.visible = v === "first"; if (playerMesh) playerMesh.visible = v === "third"; };
   const equip = () => {
     vm.handR.clear(); vm.handL.clear(); torchLight = null;
     const s = makeSword(SWORDS[P.eq.hand].tier); s.scale.setScalar(P.eq.hand === "pugnale" ? 0.6 : P.eq.hand === "spadone" ? 1.15 : 1);
@@ -177,8 +189,10 @@ export function createGame(canvas, hooks, saved) {
     if (P.eq.off === "torcia") { const t = makeTorch(true); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = t.userData.light; }
     else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
     vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
+    buildPlayerMesh();
   };
   equip();
+  setView(view);
 
   const npcs = NPC_DEFS.map((d) => {
     const sv = saved?.npcs?.[d.id] || {};
@@ -203,9 +217,16 @@ export function createGame(canvas, hooks, saved) {
 
   const input = { x: 0, y: 0 };
   const keys = {};
-  let pitch = 0, dragging = null, atkT = -1, combo = 0, queued = false, riposteT = 0;
-  let parryT = 0, dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
+  let pitch = 0, atkT = -1, combo = 0, queued = false;
+  let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
   let paused = false;
+  // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
+  P.sneak = false;
+  const setSneak = (v) => {
+    if (v && P.mounted) { say("Non puoi nasconderti a cavallo."); return; }
+    P.sneak = !!v;
+    hooks.onFloat(P.sneak ? "FURTIVO" : "ALLO SCOPERTO", P.sneak ? "#9ab0c8" : "#e8dcc4");
+  };
   let dodgeDir = [0, 0], graceT = 0, region = regionOf(P.x, P.z), lastRegion = region;
   const say = (t) => t && hooks.onLog(t);
   const hasShield = () => !!(P.eq.off && ITEMS[P.eq.off].block);
@@ -258,15 +279,6 @@ export function createGame(canvas, hooks, saved) {
   const hurtPlayer = (n) => {
     const facing = Math.abs(angDiff(Math.atan2(n.x - P.x, n.z - P.z), P.yaw)) < 1.4;
     if (iframe > 0) { hooks.onFloat("SCHIVATA!", "#a8e07a"); return; }
-    if (parryT > 0 && facing) {
-      const perfect = parryT > (hasShield() ? 0.55 : 0.38);
-      fx.burst(P.x + Math.sin(P.yaw) * 0.6, 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
-      n.stagger = perfect ? 1.6 : 0.9; n.state = "idle";
-      sfx.clash(1);
-      if (perfect) riposteT = 1.5;
-      hooks.onFloat(perfect ? "PARATA PERFETTA!" : "PARATA!", "#9fd0ff");
-      return;
-    }
     let raw = n.spar ? Math.ceil(n.dmg * 0.6) : n.dmg + (n.role === "bandit" && S.night ? 3 : 0);
     if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
@@ -368,7 +380,6 @@ export function createGame(canvas, hooks, saved) {
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
     let dmg = SWORDS[P.eq.hand].dmg + Math.round(Math.random() * 6);
     if (combo === 3) { dmg = Math.round(dmg * 1.5); hooks.onFloat("COMBO x3", "#ffb84a"); }
-    if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
     hitNpc(n, unaware ? n.hp : dmg);
     if (unaware && !n.alive) hooks.onFloat("COLPO ALLE SPALLE", "#ff5a4a");
   };
@@ -459,7 +470,7 @@ export function createGame(canvas, hooks, saved) {
     if (dialogOpen) return;
     const c = candidates();
     if (!c) { say("Non c'è nulla qui."); return; }
-    if (c.kind === "horse") { P.mounted = c.id; say("Monti a cavallo. Galoppa!"); return; }
+    if (c.kind === "horse") { P.mounted = c.id; P.sneak = false; say("Monti a cavallo. Galoppa!"); return; }
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
@@ -481,7 +492,8 @@ export function createGame(canvas, hooks, saved) {
     if (dialogOpen || paused) return;
     if (kind === "interact") interact();
     if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
-    if (kind === "parry" && parryT <= -0.3) parryT = hasShield() ? 0.8 : 0.55;
+    if (kind === "sneak") setSneak(!P.sneak);
+    if (kind === "camera") setView(view === "first" ? "third" : "first");
     if (kind === "dodge" && dodgeCd <= 0) {
       const kx = input.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ky = input.y + (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
       const f = Math.hypot(kx, ky) > 0.2 ? [kx, ky] : [0, 1];
@@ -510,6 +522,12 @@ export function createGame(canvas, hooks, saved) {
     }
     return [x, z];
   };
+  // Is a camera point inside a wall? (houses, city walls, cave): keeps the 3rd-person camera out of walls.
+  const camBlocked = (x, z) => rects.some((r) => {
+    if (r.off) return false;
+    const dx = x - r.cx, dz = z - r.cz, c = Math.cos(r.ry), s2 = Math.sin(r.ry);
+    return Math.abs(c * dx - s2 * dz) < r.hw + 0.15 && Math.abs(s2 * dx + c * dz) < r.hd + 0.15;
+  });
   const collide = (x, z) => {
     [x, z] = pushOut(x, z);
     if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
@@ -539,7 +557,7 @@ export function createGame(canvas, hooks, saved) {
       else say("I banditi si fermano ai piedi delle mura e si ritirano nel bosco.");
       return;
     }
-    if (enc.state === "idle" && P.z < FZ - 8 && P.z > FZ - 52 && bs.some((b) => Math.hypot(b.x - P.x, b.z - P.z) < 16)) {
+    if (enc.state === "idle" && P.z < FZ - 8 && P.z > FZ - 52 && bs.some((b) => Math.hypot(b.x - P.x, b.z - P.z) < (P.sneak ? 8 : 16))) {
       if (boss.alive && Math.random() < (S.night ? 0.2 : 0.5)) {
         enc.state = "approach";
         bs.forEach((b) => { if (b !== boss) { const dx = P.x - b.x, dz = P.z - b.z, d = Math.hypot(dx, dz) || 1; b.goTo = [P.x - (dx / d) * 3.5, P.z - (dz / d) * 3.5]; } });
@@ -679,7 +697,7 @@ export function createGame(canvas, hooks, saved) {
       if (label !== prompt) { prompt = label; hooks.onPrompt(label); }
       const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
       hooks.onHud({
-        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, riposte: riposteT > 0,
+        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view,
         dayT: S.dayT, night: S.night,
         foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
       });
@@ -693,7 +711,7 @@ export function createGame(canvas, hooks, saved) {
     if (paused) { updateHud(dt); renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; }
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
-    graceT -= dt; riposteT -= dt;
+    graceT -= dt;
     region = regionOf(P.x, P.z);
     if (region !== lastRegion) { if (region === "forest" && P.z > FZ - 5) resetForest(); lastRegion = region; }
     atmosphere(dt);
@@ -711,12 +729,12 @@ export function createGame(canvas, hooks, saved) {
     let moving = false;
     if (!dialogOpen && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
-      const spd = (P.mounted ? 9 : 4.5) * mag * (atkT >= 0 || parryT > 0 ? 0.5 : 1);
+      const spd = (P.mounted ? 9 : 4.5) * mag * (atkT >= 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
       [P.x, P.z] = collide(P.x + mx * spd * dt, P.z + mz * spd * dt);
       moving = true; bobT += dt * (P.mounted ? 7 : 9);
     } else [P.x, P.z] = collide(P.x, P.z);
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
-    iframe -= dt; dodgeCd -= dt; parryT -= dt; shake = Math.max(0, shake - dt);
+    iframe -= dt; dodgeCd -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
@@ -757,18 +775,43 @@ export function createGame(canvas, hooks, saved) {
     ores.forEach((o) => { o.mesh.userData.crystals.visible = o.depletedUntil < time; });
     picks.forEach((pk) => { pk.mesh.position.y = 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
 
-    // First-person camera + view model
+    // Camera: first person (view model) or third person (behind and above the shoulders)
     const bob = moving ? Math.sin(bobT) * 0.045 : 0;
-    const eyeY = (P.mounted ? 2.55 : 1.62) + bob + (shake ? (Math.random() - 0.5) * 0.12 : 0);
-    camera.position.set(P.x + (shake ? (Math.random() - 0.5) * 0.08 : 0), eyeY, P.z);
-    camera.lookAt(P.x + Math.sin(P.yaw) * Math.cos(pitch), eyeY + Math.sin(pitch), P.z + Math.cos(P.yaw) * Math.cos(pitch));
+    const crouch = P.sneak && !P.mounted ? 0.45 : 0;
+    const shk = shake ? (Math.random() - 0.5) * 0.1 : 0;
+    const eyeY = (P.mounted ? 2.55 : 1.62) - crouch + bob + shk;
+    const lookX = Math.sin(P.yaw) * Math.cos(pitch), lookY = Math.sin(pitch), lookZ = Math.cos(P.yaw) * Math.cos(pitch);
     const sw = Math.sin(Math.min(1, k) * Math.PI);
-    vm.armR.rotation.set(1.1 - sw * 1.1 + (parryT > 0 ? 0.5 : 0), combo === 2 ? sw * 0.9 : -sw * 0.9, parryT > 0 ? 0.9 : -sw * 0.6);
-    vm.armR.position.set(0.3 + (parryT > 0 ? -0.2 : 0), -0.3 + Math.sin(bobT * 0.5) * 0.01 - sw * 0.1, -0.6 - sw * 0.15);
-    const shieldUp = parryT > 0 && hasShield();
-    vm.armL.rotation.set(1.1 + (shieldUp ? -0.5 : 0), shieldUp ? 0.5 : 0, 0);
-    vm.armL.position.set(-0.3 + (shieldUp ? 0.2 : 0), -0.3 + Math.cos(bobT * 0.5) * 0.01, -0.6 + (shieldUp ? -0.1 : 0));
-    vm.g.position.y = bob * 0.5;
+    if (view === "third") {
+      // Player body
+      const pm = playerMesh, ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
+      at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
+      pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
+      if (dodgeT > 0) pm.rotation.x = 0.25;
+      else pm.rotation.x = 0;
+      // Camera behind the right shoulder; pulled in if a wall is in the way.
+      const headY = (P.mounted ? 2.45 : 1.75) - crouch;
+      const rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
+      const want = P.mounted ? 4.2 : 3.0, side = 0.55;
+      const bx = -lookX, by = 0.35 - lookY * 0.8, bz = -lookZ;
+      let dist = want;
+      for (let t = 0.3; t <= want; t += 0.2) {
+        const cx = P.x + bx * t + rx * side * (t / want), cz = P.z + bz * t + rz * side * (t / want);
+        if (camBlocked(cx, cz)) { dist = Math.max(0.35, t - 0.3); break; }
+      }
+      const f = dist / want;
+      const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cy = Math.max(0.4, headY + 0.7 + by * dist);
+      camera.position.set(cx + shk, cy, cz);
+      camera.lookAt(P.x + rx * side * f + lookX * 4, headY + lookY * 4, P.z + rz * side * f + lookZ * 4);
+    } else {
+      camera.position.set(P.x + shk * 0.8, eyeY, P.z);
+      camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);
+      vm.armR.rotation.set(1.1 - sw * 1.1, combo === 2 ? sw * 0.9 : -sw * 0.9, -sw * 0.6);
+      vm.armR.position.set(0.3, -0.3 + Math.sin(bobT * 0.5) * 0.01 - sw * 0.1, -0.6 - sw * 0.15);
+      vm.armL.rotation.set(1.1, 0, 0);
+      vm.armL.position.set(-0.3, -0.3 + Math.cos(bobT * 0.5) * 0.01, -0.6);
+      vm.g.position.y = bob * 0.5;
+    }
 
     updateHud(dt);
     renderer.render(scene, camera);
@@ -779,24 +822,39 @@ export function createGame(canvas, hooks, saved) {
     const w = canvas.clientWidth, hh = canvas.clientHeight;
     renderer.setSize(w, hh, false); camera.aspect = w / hh; camera.updateProjectionMatrix();
   };
-  const onDown = (e) => { sfx.unlock(); if (!dragging) dragging = { id: e.pointerId, x: e.clientX, y: e.clientY }; };
-  const onMove = (e) => { if (dragging && e.pointerId === dragging.id) { P.yaw -= (e.clientX - dragging.x) * 0.005; pitch = clamp(pitch - (e.clientY - dragging.y) * 0.004, -1.2, 1.2); dragging.x = e.clientX; dragging.y = e.clientY; } };
-  const onUp = (e) => { if (dragging && e.pointerId === dragging.id) dragging = null; };
+  // Multitouch: every pointer is tracked by its own pointerId. The camera only follows pointers that started
+  // outside the on-screen controls (joystick, buttons, panels are marked data-ui), so joystick + look work together.
+  const lookers = new Map();
+  const onDown = (e) => {
+    sfx.unlock();
+    if (paused || e.target?.closest?.("[data-ui]")) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    lookers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  };
+  const onMove = (e) => {
+    const l = lookers.get(e.pointerId);
+    if (!l) return;
+    if (!paused) { P.yaw -= (e.clientX - l.x) * 0.005; pitch = clamp(pitch - (e.clientY - l.y) * 0.004, -1.2, 1.2); }
+    l.x = e.clientX; l.y = e.clientY;
+  };
+  const onUp = (e) => { lookers.delete(e.pointerId); };
   const kd = (e) => {
     const kk = e.key.toLowerCase(); keys[kk] = true; sfx.unlock();
     if (e.repeat) return;
     if (kk === "e") action("interact");
     if (kk === "j") action("attack");
-    if (kk === "k") action("parry");
+    if (kk === "c") action("sneak");
+    if (kk === "v") action("camera");
     if (kk === " " || kk === "l") action("dodge");
     if (kk === "i") hooks.onToggleInventory?.();
   };
   const ku = (e) => { keys[e.key.toLowerCase()] = false; };
   const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); };
   window.addEventListener("blur", blur);
-  canvas.addEventListener("pointerdown", onDown);
+  window.addEventListener("pointerdown", onDown);
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
   window.addEventListener("keydown", kd);
   window.addEventListener("keyup", ku);
   window.addEventListener("resize", resize);
@@ -807,18 +865,19 @@ export function createGame(canvas, hooks, saved) {
     input, action, choose, shop,
     look: (dx, dy) => { P.yaw -= dx * 0.005; pitch = clamp(pitch - dy * 0.004, -1.2, 1.2); },
     closeDialog: () => { dialogOpen = false; },
-    setPaused: (v) => { paused = !!v; if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
+    setPaused: (v) => { paused = !!v; lookers.clear(); if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
     invAction: (kind, id) => { sfx.unlock(); if (kind === "use") consumeItem(id); else if (kind === "equip") equipItem(id); else if (kind === "drop") dropItem(id); else if (kind === "unequip") unequip(id); },
     getSave: () => ({
       player: { hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, x: P.x, z: P.z, yaw: P.yaw },
-      rep: S.rep, known: S.known, flags: S.flags, drops: S.drops, dayT: S.dayT,
+      rep: S.rep, known: S.known, flags: S.flags, drops: S.drops, dayT: S.dayT, view,
       npcs: Object.fromEntries(npcs.map((n) => [n.id, { alive: n.alive, looted: n.looted, discovered: n.discovered, witnessed: n.witnessed, hp: n.alive ? n.hpMax : 0, deadX: n.deadX, deadZ: n.deadZ }])),
     }),
     dispose: () => {
       cancelAnimationFrame(raf);
-      canvas.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointerdown", onDown);
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
       window.removeEventListener("keydown", kd);
       window.removeEventListener("keyup", ku);
       window.removeEventListener("resize", resize);

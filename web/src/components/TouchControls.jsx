@@ -31,11 +31,11 @@ export function Joystick({ onJoystick }) {
     onJoystick({ x: 0, y: 0 });
   };
   return (
-    <div ref={ref} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}
-      className="pointer-events-auto absolute bottom-4 left-4 w-28 h-28 rounded-full bg-black/35 border-2 border-[color:hsl(var(--primary))]/40 touch-none select-none backdrop-blur-sm"
+    <div ref={ref} data-ui="" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}
+      className="pointer-events-auto absolute bottom-3 left-3 w-36 h-36 rounded-full bg-black/35 border-2 border-[color:hsl(var(--primary))]/40 touch-none select-none backdrop-blur-sm"
       data-testid="joystick">
-      <div className="absolute w-12 h-12 rounded-full bg-[color:hsl(var(--primary))]/70 border border-[color:hsl(var(--primary))] pointer-events-none"
-        style={{ left: `calc(50% - 24px + ${knob.x * 30}px)`, top: `calc(50% - 24px + ${knob.y * 30}px)` }} />
+      <div className="absolute w-14 h-14 rounded-full bg-[color:hsl(var(--primary))]/70 border border-[color:hsl(var(--primary))] pointer-events-none"
+        style={{ left: `calc(50% - 28px + ${knob.x * 40}px)`, top: `calc(50% - 28px + ${knob.y * 40}px)` }} />
     </div>
   );
 }

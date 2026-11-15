@@ -171,7 +171,7 @@ export function applyEffect(e, S, api) {
       return `Svuoti il baule: ${names(items)}. Nessuno se n'è accorto.`;
     }
     case "torin_give": p.ore -= 3; rep("village", 20); S.flags.torinHelped = true; p.gold += 5; return "Torin piange di gioia. Il villaggio ti guarda con rispetto. (+5 oro di ringraziamento)";
-    case "torin_tips": return "Torin: \"Le vene d'argento brillano di azzurro, nella grotta a ovest. Para quando il nemico alza la spada, schiva i colpi pesanti.\"";
+    case "torin_tips": return "Torin: \"Le vene d'argento brillano di azzurro, nella grotta a ovest. Schiva quando il nemico alza la spada, e di notte muoviti furtivo: ti vedranno meno.\"";
     case "torin_steal": {
       p.gold += 40; S.flags.torinRobbed = true;
       if (Math.random() < 0.35) { rep("village", -35); api.scream("torin", "Al ladro! I miei risparmi!"); return "Prendi 40 monete... ma Torin se ne accorge!"; }

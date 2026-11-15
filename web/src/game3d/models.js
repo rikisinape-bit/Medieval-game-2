@@ -154,7 +154,6 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     case "windup": armR.rotation.x = -2.6 * k; break;
     case "swing": armR.rotation.x = -2.6 + 3.4 * Math.min(1, k * 1.6); break;
     case "slash": armR.rotation.x = -1.5; armR.rotation.z = 1.3 - 2.6 * Math.min(1, k * 1.6); break;
-    case "parry": armL.rotation.x = -1.5; armL.rotation.z = -0.5; armR.rotation.x = -1.2; break;
     case "stagger": armL.rotation.x = -0.4; armR.rotation.x = -0.4; armL.rotation.z = 0.7; armR.rotation.z = -0.7; head.rotation.y = 0.4; break;
     case "dead": hipL.rotation.x = 0; hipR.rotation.x = 0; armL.rotation.x = -2.8; armR.rotation.x = -2.6; break;
     case "sleep": hipL.rotation.x = 0; hipR.rotation.x = 0; armL.rotation.x = 0.3; armR.rotation.x = 0.3; break;
@@ -169,6 +168,7 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     case "cheer": armL.rotation.x = armR.rotation.x = -2.8 + 0.3 * Math.sin(t * 8); break;
     case "panic": armL.rotation.x = armR.rotation.x = -2.9; armL.rotation.z = 0.3; armR.rotation.z = -0.3; break;
     case "look": head.rotation.y = 0.7 * Math.sin(t * 1.2); break;
+    case "sneak": hipL.rotation.x = -0.7 + s * 0.4; hipR.rotation.x = -0.7 - s * 0.4; armL.rotation.x = armR.rotation.x = -0.6; head.rotation.x = 0.25; y = -0.3; break;
     case "sit": hipL.rotation.x = hipR.rotation.x = -1.5; armL.rotation.x = armR.rotation.x = -0.4; y = -0.42; break;
     case "train": { const c = (t * 1.2) % 1; armR.rotation.x = c < 0.6 ? -2.6 * (c / 0.6) : -2.6 + 3.4 * Math.min(1, ((c - 0.6) / 0.4) * 1.6); break; }
     default: break;

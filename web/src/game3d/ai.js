@@ -8,10 +8,13 @@ export const FIGHT = {
 export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
   const sameZone = (n) => zoneOf(P.x, P.z) === zoneOf(n.x, n.z);
   const repOf = (n) => (n.valdoro ? S.known.crown : S.rep.crown);
+  // A sneaking player is noticed at about half the range (less at night), only well in front, and only very close behind.
   const sees = (n, x, z, range = 13) => {
+    const hidden = P.sneak && x === P.x && z === P.z;
+    if (hidden) range *= S.night ? 0.4 : 0.55;
     const dx = x - n.x, dz = z - n.z, d = Math.hypot(dx, dz);
     if (d > range || houseOf(n.x, n.z) !== houseOf(x, z)) return false;
-    return d < 2.5 || Math.abs(angDiff(Math.atan2(dx, dz), n.yaw)) < 1.15;
+    return d < (hidden ? 1.2 : 2.5) || Math.abs(angDiff(Math.atan2(dx, dz), n.yaw)) < (hidden ? 0.8 : 1.15);
   };
 
   const alertGuards = (x, z, r = 22, suspect = true) => npcs.forEach((g) => {
@@ -111,7 +114,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
       if (step(n.sleepAt[0], n.sleepAt[1], 1.1)) { out.mode = "sleep"; n.yaw = n.sleepAt[2]; }
       return out;
     }
-    if (d < 2.4 && sameZone(n) && n.role !== "bandit" && Math.abs(angDiff(Math.atan2(dx, dz), n.yaw)) < 1.6) { face(P.x, P.z, 5); return out; }
+    if (d < 2.4 && !P.sneak && sameZone(n) && n.role !== "bandit" && Math.abs(angDiff(Math.atan2(dx, dz), n.yaw)) < 1.6) { face(P.x, P.z, 5); return out; }
     const r = n.routine;
     if (!r) return out;
     n.ri = (n.ri || 0) % r.length;

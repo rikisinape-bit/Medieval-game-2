@@ -10,7 +10,7 @@ export default function Shop({ hud, shopId, def, onTrade, onClose }) {
   const markup = priceMarkup(hud.rep);
   const mine = Object.entries(hud.inv || {}).filter(([id, q]) => q > 0 && def.buys.includes(ITEMS[id]?.kind));
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3" data-testid="shop-panel" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3" data-ui="" data-testid="shop-panel" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="parchment rounded-md w-full max-w-2xl max-h-[92dvh] overflow-y-auto p-4 border border-[color:hsl(var(--border))]">
         <div className="flex items-center justify-between mb-2">
           <h2 className="font-title text-xl tracking-wider text-[color:hsl(var(--primary))] flex items-center gap-2"><ShoppingBag size={18} />{def.title}</h2>

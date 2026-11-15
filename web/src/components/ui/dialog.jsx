@@ -18,7 +18,7 @@ export function Dialog({ open, onOpenChange, children }) {
 export function DialogContent({ className = "", children, onPointerDownOutside, onInteractOutside, ...props }) {
   useContext(Ctx);
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-2" data-ui="">
       <div role="dialog" aria-modal="true" className={`relative grid w-full rounded-md ${className}`} {...props}>{children}</div>
     </div>
   );

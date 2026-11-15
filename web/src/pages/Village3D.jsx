@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Gem, Sword, Shield, Wind, MessageSquare, RotateCw, Crown, Home, Backpack, Castle, Sun, Moon } from "lucide-react";
+import { Heart, Coins, Gem, Sword, Shield, Wind, MessageSquare, RotateCw, Crown, Home, Backpack, Castle, Sun, Moon, EyeOff, Eye, Camera } from "lucide-react";
 import { ITEMS } from "@/game3d/items";
 import { createGame } from "@/game3d/engine";
 import { Joystick } from "@/components/TouchControls";
@@ -12,12 +12,14 @@ const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: 
 const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - h) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
 
 
-function Btn({ testid, color, onPress, icon, label, className, big }) {
+// Small round action button. Each press is handled on pointerdown of its own finger, so it works while the joystick is held.
+function Btn({ testid, color, onPress, icon, label, className, big, active }) {
   return (
     <button
       onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }}
       data-testid={testid}
-      className={`absolute ${big ? "w-20 h-20" : "w-16 h-16"} rounded-full border-2 bg-black/45 backdrop-blur-sm flex flex-col items-center justify-center font-pixel text-[10px] active:scale-90 transition-transform select-none touch-none ${className}`}
+      data-ui=""
+      className={`absolute ${big ? "w-14 h-14" : "w-11 h-11"} rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel text-[8px] active:scale-90 transition-transform select-none touch-none ${className}`}
       style={{ borderColor: color, color }}
     >
       {icon}<span className="mt-0.5 leading-none">{label}</span>
@@ -49,7 +51,7 @@ function Hud({ hud }) {
           {hud.wanted === 2 ? "RICERCATO — le guardie ti inseguono" : "Le guardie cercano un colpevole"}
         </div>
       )}
-      {hud.riposte && <div data-testid="hud3d-riposte" className="font-pixel text-[11px] text-center text-orange-300">Contrattacco pronto! Colpisci ora</div>}
+      {hud.sneak && <div data-testid="hud3d-sneak" className="font-pixel text-[11px] text-center text-slate-300 flex items-center justify-center gap-1"><EyeOff size={11} />Furtivo: ti notano meno</div>}
     </div>
   );
 }
@@ -121,12 +123,13 @@ export default function Village3D() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
       <Hud hud={hud} />
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />
-      <div className="fixed top-2 right-2 z-20 flex flex-col items-end gap-1">
+      <div className="fixed top-2 right-2 z-20 flex flex-col items-end gap-1" data-ui="">
         <div className="flex gap-1">
+          <button onClick={() => act("camera")} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-camera-btn"><Camera size={12} />{hud?.view === "third" ? "3ª persona" : "1ª persona"}</button>
           <button onClick={() => setInvOpen(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1 text-[color:hsl(var(--primary))]" data-testid="village3d-inventory-btn"><Backpack size={12} />Zaino{hud ? ` (${Object.values(hud.inv || {}).reduce((a, b) => a + b, 0)})` : ""}</button>
           <button onClick={() => setAskReset(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-reset"><RotateCw size={12} />Nuova partita</button>
         </div>
-        <div className="font-pixel text-[10px] text-white/70 bg-black/40 px-2 py-0.5 rounded-sm hidden md:block">WASD muovi · trascina o frecce per guardare · E interagisci · I zaino · J colpisci (x3 combo) · K para · Spazio schiva</div>
+        <div className="font-pixel text-[10px] text-white/70 bg-black/40 px-2 py-0.5 rounded-sm hidden md:block [@media(pointer:coarse)]:hidden">WASD muovi · trascina o frecce per guardare · E interagisci · I zaino · J colpisci (x3 combo) · C furtivo · V telecamera · Spazio schiva</div>
       </div>
       {hud?.foe && (
         <div className="fixed top-2 left-[62%] md:left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
@@ -138,7 +141,7 @@ export default function Village3D() {
         {floats.map((f) => <div key={f.id} className="hex-float font-pixel text-3xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.9)]" style={{ color: f.c }}>{f.t}</div>)}
       </div>
       {prompt && !dialog && (
-        <button onPointerDown={(e) => { e.preventDefault(); act("interact"); }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 parchment rounded-sm px-3 py-1.5 font-pixel text-sm text-[color:hsl(var(--primary))]" data-testid="village3d-prompt">
+        <button data-ui="" onPointerDown={(e) => { e.preventDefault(); act("interact"); }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 parchment rounded-sm px-3 py-1.5 font-pixel text-sm text-[color:hsl(var(--primary))]" data-testid="village3d-prompt">
           [E] {prompt}
         </button>
       )}
@@ -147,11 +150,12 @@ export default function Village3D() {
       </div>
       <div className="pointer-events-none fixed inset-0 z-30">
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
-        <div className="pointer-events-auto absolute bottom-3 right-3 w-52 h-52">
-          <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={20} />} label="Interagisci" className="top-0 left-[72px]" />
-          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={20} />} label="Para" className="top-[72px] left-0" />
-          <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("dodge")} icon={<Wind size={20} />} label="Schiva" className="top-[72px] right-0" />
-          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={24} />} label="Colpisci" className="bottom-0 left-16" big />
+        {/* Compact cluster: the container itself lets touches through, only the buttons catch them. */}
+        <div className="absolute bottom-2 right-2 w-[110px] h-[110px]">
+          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={20} />} label="Colpisci" className="pointer-events-auto bottom-0 right-0" big />
+          <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" className="pointer-events-auto bottom-[62px] right-[6px]" />
+          <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("dodge")} icon={<Wind size={15} />} label="Schiva" className="pointer-events-auto bottom-[6px] right-[62px]" />
+          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} className="pointer-events-auto bottom-[58px] right-[58px]" />
         </div>
       </div>
       {invOpen && <Inventory hud={hud} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setInvOpen(false)} />}
@@ -162,7 +166,7 @@ export default function Village3D() {
       />
       {askReset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" data-testid="reset-confirm">
-          <div className="parchment rounded-md p-4 max-w-sm w-full">
+          <div className="parchment rounded-md p-4 max-w-sm w-full" data-ui="">
             <div className="font-title text-lg text-[color:hsl(var(--primary))] tracking-wider">Nuova partita?</div>
             <p className="mt-2 text-sm italic">Il salvataggio attuale andrà perso per sempre.</p>
             <div className="mt-4 flex gap-2 justify-end font-pixel">
