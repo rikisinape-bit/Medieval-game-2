@@ -8,7 +8,7 @@ import { createAI, FIGHT } from "./ai";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
-import { hasRig, makeRig, makePlayerBody, animateNpcRig } from "./characters";
+import { hasRig, makeRig, makePlayerBody, makePlayerRig, animateNpcRig } from "./characters";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -180,15 +180,26 @@ export function createGame(canvas, hooks, saved) {
     playerMesh.visible = view === "third";
     scene.add(playerMesh);
   };
-  const setView = (v) => { view = v; vm.g.visible = v === "first"; if (playerMesh) playerMesh.visible = v === "third"; };
+  // First person: arms and hands of the rigged player model (head/legs hidden), attached to the camera.
+  // The old block arms (vm) remain only as a fallback if the model did not load.
+  let fpRig = null;
+  const FP_Y = -1.6;
+  // One torch light always on the camera (constant light count); its intensity is 0 without a torch.
+  const torchLamp = new THREE.PointLight("#ffa040", 0, 14);
+  torchLamp.position.set(-0.35, -0.1, -0.45); camera.add(torchLamp);
+  const setView = (v) => { view = v; vm.g.visible = v === "first" && !fpRig; if (fpRig) fpRig.visible = v === "first"; if (playerMesh) playerMesh.visible = v === "third"; };
   const equip = () => {
-    vm.handR.clear(); vm.handL.clear(); torchLight = null;
+    vm.handR.clear(); vm.handL.clear(); torchLight = null; torchLamp.intensity = 0;
+    if (fpRig) camera.remove(fpRig);
+    fpRig = hasRig("adventurer") ? makePlayerRig(P.eq, true) : null;
+    if (fpRig) { fpRig.position.set(0, FP_Y, 0.02); fpRig.rotation.y = Math.PI; camera.add(fpRig); }
     const s = makeSword(SWORDS[P.eq.hand].tier); s.scale.setScalar(P.eq.hand === "pugnale" ? 0.6 : P.eq.hand === "spadone" ? 1.15 : 1);
     s.rotation.x = 2.4; vm.handR.add(s);
-    if (P.eq.off === "torcia") { const t = makeTorch(true); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = t.userData.light; }
+    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = torchLamp; }
     else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
     vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
     buildPlayerMesh();
+    setView(view);
   };
   equip();
   setView(view);
@@ -221,6 +232,13 @@ export function createGame(canvas, hooks, saved) {
   let pitch = 0, atkT = -1, combo = 0, queued = false;
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
   let paused = false, hurtT = 0, swingN = 0;
+  // First-person slash, phase p 0..1 -> [x: negative raises the arm, y: positive moves it to the screen's right]
+  // (measured on the Adventurer rig): wind up high on the right, cut down across to the lower left, recover.
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const fpSwing = (p) => p < 0.25 ? [lerp(0, -0.35, p / 0.25), lerp(0, 0.35, p / 0.25)]
+    : p < 0.65 ? [lerp(-0.35, 0.3, (p - 0.25) / 0.4), lerp(0.35, -0.55, (p - 0.25) / 0.4)]
+    : [lerp(0.3, 0, (p - 0.65) / 0.35), lerp(-0.55, 0, (p - 0.65) / 0.35)];
+  const RIDE_Y = 0.86; // rigged rider: hips on the saddle (saddle top ~1.7 m)
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
   const setSneak = (v) => {
@@ -800,7 +818,7 @@ export function createGame(canvas, hooks, saved) {
       const pm = playerMesh;
       if (pm.userData.rig) {
         const u = pm.userData;
-        at(pm, P.x, P.mounted ? 1.0 : 0, P.z, P.yaw); pm.rotation.x = 0;
+        at(pm, P.x, P.mounted ? RIDE_Y : 0, P.z, P.yaw); pm.rotation.x = 0;
         u.setOverride(P.mounted ? "ride" : P.sneak ? "crouch" : null);
         if (dodgeT > 0) u.play("Roll", { speed: u.duration("Roll") / 0.45 });
         else if (atkT >= 0) { if (u.swing !== swingN) { u.swing = swingN; u.play("Sword_Slash", { once: true, restart: true, fade: 0.08, speed: u.duration("Sword_Slash") / 0.5 }); } }
@@ -836,6 +854,16 @@ export function createGame(canvas, hooks, saved) {
       vm.armL.rotation.set(1.1, 0, 0);
       vm.armL.position.set(-0.3, -0.3 + Math.cos(bobT * 0.5) * 0.01, -0.6);
       vm.g.position.y = bob * 0.5;
+      if (fpRig) {
+        const u = fpRig.userData;
+        fpRig.position.y = FP_Y + bob * 0.5;
+        // Sword swing drawn on top of the raised arms: the clip's slash happens mostly out of the first-person view.
+        const side = combo === 2 ? -1 : 1;
+        const [ax, ay] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
+        u.setOverride("fpHold", atkT >= 0 ? [["UpperArm.R", "x", ax], ["UpperArm.R", "y", side * ay], ["LowerArm.R", "x", ax * 0.4], ["Torso", "y", side * ay * 0.25]] : []);
+        u.play("Idle_Sword", { fade: 0.15 });
+        u.update(dt);
+      }
     }
 
     updateHud(dt);

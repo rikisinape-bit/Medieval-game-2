@@ -53,7 +53,9 @@ const tinted = (m, hex) => {
 const OVERRIDES = {
   crouch: { y: -0.27, rot: [["UpperLeg.L", "x", -1.0], ["LowerLeg.L", "x", 1.6], ["UpperLeg.R", "x", -1.0], ["LowerLeg.R", "x", 1.6], ["Torso", "x", 0.4], ["Head", "x", -0.3]] },
   sit: { y: -0.4, rot: [["UpperLeg.L", "x", -1.5], ["LowerLeg.L", "x", 1.5], ["UpperLeg.R", "x", -1.5], ["LowerLeg.R", "x", 1.5]] },
-  ride: { y: 0, rot: [["UpperLeg.L", "z", 0.45], ["UpperLeg.L", "x", -1.1], ["LowerLeg.L", "x", 1.2], ["UpperLeg.R", "z", -0.45], ["UpperLeg.R", "x", -1.1], ["LowerLeg.R", "x", 1.2]] },
+  ride: { y: 0, rot: [["UpperLeg.L", "z", 0.6], ["UpperLeg.L", "x", -0.75], ["LowerLeg.L", "x", 0.9], ["UpperLeg.R", "z", -0.6], ["UpperLeg.R", "x", -0.75], ["LowerLeg.R", "x", 0.9]] },
+  // First-person view model: both arms raised in front of the camera.
+  fpHold: { y: 0, rot: [["UpperArm.R", "x", -1.05], ["UpperArm.R", "y", 0.35], ["LowerArm.R", "x", -0.55], ["UpperArm.L", "x", -1.0], ["UpperArm.L", "y", -0.35], ["LowerArm.L", "x", -0.5]] },
 };
 const _q = new THREE.Quaternion(), _pq = new THREE.Quaternion(), _rq = new THREE.Quaternion(), _ax = new THREE.Vector3();
 const AXES = { x: new THREE.Vector3(1, 0, 0), y: new THREE.Vector3(0, 1, 0), z: new THREE.Vector3(0, 0, 1) };
@@ -125,13 +127,24 @@ export function makeRig(id, opts = {}) {
     cur = a; curName = name;
   };
   const duration = (name) => src.clips[name]?.duration || 1;
+  // Overrides are applied on top of the clip each frame. The pre-override pose is saved and restored before the next
+  // mixer update: bones the clip doesn't animate would otherwise accumulate the rotation every frame and spin forever.
+  const savedPose = new Map();
+  let extra = []; // per-frame extra rotations (e.g. the first-person sword swing)
   const update = (dt) => {
+    savedPose.forEach((q, bn) => bn.quaternion.copy(q));
+    savedPose.clear();
     mixer.update(dt);
     inst.position.y = 0;
     if (override) {
       const ov = OVERRIDES[override];
       inst.position.y = ov.y;
-      for (const [b, axis, angle] of ov.rot) if (bones[b]) rotateAround(g, bones[b], axis, angle);
+      for (const [b, axis, angle] of [...ov.rot, ...extra]) {
+        const bn = bones[b];
+        if (!bn || !angle) continue;
+        if (!savedPose.has(bn)) savedPose.set(bn, bn.quaternion.clone());
+        rotateAround(g, bn, axis, angle);
+      }
     }
   };
 
@@ -148,7 +161,7 @@ export function makeRig(id, opts = {}) {
 
   g.userData = {
     rig: true, kind: id, bones, handR, handL, sword, tools, tool: null, prop, play, update, duration,
-    setOverride: (v) => { override = v || null; },
+    setOverride: (v, more) => { override = v || null; extra = more || []; },
     get current() { return curName; },
   };
   play("Idle");
@@ -162,13 +175,15 @@ export const makePlayerBody = (eq) => (hasRig("adventurer") ? makePlayerRig(eq) 
 export const animateIdle = (g, t, dt) => { if (g.userData.rig) { g.userData.play("Idle"); g.userData.update(dt); } else poseHuman(g, t, false, null); };
 
 // Player body with the current equipment on the Adventurer rig.
-export function makePlayerRig(eq) {
+// fp = first-person view model: head, legs and backpack hidden, no helmet, no shadows.
+export function makePlayerRig(eq, fp = false) {
   const armor = eq.body && ITEMS[eq.body];
   const colors = armor ? { Green: armor.color, LightGreen: armor.color } : {};
-  const g = makeRig("adventurer", { colors, weapon: (SWORD_TIER[eq.hand] || 0) >= 1 ? "long" : "short" });
+  const g = makeRig("adventurer", { colors, weapon: (SWORD_TIER[eq.hand] || 0) >= 1 ? "long" : "short", hide: fp ? ["Adventurer_Head", "Adventurer_Legs", "Adventurer_Feet", "Backpack"] : [] });
   const u = g.userData;
+  if (fp) g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   if (u.sword) u.sword.children[0].scale.setScalar(eq.hand === "pugnale" ? 0.6 : eq.hand === "spadone" ? 1.15 : 1);
-  if (eq.head && u.bones.Head) {
+  if (eq.head && u.bones.Head && !fp) {
     const helm = new THREE.Group();
     const c = ITEMS[eq.head].color;
     helm.add(at(box(0.27, 0.13, 0.29, c), 0, 0.25, 0.01), at(box(0.28, 0.16, 0.08, c), 0, 0.15, -0.11), at(box(0.06, 0.14, 0.24, c), 0.13, 0.16, 0), at(box(0.06, 0.14, 0.24, c), -0.13, 0.16, 0));
