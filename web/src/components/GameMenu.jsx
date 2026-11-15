@@ -45,7 +45,7 @@ function Section({ title, tiles, empty, sel, setSel }) {
       <div className="font-title text-[11px] tracking-widest text-[color:hsl(var(--primary))] mb-1">{title}</div>
       {tiles.length === 0 ? <div className="font-pixel text-xs text-[#8a7d66] italic">{empty}</div> : (
         <div className="flex flex-wrap gap-1">
-          {tiles.map((t) => <Tile key={t.key} {...t} selected={sel === t.key} onSelect={() => setSel(sel === t.key ? null : t.key)} />)}
+          {tiles.map(({ key, ...t }) => <Tile key={key} {...t} selected={sel === key} onSelect={() => setSel(sel === key ? null : key)} />)}
         </div>
       )}
     </div>

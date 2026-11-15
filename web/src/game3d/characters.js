@@ -16,7 +16,8 @@ const fetchModel = async (loader, url) => {
   const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   return loader.parseAsync(bin.buffer, "");
 };
-const URLS = Object.fromEntries(["adventurer", "farmer", "king"].map((id) => [id, `models/personaggi/${id}.${EXT}`]));
+// Only the Adventurer is still used (first-person arms, until the procedural view model replaces it).
+const URLS = Object.fromEntries(["adventurer"].map((id) => [id, `models/personaggi/${id}.${EXT}`]));
 const lib = {};
 
 export async function loadCharacters() {
@@ -169,8 +170,8 @@ export function makeRig(id, opts = {}) {
   return g;
 }
 
-// Player body: the Adventurer rig if it loaded, otherwise the block model.
-export const makePlayerBody = (eq) => (hasRig("adventurer") ? makePlayerRig(eq) : makePlayerModel(eq));
+// Player body: procedural low-poly human (option A: one style for everybody).
+export const makePlayerBody = (eq) => makePlayerModel(eq);
 // Animate any player body for one frame (menu preview).
 export const animateIdle = (g, t, dt) => { if (g.userData.rig) { g.userData.play("Idle"); g.userData.update(dt); } else poseHuman(g, t, false, null); };
 

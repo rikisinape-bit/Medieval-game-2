@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { ITEMS, SWORD_TIER } from "./items";
+import { BODY_MAT, bodyGeometries, variantOf } from "./body";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -26,7 +27,7 @@ export const LOOKS = {
   player: { body: "#2d5d8c", legs: "#2a2218", head: "hood", hat: "#1f3346", cape: "#16222e" },
   villager: { body: "#8b6b3c", legs: "#3a2e1e", head: "cap", hat: "#5a3a1c" },
   villager2: { body: "#6a7a4a", legs: "#3a2e1e", head: "hair", hat: "#3a2414" },
-  woman: { body: "#8a3a4a", legs: "#5a2a30", head: "hair", hat: "#6a4020", dress: true },
+  woman: { body: "#8a3a4a", legs: "#5a2a30", head: "hair", hat: "#6a4020", dress: true, female: true },
   miner: { body: "#5a4a36", legs: "#2a2218", head: "minerhelm", hat: "#c9a24a" },
   smith: { body: "#3a2a1e", legs: "#2a2218", head: "hair", hat: "#1a1008", apron: "#5a3a1a" },
   merchant: { body: "#a8822a", legs: "#3a2a17", head: "hat", hat: "#7a2a1a", apron: "#e8dcc4" },
@@ -35,19 +36,20 @@ export const LOOKS = {
   noble: { body: "#5e3a86", legs: "#2a1e36", head: "hat", hat: "#2a1638", cape: "#3e2460" },
   bandit: { body: "#3a4a2a", legs: "#221a12", head: "hood", hat: "#1e2616", cape: "#2a2016" },
   coachman: { body: "#6a4a2a", legs: "#2a2218", head: "hat", hat: "#1a1008" },
+  king: { body: "#3e2a4a", legs: "#221a26", head: "crown", hat: "#8a6a2a", cape: "#4a1c1c", old: true, beard: "long", hair: "long" },
   messenger: { body: "#c9a24a", legs: "#3a2e1e", head: "cap", hat: "#7a1e1e", cape: "#7a1e1e" },
 };
 
-const HOLD = (o) => { at(o, 0, -0.72, 0.05); o.rotation.x = Math.PI / 2 - 0.3; return o; };
+const HOLD = (o) => { at(o, 0, -0.66, 0.04); o.rotation.x = Math.PI / 2 - 0.3; return o; };
 export function makeTool(id) {
   const g = new THREE.Group();
   switch (id) {
     case "ascia": add(g, at(box(0.05, 0.05, 0.85, "#5e3c1e"), 0, 0, 0.3), at(box(0.3, 0.05, 0.16, "#a8a8b0"), 0.12, 0, 0.65)); return HOLD(g);
     case "martello": add(g, at(box(0.05, 0.05, 0.45, "#5e3c1e"), 0, 0, 0.15), at(box(0.2, 0.1, 0.1, "#3a3a42"), 0, 0, 0.38)); return HOLD(g);
     case "scopa": add(g, at(box(0.04, 0.04, 1.3, "#8a6a3a"), 0, 0, 0.3), at(box(0.22, 0.08, 0.26, "#c9a95a"), 0, 0, 0.98)); return HOLD(g);
-    case "pane": return at(add(g, box(0.28, 0.16, 0.18, "#c9944a")), 0, -0.8, 0.08);
-    case "acqua": return at(add(g, cyl(0.09, 0.11, 0.26, "#6a7a8a"), at(cyl(0.04, 0.04, 0.06, "#3a2410"), 0, 0.16, 0)), 0, -0.8, 0.08);
-    case "secchio": return at(add(g, cyl(0.16, 0.13, 0.24, "#5e3c1e", 10), at(box(0.02, 0.2, 0.02, "#3a3a3a"), 0, 0.2, 0)), 0, -0.98, 0.05);
+    case "pane": return at(add(g, box(0.22, 0.12, 0.14, "#a8783e")), 0, -0.7, 0.06);
+    case "acqua": return at(add(g, cyl(0.07, 0.085, 0.2, "#5a6470"), at(cyl(0.03, 0.03, 0.05, "#3a2410"), 0, 0.12, 0)), 0, -0.72, 0.06);
+    case "secchio": return at(add(g, cyl(0.14, 0.11, 0.22, "#4e3420", 10), at(box(0.02, 0.18, 0.02, "#3a3a3a"), 0, 0.18, 0)), 0, -0.9, 0.04);
     default: return g;
   }
 }
@@ -93,44 +95,31 @@ export function makeSword(tier) {
   return g;
 }
 
-export function makeHuman(look, weapon) {
+// Human character. Same pivots and userData as always (hipL, hipR, armL, armR, head, prop, tools, sword, tool),
+// so poseHuman/showTool and the engine keep working. seed (optional, e.g. the NPC id) gives stable per-NPC variation.
+// Each pivot holds ONE merged vertex-coloured mesh sharing BODY_MAT (see body.js).
+export function makeHuman(look, weapon, seed) {
+  const v = variantOf(look, seed || JSON.stringify(look));
+  const geo = bodyGeometries(look, v);
   const g = new THREE.Group();
-  const limb = (x, y, w, h, c, hand) => {
-    const p = at(new THREE.Group(), x, y, 0);
-    p.add(at(box(w, h, w + 0.04, c), 0, -h / 2, 0));
-    if (hand) p.add(at(box(0.14, 0.14, 0.14, SKIN), 0, -h - 0.05, 0));
-    g.add(p);
-    return p;
-  };
-  const hipL = limb(-0.14, 0.82, 0.2, 0.8, look.legs);
-  const hipR = limb(0.14, 0.82, 0.2, 0.8, look.legs);
-  add(g, at(box(0.6, 0.75, 0.36, look.body), 0, 1.2, 0));
-  if (look.dress) g.add(at(cyl(0.3, 0.42, 0.6, look.body), 0, 0.75, 0));
-  if (look.apron) g.add(at(box(0.5, 0.75, 0.04, look.apron), 0, 1.05, 0.2));
-  if (look.cape) g.add(at(box(0.62, 1.0, 0.05, look.cape), 0, 1.1, -0.21));
-  g.add(at(box(0.62, 0.08, 0.38, "#2a1a0a"), 0, 0.9, 0));
-  const armL = limb(-0.4, 1.52, 0.17, 0.66, look.body, true);
-  const armR = limb(0.4, 1.52, 0.17, 0.66, look.body, true);
-  const head = at(new THREE.Group(), 0, 1.8, 0);
-  add(head, box(0.42, 0.42, 0.42, SKIN), at(box(0.07, 0.07, 0.02, "#1a0e08"), -0.1, 0.03, 0.215), at(box(0.07, 0.07, 0.02, "#1a0e08"), 0.1, 0.03, 0.215));
-  const h = look.hat;
-  if (look.head === "hood") add(head, at(box(0.48, 0.2, 0.48, h), 0, 0.2, -0.02), at(box(0.48, 0.4, 0.1, h), 0, -0.02, -0.22));
-  if (look.head === "cap") head.add(at(box(0.46, 0.14, 0.46, h), 0, 0.25, 0));
-  if (look.head === "hair") add(head, at(box(0.45, 0.12, 0.45, h), 0, 0.24, 0), at(box(0.45, 0.3, 0.08, h), 0, 0.05, -0.2));
-  if (look.head === "hat") add(head, at(box(0.7, 0.05, 0.7, h), 0, 0.22, 0), at(box(0.42, 0.25, 0.42, h), 0, 0.36, 0));
-  if (look.head === "minerhelm") add(head, at(box(0.48, 0.18, 0.48, h), 0, 0.24, 0), at(box(0.1, 0.1, 0.05, "#fff2b0", "#f0c050"), 0, 0.26, 0.25));
-  if (look.head === "helm") {
-    add(head, at(box(0.48, 0.5, 0.48, h), 0, 0.05, 0), at(box(0.3, 0.05, 0.02, "#1a1a1a"), 0, 0.05, 0.245));
-    if (look.plume) head.add(at(box(0.06, 0.25, 0.3, look.plume), 0, 0.42, -0.05));
-  }
-  g.add(head);
-  const prop = at(box(0.5, 0.4, 0.4, "#7a5434"), 0, 1.15, 0.45); prop.visible = false; g.add(prop);
+  const body = new THREE.Group(); // scaled for per-NPC height; the outer group's scale is used by the engine (hit flash)
+  body.scale.setScalar(v.height);
+  g.add(body);
+  const part = (geometry) => { const m = new THREE.Mesh(geometry, BODY_MAT); m.castShadow = true; m.receiveShadow = true; return m; };
+  const pivot = (x, y, geometry) => { const p = at(new THREE.Group(), x, y, 0); p.add(part(geometry)); body.add(p); return p; };
+  body.add(part(geo.torso));
+  const hipL = pivot(-geo.hipX, 0.82, geo.legL);
+  const hipR = pivot(geo.hipX, 0.82, geo.legR);
+  const armL = pivot(-geo.shoulderX, 1.52, geo.armL);
+  const armR = pivot(geo.shoulderX, 1.52, geo.armR);
+  const head = pivot(0, 1.8, geo.head);
+  const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
-  if (weapon) { sword = makeSword(weapon === "long"); at(sword, 0, -0.72, 0.05); sword.rotation.x = Math.PI / 2 - 0.3; armR.add(sword); }
-  if (look.shield) armL.add(at(box(0.08, 0.6, 0.5, look.shield), -0.12, -0.45, 0.12));
+  if (weapon) { sword = makeSword(weapon === "long"); at(sword, 0, -0.66, 0.04); sword.rotation.x = Math.PI / 2 - 0.3; armR.add(sword); }
+  if (look.shield) armL.add(at(box(0.06, 0.6, 0.5, look.shield), -0.08, -0.45, 0.12));
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id); t.visible = false; armR.add(t); tools[id] = t; });
-  g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null };
+  g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null, variant: v };
   return g;
 }
 export const showTool = (g, id) => {

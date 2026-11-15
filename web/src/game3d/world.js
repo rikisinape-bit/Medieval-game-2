@@ -15,11 +15,11 @@ export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14
 const R = (x, z, act, dur, extra = {}) => ({ at: [x, z], act, dur, ...extra });
 
 export const NPC_DEFS = [
-  { id: "torin", name: "Torin", role: "miner", look: "miner", pos: [-11, -20], hp: 40, dmg: 5, loot: 6, home: 1,
+  { id: "torin", name: "Torin", role: "miner", look: "miner", old: true, pos: [-11, -20], hp: 40, dmg: 5, loot: 6, home: 1,
     routine: [R(-12.2, -22, "chop", 7, { face: [-12.2, -25] }), R(-6.4, 5.6, "talk", 4, { face: [-8, 5.9], carry: true }), R(-11, -19, "eat", 4), R(-26, 0.8, "look", 4, { face: [-31, 0] })] },
   { id: "bruno", name: "Bruno il Fabbro", role: "smith", look: "smith", pos: [14.6, -3.5], hp: 70, dmg: 12, loot: 15, weapon: "short", fights: true, home: 5,
     routine: [R(14.6, -3.5, "hammer", 8, { face: [14.6, -4.6] }), R(12.8, -4.4, "pump", 4, { face: [12.8, -6] }), R(15.5, -2.2, "drink", 3)] },
-  { id: "lena", name: "Lena", role: "merchant", look: "merchant", pos: [-8, 5.9], hp: 40, dmg: 4, loot: 20, home: 0,
+  { id: "lena", name: "Lena", role: "merchant", look: "merchant", female: true, pos: [-8, 5.9], hp: 40, dmg: 4, loot: 20, home: 0,
     routine: [R(-8, 5.9, "sell", 6, { face: [-8, 3] }), R(-6, 9.6, "carry", 3, { face: [-7, 8], carry: true }), R(-8, 5.9, "talk", 5, { face: [-8, 3] }), R(-8, 6.4, "eat", 3, { face: [-8, 3] })] },
   { id: "alaric", name: "Ser Alaric", role: "knight", look: "knight", pos: [2, 12], hp: 140, dmg: 16, loot: 40, weapon: "long", guard: true, fights: true,
     routine: [R(2, 12, "look", 6), R(11, 20.4, "look", 6, { face: [12.5, 23] }), R(-2, -3.5, "look", 5)] },
@@ -65,7 +65,7 @@ export const NPC_DEFS = [
     routine: [R(-6, WZ - 27, "sell", 7, { face: [-6, WZ - 24] }), R(-7.5, WZ - 26, "carry", 4, { carry: true }), R(-6, WZ - 27, "drink", 3, { face: [-6, WZ - 24] })] },
   { id: "osric", name: "Mercante Osric", role: "trader", look: "merchant", pos: [4, WZ - 28], hp: 40, dmg: 4, loot: 35, valdoro: true, home: 9,
     routine: [R(4, WZ - 28, "sell", 8, { face: [4, WZ - 25] }), R(1.5, WZ - 19, "talk", 4, { face: [0, WZ - 16] }), R(4, WZ - 28, "eat", 3, { face: [4, WZ - 25] })] },
-  { id: "king", name: "Re Edric", role: "noble", look: "noble", model: "king", pos: [-5, WZ - 21], hp: 50, dmg: 3, loot: 50, valdoro: true, home: 9,
+  { id: "king", name: "Re Edric", role: "noble", look: "king", pos: [-5, WZ - 21], hp: 50, dmg: 3, loot: 50, valdoro: true, home: 9,
     routine: [R(-5, WZ - 21, "read", 7), R(-1.8, WZ - 16, "water", 4, { face: [0, WZ - 16] }), R(-6, WZ - 25, "eat", 4), R(-2, WZ - 21, "talk", 4)] },
 ];
 

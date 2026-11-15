@@ -209,8 +209,8 @@ export function createGame(canvas, hooks, saved) {
     const n = { hp: 30, dmg: 4, loot: 3, ...d, x: d.pos[0], z: d.pos[1], yaw: 0, hpMax: d.hp || 30, alive: true, looted: false, discovered: false, witnessed: false, cd: 0, state: "idle", k: 0, stagger: 0, flash: 0, kb: 0, ...sv };
     Object.assign(n, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, sleepAt: null });
     if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
-    // NPCs with a "model" use the rigged GLB characters (if they loaded); the others keep the block humans.
-    n.mesh = d.model && hasRig(d.model) ? makeRig(d.model, { tint: d.tint, weapon: d.weapon }) : makeHuman(LOOKS[d.look], d.weapon);
+    // All NPCs use the procedural low-poly humans (body.js); seed = id gives each one stable variation.
+    n.mesh = makeHuman({ ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) }, d.weapon, d.id);
     if (n.mesh.userData.rig && !n.alive) n.mesh.userData.play("Death", { once: true, end: true });
     scene.add(n.mesh);
     if (d.rider) {
