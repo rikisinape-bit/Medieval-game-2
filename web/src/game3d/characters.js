@@ -7,14 +7,23 @@ import { clone as cloneSkinned } from "three/addons/utils/SkeletonUtils.js";
 import { makeSword, makeTool, makeTorch, makeShield, makePlayerModel, poseHuman, box, at } from "./models";
 import { ITEMS, SWORD_TIER } from "./items";
 
-const URLS = { adventurer: "models/personaggi/adventurer.glb", farmer: "models/personaggi/farmer.glb", king: "models/personaggi/king.glb" };
+// The published artifact page can't serve .glb files: `npm run build:artifact` ships each model as a JS module
+// exporting the GLB in base64 (tools/glb-to-js.mjs). Normal builds load the .glb directly.
+const EXT = import.meta.env.VITE_MODEL_EXT || "glb";
+const fetchModel = async (loader, url) => {
+  if (EXT !== "js") return loader.loadAsync(url);
+  const { default: b64 } = await import(/* @vite-ignore */ new URL(url, document.baseURI).href);
+  const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  return loader.parseAsync(bin.buffer, "");
+};
+const URLS = Object.fromEntries(["adventurer", "farmer", "king"].map((id) => [id, `models/personaggi/${id}.${EXT}`]));
 const lib = {};
 
 export async function loadCharacters() {
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
   await Promise.all(Object.entries(URLS).map(async ([id, url]) => {
     try {
-      const g = await loader.loadAsync(url);
+      const g = await fetchModel(loader, url);
       lib[id] = { scene: g.scene, clips: Object.fromEntries(g.animations.map((a) => [a.name, a])) };
     } catch (e) {
       console.warn(`Personaggio ${id} non caricato, uso il modello a blocchi`, e);
