@@ -102,8 +102,8 @@ export function bodyGeometries(look, v) {
   const T = Part(0, r, dirt);
   const metal = look.metal || "#7c7f84", trim = look.trim;
   const waist = F ? 0.135 : 0.16 * B, chest = F ? 0.17 : 0.205 * B;
-  const plate = look.armor === "plate", gamb = look.armor === "gambeson", leather = look.armor === "leather";
-  const torsoCol = plate ? metal : cloth;
+  const plate = look.armor === "plate", gamb = look.armor === "gambeson", leather = look.armor === "leather", mail = look.armor === "mail";
+  const torsoCol = plate || mail ? metal : cloth;
   T.tube(waist, waist + 0.02, 0.86, 1.0, torsoCol, 0, 0, 8, 0.72);                // belly / waist
   T.tube(waist + 0.02, chest, 1.0, 1.36, torsoCol, 0, 0, 8, 0.66);                 // ribcage
   T.tube(chest, shoulderX * 0.6, 1.36, 1.6, torsoCol, 0, 0, 8, 0.62);              // shoulders slope
@@ -114,13 +114,20 @@ export function bodyGeometries(look, v) {
     T.tube(waist + 0.04, waist + 0.07, 0.98, 0.78, tone(metal, -0.12), 0, 0, 8, 0.78);
     T.tube(0.075, 0.09, 1.56, 1.66, tone(metal, -0.05), 0, 0, 8, 0.9);
   }
+  if (mail) for (let y = 0.98; y < 1.56; y += 0.06) T.tube(chest - 0.02 + (y - 1) * 0.03, chest - 0.015 + (y - 1) * 0.03, y, y + 0.012, tone(metal, -0.3), 0, 0, 8, 0.67); // rows of rings
   if (gamb) for (let y = 1.0; y < 1.5; y += 0.1) T.tube(chest - 0.01 + (y - 1) * 0.02, chest + (y - 1) * 0.02, y, y + 0.025, tone(cloth, -0.22), 0, 0, 8, 0.69); // quilting
-  if (leather) { T.tube(waist + 0.02, chest + 0.012, 0.95, 1.42, look.vest || "#3e2c1e", 0, 0, 8, 0.69); T.box(0.012, 0.42, 0.012, "#1e140c", 0, 1.18, chest * 0.69 + 0.012); }
+  if (leather) {                                                                  // leather jerkin: laced front, stitched bands
+    const lc = look.vest || "#3e2c1e";
+    T.tube(waist + 0.02, chest + 0.012, 0.95, 1.42, lc, 0, 0, 8, 0.69); T.box(0.012, 0.42, 0.012, "#1e140c", 0, 1.18, chest * 0.69 + 0.012);
+    for (let y = 1.05; y < 1.4; y += 0.08) T.box(0.05, 0.008, 0.01, "#1e140c", 0, y, chest * 0.69 + 0.016);
+    T.tube(waist + 0.03, waist + 0.06, 0.95, 0.74, tone(lc, -0.08), 0, 0, 8, 0.8);
+  }
   if (look.vest && !leather) T.tube(waist + 0.035, chest + 0.015, 0.95, 1.42, look.vest, 0, 0, 8, 0.69);
   // lower body: skirt / tunic hem / coat
   if (F || look.dress) T.tube(F ? 0.16 : 0.18, F ? 0.33 : 0.3, 0.92, 0.06, cloth, 0, 0, 9, 0.85);   // long skirt
   else if (look.coat === "robe") T.tube(waist + 0.05, waist + 0.16, 0.95, 0.08, look.coatColor || cloth, 0, 0, 9, 0.85);
   else if (look.coat) T.tube(waist + 0.05, waist + 0.12, 0.95, 0.45, look.coatColor || cloth, 0, 0, 9, 0.85);
+  else if (mail) { T.tube(waist + 0.04, waist + 0.085, 0.94, 0.6, metal, 0, 0, 9, 0.8); T.tube(waist + 0.086, waist + 0.088, 0.64, 0.6, tone(metal, -0.3), 0, 0, 9, 0.8); }  // hauberk skirt
   else T.tube(waist + 0.035, waist + 0.07, 0.92, 0.7, gamb ? cloth : plate ? tone(metal, -0.1) : cloth, 0, 0, 8, 0.8);
   if ((look.coat || look.dress || F) && trim) T.tube(waist + (look.coat === "robe" ? 0.162 : 0.122), waist + (look.coat === "robe" ? 0.165 : 0.125), look.coat === "robe" ? 0.13 : 0.5, look.coat === "robe" ? 0.08 : 0.45, trim, 0, 0, 9, 0.86);
   if (look.coat) T.tube(chest + 0.012, chest + 0.02, 1.0, 1.42, look.coatColor || cloth, 0, 0, 8, 0.68);    // coat body over the tunic
@@ -143,6 +150,8 @@ export function bodyGeometries(look, v) {
   // shoulders
   [-1, 1].forEach((sd) => {
     if (plate) T.blob(0.1, 0.07, 0.1, tone(metal, 0.05), sd * (shoulderX - 0.02), 1.55, 0, 7, 4);       // pauldrons
+    else if (leather) T.blob(0.08, 0.055, 0.08, tone(look.vest || "#3e2c1e", -0.1), sd * (shoulderX - 0.03), 1.54, 0, 6, 4);   // leather spaulders
+    else if (mail) T.blob(0.074, 0.055, 0.075, metal, sd * (shoulderX - 0.03), 1.53, 0, 6, 4);
     else T.blob(0.068, 0.05, 0.07, gamb ? tone(cloth, -0.1) : cloth, sd * (shoulderX - 0.035), 1.53, 0, 6, 4);
   });
   const torso = T.done();
@@ -160,7 +169,7 @@ export function bodyGeometries(look, v) {
   });
   H.box(F ? 0.042 : 0.048, F ? 0.014 : 0.011, 0.01, F ? "#6a3430" : "#4a2a22", 0, -0.08, 0.104); // mouth
   const hc = v.hairCol, hd = look.head;
-  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif"].includes(hd);
+  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood"].includes(hd);
   // hair
   // hair follows the skull shape (scaled unit sphere cap), tilted back so the forehead stays free
   if (v.hair !== "bald" || hd === "crown") H.cap(1, hc, 0, 0.012, -0.012, 1.35, 0.116, 0.136, 0.128, -0.5);
@@ -194,12 +203,24 @@ export function bodyGeometries(look, v) {
     else { H.tube(0.22, 0.23, 0.07, 0.085, hat, 0, 0, 10); H.tube(0.1, 0.122, 0.08, 0.21, hat, 0, 0, 8); H.tube(0.123, 0.124, 0.085, 0.11, tone(hat, -0.25), 0, 0, 8); }
   }
   if (hd === "minerhelm") { H.cap(1, hat, 0, 0.02, 0, 1.55, 0.125, 0.14, 0.135); H.tube(0.135, 0.135, 0.0, 0.02, tone(hat, -0.2), 0, 0, 9); H.tube(0.012, 0.012, 0.13, 0.17, "#d8ccb0", 0, 0.1, 5); H.box(0.016, 0.03, 0.016, "#f0c060", 0, 0.185, 0.1); }
+  if (hd === "nasal") {                                                          // conical iron helm with nose guard, mail aventail
+    H.cone(0.135, 0.16, hat, 0, 0.1, -0.005, 0, 0, 8, 1, 1.05); H.tube(0.136, 0.136, 0.0, 0.035, tone(hat, -0.2), 0, -0.005, 8, 1.06);
+    H.box(0.026, 0.1, 0.02, tone(hat, -0.1), 0, -0.035, 0.13); H.tube(0.128, 0.14, -0.02, -0.15, tone(hat, -0.25), 0, -0.03, 8, 1.0);
+  }
+  if (hd === "leatherhood") {                                                    // leather hood: face opening rim, cheek flaps, seam, shoulder cape
+    H.cap(1, hat, 0, 0.015, -0.015, 2.05, 0.138, 0.152, 0.146, -0.55); H.tube(0.13, 0.19, -0.1, -0.25, hat, 0, -0.015, 8, 0.9);
+    H.box(0.17, 0.024, 0.024, tone(hat, -0.3), 0, 0.09, 0.13);
+    [-1, 1].forEach((sd) => { H.box(0.028, 0.2, 0.09, tone(hat, -0.1), sd * 0.118, -0.02, 0.06); H.box(0.012, 0.2, 0.012, tone(hat, -0.35), sd * 0.105, -0.02, 0.108); });
+  }
   if (hd === "kerchief") { H.cap(1, hat, 0, 0.02, -0.015, 1.5, 0.122, 0.14, 0.132, -0.45); H.cone(0.05, 0.1, hat, 0, -0.04, -0.12, -2.6, 0, 4); }
   if (hd === "coif") { H.cap(1, hat, 0, 0.0, -0.01, 1.75, 0.124, 0.145, 0.134, -0.3); H.tube(0.1, 0.11, -0.08, -0.16, hat, 0, -0.02, 8); }   // mail/cloth coif
   if (look.feather) H.box(0.015, 0.16, 0.05, look.feather, -0.09, 0.13, -0.05, -0.5, 0, 0.3);
   if (look.mask) { H.tube(0.1, 0.1, -0.03, -0.15, look.mask, 0, 0.014, 8, 1.03); H.cone(0.04, 0.08, look.mask, 0, -0.14, 0.09, Math.PI, 0, 4); }
   if (hd === "helm") {
-    if (look.greatHelm) { H.tube(0.135, 0.13, -0.15, 0.13, hat, 0, 0, 8); H.cap(0.135, hat, 0, 0.13, 0, 1.57); H.box(0.18, 0.02, 0.02, "#0e0e10", 0, 0.03, 0.13); }
+    if (look.greatHelm) {
+      H.tube(0.135, 0.13, -0.15, 0.13, hat, 0, 0, 8); H.cap(0.135, hat, 0, 0.13, 0, 1.57); H.box(0.18, 0.02, 0.02, "#0e0e10", 0, 0.03, 0.13);
+      H.box(0.02, 0.26, 0.02, tone(hat, 0.15), 0, 0.02, 0.135); [-1, 1].forEach((sd) => [0, 1, 2].forEach((i) => H.box(0.012, 0.012, 0.01, "#0e0e10", sd * 0.05, -0.05 - i * 0.03, 0.128)));   // ridge + breaths
+    }
     else { H.cap(0.13, hat, 0, 0.02, 0, 1.6); H.tube(0.2, 0.2, 0.03, 0.05, hat, 0, 0, 10); }                  // kettle hat
     if (look.plume) H.box(0.03, 0.12, 0.2, look.plume, 0, 0.22, -0.03);
   }
@@ -212,8 +233,9 @@ export function bodyGeometries(look, v) {
     const A = Part(1.52, r, Math.min(0.25, dirt));
     const sleeve = look.sleeves === "rolled" ? skin : cloth;
     const ua1 = F ? 0.052 : 0.062 * B, ua2 = F ? 0.046 : 0.054 * B, fa1 = F ? 0.044 : 0.052 * B, fa2 = F ? 0.036 : 0.042 * B;
-    A.tube(ua1, ua2, 0.0, -0.3, plate ? metal : cloth, 0, 0, 6);                                // upper arm
-    A.tube(fa1, fa2, -0.3, -0.57, plate ? metal : sleeve, 0, 0.01, 6);                          // forearm
+    A.tube(ua1, ua2, 0.0, -0.3, plate || mail ? metal : cloth, 0, 0, 6);                       // upper arm
+    A.tube(fa1, fa2, -0.3, -0.57, plate || mail ? metal : sleeve, 0, 0.01, 6);                 // forearm
+    if (mail) { for (let y = -0.06; y > -0.5; y -= 0.07) A.tube(ua1 + 0.002, ua1 + 0.002, y, y - 0.012, tone(metal, -0.3), 0, 0.004, 6); A.tube(fa2 + 0.008, fa2 + 0.01, -0.5, -0.56, "#3a2a1c", 0, 0.01, 6); }
     if (plate) { A.blob(0.058, 0.05, 0.058, tone(metal, 0.1), 0, -0.3, 0.005, 6, 4); A.tube(fa1 + 0.012, fa2 + 0.014, -0.36, -0.57, tone(metal, 0.06), 0, 0.01, 6); }   // couter + vambrace
     if (gamb) A.tube(ua1 + 0.006, ua1 + 0.004, -0.12, -0.15, tone(cloth, -0.22), 0, 0, 6);
     if (look.bracers && !plate) A.tube(fa1 + 0.008, fa2 + 0.01, -0.4, -0.56, look.bracers, 0, 0.01, 6);

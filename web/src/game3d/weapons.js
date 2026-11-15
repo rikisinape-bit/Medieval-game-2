@@ -58,6 +58,8 @@ const BUILDERS = {
     blade(P, 1.0, 0.062, DARK, 0.28);
   },
 };
+// Where the hand holds each weapon, measured from the old origin (base of the grip) along the blade.
+const GRIP_AT = { pugnale: 0.05, corta: 0.065, ascia: 0.07, lunga: 0.1, spadone: 0.2, "di Roccanera": 0.13 };
 const cache = new Map();
 const ALIAS = { short: "corta", long: "lunga" };
 // Weapon by sword key ("pugnale", "corta", "ascia", "lunga", "spadone", "di Roccanera").
@@ -65,9 +67,12 @@ export function makeWeapon(key) {
   key = ALIAS[key] || key;
   if (!BUILDERS[key]) key = "corta";
   if (!cache.has(key)) { const P = Part(1.5, rng(7), 0); BUILDERS[key](P); cache.set(key, P.done().rotateX(Math.PI / 2)); }
+  // The group's origin is the point the hand closes on (middle of the grip; near the guard for the two-handed sword),
+  // so whoever attaches the weapon to a hand just puts the group at the palm.
   const g = new THREE.Group();
-  const m = new THREE.Mesh(cache.get(key), WEAPON_MAT); m.castShadow = true; g.add(m);
-  if (key === "di Roccanera") { const rune = new THREE.Mesh(RUNE_GEO, GLOW_MAT); rune.position.z = 0.7; g.add(rune); }   // glowing fuller
+  const inner = new THREE.Group(); inner.position.z = -GRIP_AT[key]; g.add(inner);
+  const m = new THREE.Mesh(cache.get(key), WEAPON_MAT); m.castShadow = true; inner.add(m);
+  if (key === "di Roccanera") { const rune = new THREE.Mesh(RUNE_GEO, GLOW_MAT); rune.position.z = 0.7; inner.add(rune); }   // glowing fuller
   g.userData.weapon = key;
   return g;
 }

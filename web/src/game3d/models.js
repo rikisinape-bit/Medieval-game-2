@@ -26,7 +26,7 @@ const lightAnchor = (g, color, intensity, distance, x, y, z, night = false) => {
 const SKIN = "#e2b48a";
 // Character looks: dark, desaturated, dirty medieval palette. Options are documented in body.js (bodyGeometries).
 export const LOOKS = {
-  player: { body: "#3b4047", legs: "#2c2924", head: "hood", hat: "#2a2e31", cape: "#1f2226", boots: "#2a1f17", straps: "#3a2a1c", pouch: "#4a3624", bracers: "#3a2c20", tallBoots: true },
+  player: { body: "#3b4047", legs: "#2c2924", head: "hair", hair: "short", beard: "stubble", cowl: "#2a2e31", cape: "#24272b", capeLen: 0.98, boots: "#2a1f17", straps: "#3a2a1c", pouch: "#4a3624", bracers: "#3a2c20", tallBoots: true },
   villager: { body: "#6b5c44", legs: "#4a4234", head: "cap", hat: "#4a3d2c", wraps: "#7a705c", boots: "#3a2c20", pouch: "#4a3828", dirt: 0.42 },
   villager2: { body: "#4f5844", legs: "#3e3528", head: "hair", vest: "#4a3b2b", wraps: "#6e6550", boots: "#3a2c20", dirt: 0.42 },
   woman: { body: "#5c3b38", legs: "#3e2c28", head: "hair", hat: "#5e5646", dress: true, female: true, apron: "#7c7462", dirt: 0.38 },
@@ -117,7 +117,7 @@ export function makeHuman(look, weapon, seed) {
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
   // weapon: "short" | "long" (NPCs) or any sword key (player)
-  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); at(sword, 0, -0.66, 0.04); sword.rotation.x = Math.PI / 2 - 0.3; armR.add(sword); }
+  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); at(sword, 0, -0.635, 0.015); sword.rotation.x = 0.62; armR.add(sword); }   // grip through the fist, blade forward and down
   if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, -0.07, -0.45, 0.08, -Math.PI / 2)); }
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id); t.visible = false; armR.add(t); tools[id] = t; });
@@ -392,14 +392,27 @@ export function makeViewmodel(look) {
 }
 
 // The player's 3D body with the current equipment (used in third person and in the menu preview).
+// What each piece of equipment looks like on the player's body (body.js options).
+const ARMOR_LOOK = {
+  cuoio: { armor: "leather", vest: "#4a3220" },
+  maglia: { armor: "mail", metal: "#62666b" },
+  piastre: { armor: "plate", metal: "#8c9095", tabard: "#2c3442", emblem: "#7a6a3a" },
+};
+const HELM_LOOK = {
+  cappuccio: { head: "leatherhood", hat: "#4a3424" },
+  elmo_ferro: { head: "nasal", hat: "#6a6d72" },
+  elmo_piastre: { head: "helm", greatHelm: true, hat: "#8c9095" },
+};
 export function makePlayerModel(eq) {
   const off = eq.off && ITEMS[eq.off];
   const look = {
     ...LOOKS.player,
-    body: ITEMS[eq.body]?.color || LOOKS.player.body,
-    ...(eq.head ? { head: "helm", hat: ITEMS[eq.head].color } : {}),
+    ...(ARMOR_LOOK[eq.body] || {}),
+    ...(HELM_LOOK[eq.head] || {}),
     ...(off?.block ? { shield: off.color, shieldKind: SHIELD_KIND[eq.off] } : {}),
   };
+  if (eq.body === "piastre") delete look.straps;
+  if (eq.body) delete look.cape;   // the cape would hide the armour seen from behind (third person)
   const g = makeHuman(look, eq.hand || "corta", "player");
   if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.66, 0.06)); }
   return g;
