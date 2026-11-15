@@ -64,6 +64,7 @@ export default function Village3D() {
   const [floats, setFloats] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
   const [shop, setShop] = useState(null);
+  const [askReset, setAskReset] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -106,10 +107,10 @@ export default function Village3D() {
 
   const act = (k) => gameRef.current?.action(k);
   // True pause while backpack, shop or a dialog is open: the world (and enemies) stop.
-  const paused = invOpen || !!shop || !!dialog;
+  const paused = invOpen || !!shop || !!dialog || askReset;
   useEffect(() => { gameRef.current?.setPaused(paused); }, [paused, hud === null]);
+  // In-game confirmation (window.confirm is blocked in sandboxed pages and ugly on mobile).
   const reset = () => {
-    if (!window.confirm("Iniziare una nuova partita? Il salvataggio attuale andrà perso.")) return;
     gameRef.current = null;
     clearSave();
     window.location.reload();
@@ -123,7 +124,7 @@ export default function Village3D() {
       <div className="fixed top-2 right-2 z-20 flex flex-col items-end gap-1">
         <div className="flex gap-1">
           <button onClick={() => setInvOpen(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1 text-[color:hsl(var(--primary))]" data-testid="village3d-inventory-btn"><Backpack size={12} />Zaino{hud ? ` (${Object.values(hud.inv || {}).reduce((a, b) => a + b, 0)})` : ""}</button>
-          <button onClick={reset} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-reset"><RotateCw size={12} />Nuova partita</button>
+          <button onClick={() => setAskReset(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-reset"><RotateCw size={12} />Nuova partita</button>
         </div>
         <div className="font-pixel text-[10px] text-white/70 bg-black/40 px-2 py-0.5 rounded-sm hidden md:block">WASD muovi · trascina o frecce per guardare · E interagisci · I zaino · J colpisci (x3 combo) · K para · Spazio schiva</div>
       </div>
@@ -159,6 +160,18 @@ export default function Village3D() {
         interaction={dialog?.d}
         onChoose={(effect) => { const d = dialog; setDialog(null); if (d) gameRef.current?.choose(d.id, effect); }}
       />
+      {askReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3" data-testid="reset-confirm">
+          <div className="parchment rounded-md p-4 max-w-sm w-full">
+            <div className="font-title text-lg text-[color:hsl(var(--primary))] tracking-wider">Nuova partita?</div>
+            <p className="mt-2 text-sm italic">Il salvataggio attuale andrà perso per sempre.</p>
+            <div className="mt-4 flex gap-2 justify-end font-pixel">
+              <button className="inv-btn" onClick={() => setAskReset(false)} data-testid="reset-cancel">Annulla</button>
+              <button className="inv-btn inv-btn-danger" onClick={reset} data-testid="reset-ok">Ricomincia</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="portrait-warning" data-testid="rotate-warning">Ruota il telefono in orizzontale per giocare</div>
     </div>
   );
