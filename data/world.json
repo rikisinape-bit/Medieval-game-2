@@ -1,0 +1,8 @@
+{
+  "_note": "Da generare con tools/export_data.mjs da src/game3d/world.js",
+  "NPC_DEFS": [],
+  "HOUSES": [],
+  "CHESTS": [],
+  "PICKUPS": [],
+  "ROUTE": []
+}

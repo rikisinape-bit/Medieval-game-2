@@ -1,0 +1,6 @@
+{
+  "_note": "Da generare con tools/export_data.mjs da src/game3d/items.js",
+  "ITEMS": {},
+  "SHOPS": {},
+  "LOOT_OF": {}
+}
