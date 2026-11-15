@@ -124,6 +124,11 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - Controllare la licenza del piano Meshy
 - Servono screenshot ed elenco (nome file, tipo, peso, rigato sì/no)
 
+- **Personaggi in uso** (pacchetto "Ultimate Modular Men Pack", stesso scheletro a 62 ossa e 24 animazioni):
+  - `adventurer.glb` → giocatore e banditi (colori scuri); `farmer.glb` → paesani maschi (Ugo, Piero, Nino); `king.glb` → Re Edric (al posto di Dama Isolde a Valdoro)
+  - originali in `assets/models/personaggi/`; versione web compressa (meshopt, 11 animazioni) in `web/public/models/personaggi/`, creata con `web/tools/optimize-characters.mjs`
+  - gli altri 8 personaggi del pacchetto (moderni o fantascienza) non sono usati
+
 ## 8. Convenzioni
 
 - Un file per messaggio, con il percorso in testa
