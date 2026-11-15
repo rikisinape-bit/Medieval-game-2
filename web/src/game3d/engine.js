@@ -1,12 +1,13 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
+import { repSummary } from "./reputation";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -174,10 +175,7 @@ export function createGame(canvas, hooks, saved) {
   let playerMesh = null;
   const buildPlayerMesh = () => {
     if (playerMesh) scene.remove(playerMesh);
-    const off = P.eq.off && ITEMS[P.eq.off];
-    const look = { ...LOOKS.player, body: ITEMS[P.eq.body]?.color || LOOKS.player.body, ...(P.eq.head ? { head: "helm", hat: ITEMS[P.eq.head].color } : {}), ...(off?.block ? { shield: off.color } : {}) };
-    playerMesh = makeHuman(look, SWORDS[P.eq.hand].tier >= 1 ? "long" : "short");
-    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; playerMesh.userData.armL.add(at(t, 0, -0.75, 0.1)); }
+    playerMesh = makePlayerModel(P.eq);
     playerMesh.visible = view === "third";
     scene.add(playerMesh);
   };
@@ -698,7 +696,7 @@ export function createGame(canvas, hooks, saved) {
       const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
       hooks.onHud({
         hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view,
-        dayT: S.dayT, night: S.night,
+        dayT: S.dayT, night: S.night, places: repSummary(S),
         foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
       });
     }

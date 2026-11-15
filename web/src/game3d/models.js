@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { ITEMS, SWORD_TIER } from "./items";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -399,4 +400,18 @@ export function makeViewmodel(look) {
   g.add(armR, armL);
   g.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.receiveShadow = false; } });
   return { g, armR, armL, handR, handL };
+}
+
+// The player's 3D body with the current equipment (used in third person and in the menu preview).
+export function makePlayerModel(eq) {
+  const off = eq.off && ITEMS[eq.off];
+  const look = {
+    ...LOOKS.player,
+    body: ITEMS[eq.body]?.color || LOOKS.player.body,
+    ...(eq.head ? { head: "helm", hat: ITEMS[eq.head].color } : {}),
+    ...(off?.block ? { shield: off.color } : {}),
+  };
+  const g = makeHuman(look, (SWORD_TIER[eq.hand] || 0) >= 1 ? "long" : "short");
+  if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.75, 0.1)); }
+  return g;
 }

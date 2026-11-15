@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Gem, Sword, Shield, Wind, MessageSquare, RotateCw, Crown, Home, Backpack, Castle, Sun, Moon, EyeOff, Eye, Camera } from "lucide-react";
-import { ITEMS } from "@/game3d/items";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
-import Inventory from "@/components/Inventory";
+import GameMenu from "@/components/GameMenu";
+import RepFace from "@/components/RepFace";
 import Shop from "@/components/Shop";
 import { loadSave, writeSave, clearSave } from "@/lib/save";
 
@@ -27,31 +27,26 @@ function Btn({ testid, color, onPress, icon, label, className, big, active }) {
   );
 }
 
-function Hud({ hud }) {
+// Thin top bar: life, gold and a face showing how the Crown sees you. Everything else lives in the menu.
+function TopBar({ hud, onMenu, onCamera }) {
   if (!hud) return null;
+  const crown = hud.places?.find((p) => p.face);
   return (
-    <div className="fixed top-2 left-2 z-20 w-56 parchment rounded-md p-2 space-y-1.5" data-testid="hud3d">
-      <div data-testid="hud3d-hp">
-        <div className="flex justify-between text-[11px] font-pixel"><span className="flex items-center gap-1"><Heart size={11} className="text-red-400" />Vita</span><span>{Math.round(hud.hp)}/100</span></div>
-        <div className="bar-track rounded-sm mt-0.5"><div className="bar-fill" style={{ width: `${Math.max(0, hud.hp)}%`, background: "#c0392b" }} /></div>
-      </div>
-      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-pixel">
-        <span className="flex items-center gap-1" data-testid="hud3d-gold"><Coins size={11} className="text-[color:hsl(var(--primary))]" />{hud.gold} oro</span>
-        <span className="flex items-center gap-1" data-testid="hud3d-ore"><Gem size={11} className="text-sky-200" />{hud.ore} argento</span>
-        <span className="flex items-center gap-1 truncate" data-testid="hud3d-sword"><Sword size={11} className="shrink-0" />{ITEMS[Object.keys(ITEMS).find((k) => ITEMS[k].sword === hud.eq.hand)]?.name || hud.eq.hand}</span>
-        <span className="flex items-center gap-1 truncate" data-testid="hud3d-armor"><Shield size={11} className="shrink-0" />{hud.eq.body ? ITEMS[hud.eq.body].name : "Senza armatura"}</span>
-        <span className="truncate" data-testid="hud3d-zone">{hud.mounted ? "A cavallo" : ZONE[hud.zone] || "Roccanera"}</span>
-        <span className="flex items-center gap-1" data-testid="hud3d-clock">{hud.night ? <Moon size={11} className="text-sky-200" /> : <Sun size={11} className="text-amber-300" />}{clockOf(hud.dayT)}{hud.night ? " · notte" : ""}</span>
-        <span className="flex items-center gap-1" data-testid="hud3d-rep-village" title="Reputazione villaggio"><Home size={11} />{hud.rep.village}</span>
-        <span className="flex items-center gap-1" data-testid="hud3d-rep-crown" title="Reputazione Corona"><Crown size={11} />{hud.rep.crown}</span>
-        <span className="flex items-center gap-1" data-testid="hud3d-known-crown" title="Ciò che Valdoro sa di te (portato dai messaggeri)"><Castle size={11} />{hud.known}{hud.gateOpen ? " · porte aperte" : ""}</span>
-      </div>
-      {hud.wanted > 0 && (
-        <div data-testid="hud3d-wanted" className={`font-pixel text-[11px] text-center rounded-sm py-0.5 ${hud.wanted === 2 ? "bg-red-900/80 text-red-100 animate-pulse" : "bg-amber-900/70 text-amber-100"}`}>
-          {hud.wanted === 2 ? "RICERCATO — le guardie ti inseguono" : "Le guardie cercano un colpevole"}
-        </div>
-      )}
-      {hud.sneak && <div data-testid="hud3d-sneak" className="font-pixel text-[11px] text-center text-slate-300 flex items-center justify-center gap-1"><EyeOff size={11} />Furtivo: ti notano meno</div>}
+    <div className="fixed top-0 inset-x-0 z-20 h-8 px-2 flex items-center gap-3 font-pixel text-[13px] text-[#e8dcc4] bg-gradient-to-b from-black/75 to-transparent pointer-events-none" data-testid="hud3d">
+      <span className="flex items-center gap-1" data-testid="hud3d-hp">
+        <Heart size={13} className="text-red-400" fill="#c0392b" />
+        <span className="w-20 h-1.5 rounded-full bg-black/60 overflow-hidden"><span className="block h-full bg-[#c0392b] transition-[width] duration-300" style={{ width: `${Math.max(0, hud.hp)}%` }} /></span>
+        <span className="w-7">{Math.max(0, Math.round(hud.hp))}</span>
+      </span>
+      <span className="flex items-center gap-1" data-testid="hud3d-gold"><Coins size={13} className="text-[#e8c050]" />{hud.gold}</span>
+      {crown && <span className="flex items-center gap-1" data-testid="hud3d-rep" title={`La Corona: ${crown.label} (${crown.value})`}><RepFace mood={crown.mood} size={17} title={`La Corona ti considera: ${crown.label}`} /></span>}
+      {hud.wanted > 0 && <span data-testid="hud3d-wanted" className={`px-1.5 rounded-sm text-[11px] ${hud.wanted === 2 ? "bg-red-900/85 text-red-100 animate-pulse" : "bg-amber-900/75 text-amber-100"}`}>{hud.wanted === 2 ? "RICERCATO" : "Guardie in allerta"}</span>}
+      {hud.sneak && <EyeOff size={14} className="text-slate-300" data-testid="hud3d-sneak" />}
+      <span className="flex items-center gap-1 text-[11px] text-[#cfc2a8]/80" data-testid="hud3d-clock">{hud.night ? <Moon size={11} /> : <Sun size={11} />}{clockOf(hud.dayT)} · {hud.mounted ? "A cavallo" : ZONE[hud.zone] || "Roccanera"}</span>
+      <span className="ml-auto flex gap-1 pointer-events-auto" data-ui="">
+        <button onClick={onCamera} className="h-6 px-1.5 rounded-sm bg-black/50 border border-[#4a3820] flex items-center gap-1 text-[11px]" data-testid="village3d-camera-btn" aria-label="Cambia telecamera"><Camera size={13} />{hud.view === "third" ? "3ª" : "1ª"}</button>
+        <button onClick={onMenu} className="h-6 px-2 rounded-sm bg-black/50 border border-[#c9a24a]/70 text-[#e8c050] flex items-center gap-1 text-[12px]" data-testid="village3d-menu-btn"><MenuIcon size={14} />Menu</button>
+      </span>
     </div>
   );
 }
@@ -64,7 +59,7 @@ export default function Village3D() {
   const [dialog, setDialog] = useState(null);
   const [log, setLog] = useState([]);
   const [floats, setFloats] = useState([]);
-  const [invOpen, setInvOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [shop, setShop] = useState(null);
   const [askReset, setAskReset] = useState(false);
 
@@ -82,7 +77,7 @@ export default function Village3D() {
         onHud: setHud,
         onPrompt: setPrompt,
         openDialog: (id, d) => setDialog({ id, d }),
-        onToggleInventory: () => setInvOpen((o) => !o),
+        onToggleInventory: () => setMenuOpen((o) => !o),
         openShop: (id, def) => setShop({ id, def }),
         onLog: (t) => setLog((l) => [{ id: `${Date.now()}${Math.random()}`, t }, ...l].slice(0, 3)),
         onFloat: (t, c) => {
@@ -108,9 +103,15 @@ export default function Village3D() {
   }, []);
 
   const act = (k) => gameRef.current?.action(k);
-  // True pause while backpack, shop or a dialog is open: the world (and enemies) stop.
-  const paused = invOpen || !!shop || !!dialog || askReset;
+  // True pause: menu, shop, dialogs and the reset confirmation all stop the world.
+  const paused = menuOpen || !!shop || !!dialog || askReset;
   useEffect(() => { gameRef.current?.setPaused(paused); }, [paused, hud === null]);
+  // Escape closes the menu / shop (dialogs handle Escape themselves).
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") { setMenuOpen(false); setShop(null); setAskReset(false); } };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, []);
   // In-game confirmation (window.confirm is blocked in sandboxed pages and ugly on mobile).
   const reset = () => {
     gameRef.current = null;
@@ -121,18 +122,10 @@ export default function Village3D() {
   return (
     <div className="fixed inset-0 overflow-hidden bg-black" data-testid="village3d-root">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
-      <Hud hud={hud} />
+      <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")} />
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />
-      <div className="fixed top-2 right-2 z-20 flex flex-col items-end gap-1" data-ui="">
-        <div className="flex gap-1">
-          <button onClick={() => act("camera")} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-camera-btn"><Camera size={12} />{hud?.view === "third" ? "3ª persona" : "1ª persona"}</button>
-          <button onClick={() => setInvOpen(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1 text-[color:hsl(var(--primary))]" data-testid="village3d-inventory-btn"><Backpack size={12} />Zaino{hud ? ` (${Object.values(hud.inv || {}).reduce((a, b) => a + b, 0)})` : ""}</button>
-          <button onClick={() => setAskReset(true)} className="parchment rounded-sm px-2 py-1 font-pixel text-[11px] flex items-center gap-1" data-testid="village3d-reset"><RotateCw size={12} />Nuova partita</button>
-        </div>
-        <div className="font-pixel text-[10px] text-white/70 bg-black/40 px-2 py-0.5 rounded-sm hidden md:block [@media(pointer:coarse)]:hidden">WASD muovi · trascina o frecce per guardare · E interagisci · I zaino · J colpisci (x3 combo) · C furtivo · V telecamera · Spazio schiva</div>
-      </div>
       {hud?.foe && (
-        <div className="fixed top-2 left-[62%] md:left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
+        <div className="fixed top-9 left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
           <div className="font-title text-xs tracking-widest text-red-300 text-center">{hud.foe.name}</div>
           <div className="bar-track rounded-sm mt-1"><div className="bar-fill" style={{ width: `${(hud.foe.hp / hud.foe.hpMax) * 100}%`, background: "#c0392b" }} /></div>
         </div>
@@ -158,7 +151,7 @@ export default function Village3D() {
           <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} className="pointer-events-auto bottom-[58px] right-[58px]" />
         </div>
       </div>
-      {invOpen && <Inventory hud={hud} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setInvOpen(false)} />}
+      {menuOpen && <GameMenu hud={hud} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
       <InteractionDialog
         interaction={dialog?.d}
