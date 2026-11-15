@@ -223,10 +223,11 @@ export function createGame(canvas, hooks, saved) {
   const setSneak = (v) => {
     if (v && P.mounted) { say("Non puoi nasconderti a cavallo."); return; }
     P.sneak = !!v;
-    hooks.onFloat(P.sneak ? "FURTIVO" : "ALLO SCOPERTO", P.sneak ? "#9ab0c8" : "#e8dcc4");
   };
   let dodgeDir = [0, 0], graceT = 0, region = regionOf(P.x, P.z), lastRegion = region;
-  const say = (t) => t && hooks.onLog(t);
+  // say: essential message, shown briefly on screen. note: minor message, only written in the menu's diary.
+  const say = (t) => t && hooks.onLog(t, false);
+  const note = (t) => t && hooks.onLog(t, true);
   const hasShield = () => !!(P.eq.off && ITEMS[P.eq.off].block);
 
   // Day/night + region atmosphere
@@ -315,7 +316,7 @@ export function createGame(canvas, hooks, saved) {
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
     sfx.scream(vAt(n.x, n.z) * 0.8, pitchOf(n) * 0.8, 0.7, true);
-    say(`${n.name} cade a terra.`);
+    note(`${n.name} cade a terra.`);
     dropLoot(n);
     if (n.id === "cocchiere") { car.stopped = true; say("La carrozza resta ferma: nessuno la guida più."); }
     if (n.role === "messenger") say("Senza messaggero, le notizie non viaggeranno più su questa strada.");
@@ -377,7 +378,7 @@ export function createGame(canvas, hooks, saved) {
     }
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
     let dmg = SWORDS[P.eq.hand].dmg + Math.round(Math.random() * 6);
-    if (combo === 3) { dmg = Math.round(dmg * 1.5); hooks.onFloat("COMBO x3", "#ffb84a"); }
+    if (combo === 3) dmg = Math.round(dmg * 1.5);
     hitNpc(n, unaware ? n.hp : dmg);
     if (unaware && !n.alive) hooks.onFloat("COLPO ALLE SPALLE", "#ff5a4a");
   };
@@ -396,12 +397,12 @@ export function createGame(canvas, hooks, saved) {
     if (it.kind === "sword") { P.inv[SWORD_ITEM[P.eq.hand]] = (P.inv[SWORD_ITEM[P.eq.hand]] || 0) + 1; take(id); P.eq.hand = it.sword; }
     else if (it.kind === "armor" || it.kind === "helm" || it.kind === "offhand") { const slot = it.kind === "armor" ? "body" : it.kind === "helm" ? "head" : "off"; if (P.eq[slot]) P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; take(id); P.eq[slot] = id; }
     else return;
-    equip(); sfx.pick(0.8); say(`Equipaggi: ${it.name}.`);
+    equip(); sfx.pick(0.8); note(`Equipaggi: ${it.name}.`);
   };
   const unequip = (slot) => { if (slot === "hand" || !P.eq[slot]) return; P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; P.eq[slot] = null; equip(); };
   const consumeItem = (id) => {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
-    if (it.kind === "food") { if (P.hp >= 100) { say(`Sei già in piena salute: tieni ${it.name} per dopo.`); return; } take(id); P.hp = Math.min(100, P.hp + it.heal); hooks.onFloat(`+${it.heal}`, "#a8e07a"); say(`${it.name}: +${it.heal} vita.`); }
+    if (it.kind === "food") { if (P.hp >= 100) { note(`Sei già in piena salute: tieni ${it.name} per dopo.`); return; } take(id); P.hp = Math.min(100, P.hp + it.heal); hooks.onFloat(`+${it.heal}`, "#a8e07a"); say(`${it.name}: +${it.heal} vita.`); }
   };
   const dropItem = (id) => {
     let q = 1;
@@ -412,7 +413,7 @@ export function createGame(canvas, hooks, saved) {
     const d = { item: id, qty: q, x, z };
     S.drops.push(d);
     addPick({ id: `d${Date.now()}`, ...d, drop: true });
-    say(`Lasci a terra: ${ITEMS[id].name}${q > 1 ? ` (${q})` : ""}.`);
+    note(`Lasci a terra: ${ITEMS[id].name}${q > 1 ? ` (${q})` : ""}.`);
   };
   const pickUp = (pk) => {
     scene.remove(pk.mesh); picks.splice(picks.indexOf(pk), 1);
@@ -446,7 +447,7 @@ export function createGame(canvas, hooks, saved) {
 
   const api = (targetId) => ({
     targetId, hostile: makeHostile, equip: equipItem, give, take,
-    equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else say(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
+    equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else note(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
     heal: (v) => { P.hp = Math.min(100, P.hp + v); },
     crime: (theft, victimId) => ai.crime(S.npcs[victimId] || null, theft),
     scream: (id, text) => { const n = S.npcs[id]; if (n?.alive) ai.scream(n, P.x, P.z, text); },
@@ -467,8 +468,8 @@ export function createGame(canvas, hooks, saved) {
   function interact() {
     if (dialogOpen) return;
     const c = candidates();
-    if (!c) { say("Non c'è nulla qui."); return; }
-    if (c.kind === "horse") { P.mounted = c.id; P.sneak = false; say("Monti a cavallo. Galoppa!"); return; }
+    if (!c) return;
+    if (c.kind === "horse") { P.mounted = c.id; P.sneak = false; note("Monti a cavallo."); return; }
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
@@ -500,7 +501,6 @@ export function createGame(canvas, hooks, saved) {
       const l = Math.hypot(...dodgeDir) || 1; dodgeDir = [dodgeDir[0] / l, dodgeDir[1] / l];
       dodgeT = 0.3; iframe = 0.4; dodgeCd = 0.8;
       fx.burst(P.x, 0.2, P.z, "#b8a47a", 8, 2.5); sfx.swing(0.35);
-      if (npcs.some((n) => n.alive && n.hostile && n.fights && Math.hypot(n.x - P.x, n.z - P.z) < 3)) hooks.onFloat("SCHIVA", "#a8e07a");
     }
   }
 
@@ -564,7 +564,7 @@ export function createGame(canvas, hooks, saved) {
         enc.state = "fight";
         bs.forEach((b) => { b.hostile = true; b.goTo = null; });
         say(S.night ? "Ombre sbucano da dietro gli alberi! Di notte i banditi non fanno prigionieri!" : "Dei banditi sbucano da dietro gli alberi! È un'imboscata!");
-        hooks.onFloat("IMBOSCATA!", "#ff5a4a");
+        hooks.onFloat("IMBOSCATA!", "#ff5a4a", true);
         sfx.scream(0.6, 240, 0.6);
       }
     }
@@ -586,12 +586,12 @@ export function createGame(canvas, hooks, saved) {
     const driverOn = drv.alive && drv.ms === "seat";
     if (car.stopped || !driverOn) { /* no driver, carriage waits */ }
     else if (car.wait > 0) car.wait -= dt;
-    else if (blocked) { if (car.msgT <= 0) { say(`Il cocchiere: "Fatti da parte, villano!"`); car.msgT = 6; } }
+    else if (blocked) { if (car.msgT <= 0) { note(`Il cocchiere: "Fatti da parte, villano!"`); car.msgT = 6; } }
     else {
       const s = ROUTE[car.i], dx = s.at[0] - car.x, dz = s.at[1] - car.z, dd = Math.hypot(dx, dz);
       if (dd < 0.4) {
         car.wait = s.stop || 0;
-        if (s.msg && Math.hypot(P.x - car.x, P.z - car.z) < 16) say(s.msg);
+        if (s.msg && Math.hypot(P.x - car.x, P.z - car.z) < 16) note(s.msg);
         car.i = (car.i + 1) % ROUTE.length;
       } else {
         const spd = Math.min(dd, 3 * dt);
@@ -644,9 +644,9 @@ export function createGame(canvas, hooks, saved) {
       if (!n.said) {
         n.said = true;
         const near = Math.hypot(P.x - n.x, P.z - n.z) < 26;
-        if (n.ri === 0) { n.news = S.rep.crown; if (near) say(`${n.name} smonta da cavallo e riferisce a ${alive ? tg.name : "nessuno... il posto di guardia è vuoto"}.`); }
-        else if (alive && n.news != null) { const ch = S.known.crown !== n.news; S.known.crown = n.news; n.news = null; if (near) say(ch ? `${n.name} smonta e parla con ${tg.name}: a Valdoro ora sanno di te.` : `${n.name} parla con ${tg.name}: nulla di nuovo da Roccanera.`); }
-        else if (near) say(`${n.name} cerca i cavalieri alle mura, ma nessuno ascolta.`);
+        if (n.ri === 0) { n.news = S.rep.crown; if (near) note(`${n.name} smonta da cavallo e riferisce a ${alive ? tg.name : "nessuno... il posto di guardia è vuoto"}.`); }
+        else if (alive && n.news != null) { const ch = S.known.crown !== n.news; S.known.crown = n.news; n.news = null; if (near) (ch ? say : note)(ch ? `${n.name} smonta e parla con ${tg.name}: a Valdoro ora sanno di te.` : `${n.name} parla con ${tg.name}: nulla di nuovo da Roccanera.`); }
+        else if (near) note(`${n.name} cerca i cavalieri alle mura, ma nessuno ascolta.`);
       }
       if (n.visitT > 7) { n.ms = "walk"; n.said = false; n.ri = clamp(n.ri + n.dir, 0, RIDER_ROUTE.length - 1); }
       return out;

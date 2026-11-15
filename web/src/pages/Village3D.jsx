@@ -57,7 +57,9 @@ export default function Village3D() {
   const [hud, setHud] = useState(null);
   const [prompt, setPrompt] = useState(null);
   const [dialog, setDialog] = useState(null);
-  const [log, setLog] = useState([]);
+  const [log, setLog] = useState([]);       // diary: every message, read in the menu
+  const [toast, setToast] = useState(null); // the one essential message currently on screen
+  const toastT = useRef(0);
   const [floats, setFloats] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [shop, setShop] = useState(null);
@@ -79,10 +81,17 @@ export default function Village3D() {
         openDialog: (id, d) => setDialog({ id, d }),
         onToggleInventory: () => setMenuOpen((o) => !o),
         openShop: (id, def) => setShop({ id, def }),
-        onLog: (t) => setLog((l) => [{ id: `${Date.now()}${Math.random()}`, t }, ...l].slice(0, 3)),
-        onFloat: (t, c) => {
+        onLog: (t, quiet) => {
           const id = `${Date.now()}${Math.random()}`;
-          setFloats((f) => [...f, { id, t, c }].slice(-4));
+          setLog((l) => [{ id, t, quiet }, ...l].slice(0, 60));
+          if (quiet) return;
+          setToast({ id, t });
+          clearTimeout(toastT.current);
+          toastT.current = setTimeout(() => setToast(null), Math.min(6000, 2500 + t.length * 35));
+        },
+        onFloat: (t, c, big) => {
+          const id = `${Date.now()}${Math.random()}`;
+          setFloats((f) => [...f, { id, t, c, big }].slice(-2));
           setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1100);
         },
       }, saved);
@@ -130,17 +139,19 @@ export default function Village3D() {
           <div className="bar-track rounded-sm mt-1"><div className="bar-fill" style={{ width: `${(hud.foe.hp / hud.foe.hpMax) * 100}%`, background: "#c0392b" }} /></div>
         </div>
       )}
-      <div className="fixed top-[30%] left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
-        {floats.map((f) => <div key={f.id} className="hex-float font-pixel text-3xl drop-shadow-[0_2px_2px_rgba(0,0,0,0.9)]" style={{ color: f.c }}>{f.t}</div>)}
+      {/* Small floating feedback just right of the crosshair (max 2 at a time). */}
+      <div className="fixed top-[38%] left-[calc(50%+18px)] z-20 flex flex-col items-start pointer-events-none" data-testid="floats">
+        {floats.map((f) => <div key={f.id} className={`hex-float font-pixel ${f.big ? "text-2xl" : "text-base"} leading-tight drop-shadow-[0_1px_1px_rgba(0,0,0,0.95)]`} style={{ color: f.c }}>{f.t}</div>)}
       </div>
       {prompt && !dialog && (
-        <button data-ui="" onPointerDown={(e) => { e.preventDefault(); act("interact"); }} className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 parchment rounded-sm px-3 py-1.5 font-pixel text-sm text-[color:hsl(var(--primary))]" data-testid="village3d-prompt">
-          [E] {prompt}
+        <button data-ui="" onPointerDown={(e) => { e.preventDefault(); act("interact"); }} className="fixed bottom-2 left-1/2 -translate-x-1/2 z-20 bg-black/50 border border-[#c9a24a]/50 rounded-sm px-2 py-0.5 font-pixel text-[12px] text-[#e8c050]" data-testid="village3d-prompt">
+          <span className="[@media(pointer:coarse)]:hidden">[E] </span>{prompt}
         </button>
       )}
-      <div className="fixed bottom-2 left-1/2 -translate-x-1/2 z-20 w-[46vw] max-w-md space-y-0.5 pointer-events-none" data-testid="village3d-log">
-        {log.map((l, i) => <div key={l.id} className={`font-pixel text-xs text-center bg-black/55 rounded-sm px-2 py-0.5 text-[#e8dcc4] ${i ? "opacity-60" : ""}`}>{l.t}</div>)}
-      </div>
+      {/* One essential message at a time, small, under the top bar; it fades by itself. Everything is kept in the diary. */}
+      {toast && (
+        <div key={toast.id} className="fixed top-8 left-2 z-20 max-w-[42vw] pointer-events-none font-pixel text-[12px] leading-tight bg-black/45 rounded-sm px-2 py-0.5 text-[#e8dcc4] toast-in" data-testid="village3d-log">{toast.t}</div>
+      )}
       <div className="pointer-events-none fixed inset-0 z-30">
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
         {/* Compact cluster: the container itself lets touches through, only the buttons catch them. */}
@@ -151,7 +162,7 @@ export default function Village3D() {
           <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} className="pointer-events-auto bottom-[58px] right-[58px]" />
         </div>
       </div>
-      {menuOpen && <GameMenu hud={hud} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
+      {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
       <InteractionDialog
         interaction={dialog?.d}

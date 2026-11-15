@@ -147,10 +147,10 @@ function ReputationTab({ hud }) {
 }
 
 // ---- Menu shell ----------------------------------------------------------------
-export default function GameMenu({ hud, onAct, onClose, onReset }) {
+export default function GameMenu({ hud, log = [], onAct, onClose, onReset }) {
   const [tab, setTab] = useState("equip");
   if (!hud) return null;
-  const tabs = [["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["game", "Partita"]];
+  const tabs = [["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
   return (
     <div className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/60 p-1.5 sm:p-3" data-ui="" data-testid="game-menu">
       <div className="parchment rounded-md w-full max-w-4xl flex flex-col p-2 sm:p-3 min-h-0">
@@ -164,6 +164,12 @@ export default function GameMenu({ hud, onAct, onClose, onReset }) {
         <div className="flex-1 min-h-0">
           {tab === "equip" && <EquipmentTab hud={hud} onAct={onAct} />}
           {tab === "rep" && <ReputationTab hud={hud} />}
+          {tab === "log" && (
+            <div className="h-full overflow-y-auto space-y-0.5 font-pixel text-[13px]" data-testid="menu-log">
+              {log.length === 0 && <div className="italic text-[#8a7d66]">Ancora nulla da annotare.</div>}
+              {log.map((l) => <div key={l.id} className={l.quiet ? "text-[#8a7d66]" : "text-[#e8dcc4]"}>{l.t}</div>)}
+            </div>
+          )}
           {tab === "game" && (
             <div className="space-y-2 font-pixel text-sm" data-testid="menu-game">
               <p className="text-[#b8ab92]">La partita si salva da sola in questo browser ogni 5 secondi e quando chiudi o cambi app.</p>
