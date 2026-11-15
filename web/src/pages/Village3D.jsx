@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import axios from "axios";
 import { Heart, Coins, Gem, Sword, Shield, Wind, MessageSquare, RotateCw, Crown, Home, Backpack, Castle, Sun, Moon } from "lucide-react";
 import { ITEMS } from "@/game3d/items";
 import { createGame } from "@/game3d/engine";
@@ -7,12 +6,11 @@ import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import Inventory from "@/components/Inventory";
 import Shop from "@/components/Shop";
+import { loadSave, writeSave, clearSave } from "@/lib/save";
 
 const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro" };
 const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - h) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
 
-const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
-const SLOT = "village3d";
 
 function Btn({ testid, color, onPress, icon, label, className, big }) {
   return (
@@ -71,13 +69,11 @@ export default function Village3D() {
     let alive = true;
     let saveId = 0;
     let game = null;
-    const save = () => {
-      if (!gameRef.current) return;
-      fetch(`${API}/world`, { method: "POST", headers: { "Content-Type": "application/json" }, keepalive: true, body: JSON.stringify({ slot: SLOT, state: gameRef.current.getSave() }) }).catch(() => {});
-    };
+    const save = () => { if (gameRef.current) writeSave(gameRef.current.getSave()); };
+    // On mobile "beforeunload" often never fires: save when the page is hidden (app switch, screen off, tab closed).
+    const onHide = () => { if (document.visibilityState === "hidden") save(); };
     (async () => {
-      let saved = null;
-      try { saved = (await axios.get(`${API}/world/${SLOT}`)).data?.state || null; } catch (e) { saved = null; }
+      const saved = loadSave();
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,
@@ -94,21 +90,28 @@ export default function Village3D() {
       }, saved);
       gameRef.current = game;
       saveId = setInterval(save, 5000);
-      window.addEventListener("beforeunload", save);
+      document.addEventListener("visibilitychange", onHide);
+      window.addEventListener("pagehide", save);
     })();
     return () => {
       alive = false;
       clearInterval(saveId);
-      window.removeEventListener("beforeunload", save);
+      save();
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", save);
       game?.dispose();
       gameRef.current = null;
     };
   }, []);
 
   const act = (k) => gameRef.current?.action(k);
-  const reset = async () => {
-    await axios.delete(`${API}/world/${SLOT}`).catch(() => {});
+  // True pause while backpack, shop or a dialog is open: the world (and enemies) stop.
+  const paused = invOpen || !!shop || !!dialog;
+  useEffect(() => { gameRef.current?.setPaused(paused); }, [paused, hud === null]);
+  const reset = () => {
+    if (!window.confirm("Iniziare una nuova partita? Il salvataggio attuale andrà perso.")) return;
     gameRef.current = null;
+    clearSave();
     window.location.reload();
   };
 

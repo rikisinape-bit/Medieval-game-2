@@ -23,7 +23,7 @@ var rep: Dictionary = {"village": 0, "crown": 0}   # verità
 var known: Dictionary = {"crown": 0}               # ciò che Valdoro sa
 
 # --- Mondo ---
-var time_of_day: float = 0.25   # 0..1 sul ciclo DAY_LEN
+var time_of_day: float = 0.3    # 0..1 sul ciclo DAY_LEN (come dayT in engine.js)
 var region: String = "village"
 var flags: Dictionary = {}      # missioni, scelte dei dialoghi
 var dead_npcs: Array = []       # id dei PNG morti
@@ -58,9 +58,8 @@ func _notification(what: int) -> void:
 		save_game()
 
 # --- Tempo ---
-# TODO: verificare la formula esatta dell'elevazione solare in engine.js.
 func sun_elevation() -> float:
-	return sin(time_of_day * TAU)   # 0 = alba, 0.25 = mezzogiorno, 0.5 = tramonto
+	return -cos(time_of_day * TAU)  # come engine.js: 0 = mezzanotte, 0.5 = mezzogiorno
 
 func is_night() -> bool:
 	return sun_elevation() < Data.NIGHT_SUN_ELEV
@@ -128,12 +127,11 @@ func gates_open() -> bool:
 	return int(known.get("crown", 0)) >= Data.GATE_KNOWN_CROWN
 
 # Rincaro prezzi: UNICO punto (prima duplicato in Shop.jsx, shopPrice, price).
-# TODO: confermare soglia/fazione esatte dai sorgenti (-20 => x1.5).
 func price_mult() -> float:
-	return 1.5 if int(rep.get("village", 0)) <= -20 else 1.0
+	return 1.5 if int(rep.get("village", 0)) < -20 else 1.0
 
 func price_of(item_id: String) -> int:
-	return int(ceil(float(Data.item(item_id).get("price", 0)) * price_mult()))
+	return int(round(float(Data.item(item_id).get("price", 0)) * price_mult()))
 
 # --- PNG ---
 func kill_npc(npc_id: String) -> void:
@@ -172,7 +170,7 @@ func from_dict(d: Dictionary) -> void:
 	equip.merge(d.get("equip", {}), true)
 	rep.merge(d.get("rep", {}), true)
 	known.merge(d.get("known", {}), true)
-	time_of_day = float(d.get("time_of_day", 0.25))
+	time_of_day = float(d.get("time_of_day", 0.3))
 	region = String(d.get("region", "village"))
 	flags = d.get("flags", {})
 	dead_npcs = d.get("dead_npcs", [])

@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700;900&family=IM+Fell+English:ital@0;1&family=VT323&display=swap');
+/* Fonts are bundled locally via @fontsource (see main.jsx): the old @import after @tailwind was ignored. */
 
 :root {
     color-scheme: dark;
@@ -79,13 +79,6 @@ body {
       0 8px 24px rgba(0,0,0,0.5);
 }
 
-.parchment-light {
-    background:
-      radial-gradient(ellipse at top, rgba(230,190,120,0.10), transparent 65%),
-      linear-gradient(180deg, #221812 0%, #17100b 100%);
-    border: 1px solid #4a341c;
-}
-
 .inv-btn {
     font-family: inherit;
     font-size: 11px;
@@ -102,24 +95,6 @@ body {
 .inv-btn-danger { border-color: #7a2a1a; background: #4a1c14; }
 .inv-btn-danger:hover:not(:disabled) { background: #8b1e1e; color: #ffe8e0; }
 
-
-/* Grain overlay */
-.grain::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    opacity: 0.08;
-    mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='0.9'/></svg>");
-}
-
-.pixelated {
-    image-rendering: pixelated;
-    image-rendering: -moz-crisp-edges;
-    image-rendering: crisp-edges;
-}
-
 /* Bar */
 .bar-track {
     background: #1a120c;
@@ -132,28 +107,6 @@ body {
     height: 100%;
     transition: width 300ms ease;
 }
-
-/* Torch flicker */
-@keyframes torch {
-    0%, 100% { opacity: 0.9; filter: brightness(1); }
-    45% { opacity: 0.75; filter: brightness(0.85); }
-    72% { opacity: 1; filter: brightness(1.12); }
-}
-.torch { animation: torch 2.4s infinite ease-in-out; }
-
-/* Blood pulse */
-@keyframes blood-pulse {
-    0%, 100% { box-shadow: 0 0 0 rgba(180,30,30,0.0); }
-    50% { box-shadow: 0 0 24px rgba(180,30,30,0.55); }
-}
-.pulse-danger { animation: blood-pulse 1.6s infinite ease-in-out; }
-
-/* Reveal */
-@keyframes reveal-up {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-}
-.reveal { animation: reveal-up 320ms ease-out both; }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -181,25 +134,9 @@ html, body { overscroll-behavior: none; touch-action: manipulation; }
     }
 }
 
-@keyframes hex-hit {
-    0%, 100% { transform: translate(0, 0); filter: none; }
-    20% { transform: translate(-4px, 0); filter: brightness(2) saturate(0.4); }
-    40% { transform: translate(4px, 0); }
-    60% { transform: translate(-2px, 0); filter: brightness(1.5); }
-}
-.hex-hit { animation: hex-hit 380ms ease-out; }
-
-@keyframes hex-lunge {
-    0%, 100% { transform: scale(1); }
-    40% { transform: scale(1.18) translateY(-3px); }
-}
-.hex-lunge { animation: hex-lunge 320ms ease-out; transform-box: fill-box; transform-origin: bottom center; }
-
 @keyframes hex-float {
     from { opacity: 1; transform: translateY(0); }
     to { opacity: 0; transform: translateY(-26px); }
 }
 .hex-float { animation: hex-float 1100ms ease-out forwards; }
 
-@keyframes hex-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.hex-pulse { animation: hex-pulse 1s infinite; }

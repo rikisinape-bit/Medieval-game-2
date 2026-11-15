@@ -89,23 +89,22 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 7. **Salvataggio, audio, export Android**
 8. **Contenuti dark fantasy**: nemici, magia, lore, musica
 
-## 5. Problemi rilevati nel codice attuale (letti, NON provati)
+## 5. Problemi del codice Three.js — CORRETTI in `web/` (provati nel browser)
 
-Da verificare/risolvere durante il porting:
-- **Pausa assente** con zaino/negozio/dialogo aperti: il mondo continua e i nemici attaccano
-- **Chiudere il dialogo di Capo Morn senza scegliere** = "close" = combattimento
-- **Più PNG nello stesso `home`** (Torin/Nino=1, Lena/Marta=0, Silas/Piero=2, Aldo/Mira=6, Osric/Isolde=9) ma un solo letto per casa: probabile sovrapposizione di notte
-- **Rincaro prezzi (-20 reputazione, x1.5) duplicato in 3 punti** — in Godot: unico `GameState.price_mult()`
-- **Dati arma duplicati**: `ITEMS[].dmg` e `SWORD_DMG`
-- **Codice morto**: effetti `buy_*`, `sell_ore_*` in dialogs; `makeMineEntrance`, `makeArmor` in models; `hide`/`grab`/`sneaking` in TouchControls; molte classi CSS
-- **`forge_sword` / `steal_sword` bloccati** se non si ha equipaggiata la spada corta
-- **Joystick** usa `touches[0]` invece di `targetTouches[0]` (bug multitouch)
-- **Salvataggio** su `beforeunload` poco affidabile — in Godot: `NOTIFICATION_APPLICATION_PAUSED`
-- **"Nuova partita"** cancella tutto senza conferma
-- **Scudi** senza campo `color` nel catalogo
-- **Mangiare a vita piena** consuma il cibo; "Lascia 10" fisso anche con meno oro
-- **Performance**: troppi alberi e `PointLight` per mobile
-- **`@import` dei font** dopo `@tailwind` in CSS
+- ✅ **Pausa vera** con zaino/negozio/dialogo aperti (`setPaused` in engine)
+- ✅ **Capo Morn**: il dialogo senza opzione "chiudi" non si può più chiudere per sbaglio
+- ✅ **Letti**: il secondo abitante dorme su un pagliericcio (prima due PNG nello stesso letto)
+- ✅ **Rincaro prezzi** in un solo punto: `buyPrice()` / `priceMarkup()` in `items.js`; Lena diceva "raddoppiati" (è x1.5)
+- ✅ **Dati arma**: `SWORD_DMG` e `SWORD_ITEM` derivati da `ITEMS`
+- ✅ **Codice morto** rimosso: `buy_*`, `sell_ore_*`, `price()`, `makeMineEntrance`, `makeArmor`, `hide`/`grab`, classi CSS inutili
+- ✅ **Forgia/rastrelliera** sbloccate con qualsiasi arma; si equipaggia solo se migliore; rastrelliera max 3 spade
+- ✅ **Joystick** con pointer events + `pointerId` (multitouch corretto)
+- ✅ **Salvataggio** in `localStorage`, anche su `visibilitychange`/`pagehide` (niente backend)
+- ✅ **Nuova partita** chiede conferma
+- ✅ **Scudi** con `color` nel catalogo
+- ✅ **Cibo a vita piena** non viene consumato; "Lascia N" mostra la quantità vera
+- ✅ **Performance**: alberi fusi in poche mesh; 6 `PointLight` fisse riassegnate ai punti luce vicini (prima ~22)
+- ✅ **Font** inclusi localmente (`@fontsource`), niente `@import` ignorato
 
 ## 6. Direzione dark fantasy
 

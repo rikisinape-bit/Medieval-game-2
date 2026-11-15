@@ -25,8 +25,8 @@ export const ITEMS = {
   elmo_ferro: { name: "Elmo di ferro", kind: "helm", red: 0.1, color: "#8a8a94", price: 25, desc: "-10% danni" },
   elmo_piastre: { name: "Elmo a piastre", kind: "helm", red: 0.15, color: "#c8c8d4", price: 50, desc: "-15% danni" },
   torcia: { name: "Torcia", kind: "offhand", light: true, price: 5, desc: "Fa luce di notte" },
-  scudo_legno: { name: "Scudo di legno", kind: "offhand", block: 0.2, price: 18, desc: "Parata più facile, -20% danni frontali" },
-  scudo_ferro: { name: "Scudo di ferro", kind: "offhand", block: 0.35, price: 45, desc: "Parata più facile, -35% danni frontali" },
+  scudo_legno: { name: "Scudo di legno", kind: "offhand", block: 0.2, color: "#7a5434", price: 18, desc: "Parata più facile, -20% danni frontali" },
+  scudo_ferro: { name: "Scudo di ferro", kind: "offhand", block: 0.35, color: "#8a8a94", price: 45, desc: "Parata più facile, -35% danni frontali" },
   ascia: { name: "Ascia da legna", kind: "tool", price: 6, desc: "Serve a tagliare la legna" },
   martello: { name: "Martello da fabbro", kind: "tool", price: 7 },
   corda: { name: "Corda", kind: "misc", price: 3 },
@@ -35,11 +35,17 @@ export const ITEMS = {
   libro: { name: "Libro di preghiere", kind: "misc", price: 6 },
   testa_morn: { name: "Testa di Capo Morn", kind: "quest", desc: "Prova per Ser Alaric" },
 };
-export const SWORD_DMG = { pugnale: 9, corta: 14, ascia: 20, lunga: 24, spadone: 30, "di Roccanera": 34 };
-export const SWORD_ITEM = { pugnale: "pugnale", corta: "spada_corta", ascia: "ascia_guerra", lunga: "spada_lunga", spadone: "spadone", "di Roccanera": "spada_roccanera" };
+// Danno e oggetto di ogni spada derivano da ITEMS (prima erano duplicati a mano).
+const SWORD_ENTRIES = Object.entries(ITEMS).filter(([, it]) => it.kind === "sword");
+export const SWORD_DMG = Object.fromEntries(SWORD_ENTRIES.map(([, it]) => [it.sword, it.dmg]));
+export const SWORD_ITEM = Object.fromEntries(SWORD_ENTRIES.map(([id, it]) => [it.sword, id]));
 export const SWORD_TIER = { pugnale: 0, corta: 0, ascia: 1, lunga: 1, spadone: 2, "di Roccanera": 2 };
 export const SLOT_OF = { sword: "hand", armor: "body", helm: "head", offhand: "off" };
 export const dmgReduction = (eq) => Math.min(0.7, (ITEMS[eq.body]?.red || 0) + (ITEMS[eq.head]?.red || 0));
+// Rincaro per chi ha reputazione di villaggio sotto -20: unico punto di calcolo (prima in 3 posti).
+export const MARKUP_REP = -20;
+export const priceMarkup = (rep) => (rep.village < MARKUP_REP ? 1.5 : 1);
+export const buyPrice = (id, rep) => Math.round((ITEMS[id]?.price || 0) * priceMarkup(rep));
 export const sellPrice = (id) => Math.max(1, Math.floor((ITEMS[id]?.price || 0) / 2));
 // Which hand-held tool an NPC shows for each routine action.
 export const TOOL_OF = { chop: "ascia", hammer: "martello", eat: "pane", drink: "acqua", water: "secchio", sweep: "scopa" };

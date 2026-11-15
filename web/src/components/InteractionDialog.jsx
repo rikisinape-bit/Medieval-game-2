@@ -16,6 +16,8 @@ export default function InteractionDialog({ interaction, onChoose }) {
   }, [node]);
 
   const open = !!node;
+  // Only dialogs that offer a "close" option can be dismissed (e.g. Escape). Before, dismissing Capo Morn's toll = fight.
+  const canDismiss = !!node?.options?.some((o) => (o.effect || "close") === "close" && !o.next && !o.disabled);
   const handle = (opt) => {
     if (!ready) return;
     if (opt.next) setNode(opt.next);
@@ -23,7 +25,7 @@ export default function InteractionDialog({ interaction, onChoose }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onChoose("close"); }}>
+    <Dialog open={open} onOpenChange={(o) => { if (!o && canDismiss) onChoose("close"); }}>
       <DialogContent
         className="parchment border-[color:hsl(var(--border))] max-w-lg max-h-[100dvh] overflow-y-auto gap-2 p-4"
         data-testid="interaction-dialog"

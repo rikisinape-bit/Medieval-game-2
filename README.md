@@ -13,3 +13,10 @@ Piano completo: [PIANO.md](PIANO.md). Stato: **Fase 1** (progetto, dati, Autoloa
 - `data/` — dati statici esportati
 - `scenes/{world,actors,ui}` — fasi successive
 - `assets/models/{natura,architetture,personaggi}` — GLB da Meshy
+
+## Gioco web (Three.js) — `web/`
+Versione originale con gli errori corretti, giocabile nel browser (salva in locale).
+```
+cd web && npm install && npm run dev     # poi apri l'indirizzo mostrato, anche dal telefono
+npm run build                            # crea web/dist/
+```

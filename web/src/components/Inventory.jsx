@@ -76,7 +76,7 @@ export default function Inventory({ hud, onAct, onClose }) {
             <div className="grid grid-cols-1 gap-1.5 font-pixel text-xs mt-3">
               <div className="rounded-sm bg-black/25 px-2 py-1.5 flex items-center gap-2 justify-between" data-testid="inv-gold">
                 <span className="flex items-center gap-2"><Coins size={13} className="text-[color:hsl(var(--primary))]" />{hud.gold} oro</span>
-                <button className="inv-btn" disabled={hud.gold <= 0} onClick={() => act("drop", "oro")} data-testid="inv-drop-gold">Lascia 10</button>
+                <button className="inv-btn" disabled={hud.gold <= 0} onClick={() => act("drop", "oro")} data-testid="inv-drop-gold">Lascia {Math.min(10, hud.gold)}</button>
               </div>
               <div className="rounded-sm bg-black/25 px-2 py-1.5 flex items-center gap-2 justify-between" data-testid="inv-ore">
                 <span className="flex items-center gap-2"><Gem size={13} className="text-sky-200" />{hud.ore} argento</span>

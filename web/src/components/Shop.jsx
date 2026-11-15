@@ -1,13 +1,13 @@
 import React, { useState } from "react";
 import { X, Coins, Gem, ShoppingBag } from "lucide-react";
-import { ITEMS, sellPrice } from "@/game3d/items";
+import { ITEMS, sellPrice, buyPrice, priceMarkup } from "@/game3d/items";
 
 const KIND = { food: "Cibo", sword: "Arma", armor: "Armatura", helm: "Elmo", offhand: "Mano sinistra", tool: "Attrezzo", misc: "Merce", quest: "Missione", ore: "Minerale" };
 
 export default function Shop({ hud, shopId, def, onTrade, onClose }) {
   const [tab, setTab] = useState("buy");
   if (!hud || !def) return null;
-  const markup = hud.rep.village < -20 ? 1.5 : 1;
+  const markup = priceMarkup(hud.rep);
   const mine = Object.entries(hud.inv || {}).filter(([id, q]) => q > 0 && def.buys.includes(ITEMS[id]?.kind));
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3" data-testid="shop-panel" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -27,7 +27,7 @@ export default function Shop({ hud, shopId, def, onTrade, onClose }) {
         </div>
         {tab === "buy" ? (
           <div className="grid sm:grid-cols-2 gap-1.5" data-testid="shop-buy-list">
-            {def.sells.map((id) => { const it = ITEMS[id], p = Math.round(it.price * markup); return (
+            {def.sells.map((id) => { const it = ITEMS[id], p = buyPrice(id, hud.rep); return (
               <div key={id} className="rounded-sm border border-[color:hsl(var(--border))] bg-black/20 px-2 py-1.5 flex items-center justify-between gap-2" data-testid={`shop-buy-${id}`}>
                 <div className="font-pixel text-sm leading-tight"><div>{it.name}</div><div className="text-[10px] text-[#b8ab92]">{KIND[it.kind]}{it.desc ? ` · ${it.desc}` : ""}</div></div>
                 <button className="inv-btn whitespace-nowrap" disabled={hud.gold < p} onClick={() => onTrade("buy", id)} data-testid={`shop-buy-${id}-btn`}>{p} oro</button>

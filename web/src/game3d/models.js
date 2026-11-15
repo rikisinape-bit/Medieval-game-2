@@ -12,6 +12,13 @@ export const cyl = (rt, rb, h, c, s = 8) => mesh(new THREE.CylinderGeometry(rt, 
 export const cone = (r, h, c, s = 8) => mesh(new THREE.ConeGeometry(r, h, s), c);
 export const at = (o, x, y, z, ry = 0) => { o.position.set(x, y, z); o.rotation.y = ry; return o; };
 const add = (g, ...items) => { items.forEach((i) => g.add(i)); return g; };
+// Light anchor instead of a real PointLight: the engine moves a small pool of lights to the nearest anchors (mobile performance).
+const lightAnchor = (g, color, intensity, distance, x, y, z, night = false) => {
+  const o = at(new THREE.Object3D(), x, y, z);
+  o.userData.anchor = { color, intensity, distance, night };
+  g.add(o);
+  return o;
+};
 
 const SKIN = "#e2b48a";
 export const LOOKS = {
@@ -58,7 +65,7 @@ export function makeItem(id, color) {
     case "cuoio": case "maglia": case "piastre": add(g, at(box(0.6, 0.7, 0.34, color), 0, 0.36, 0), at(box(0.64, 0.1, 0.38, "#3a2410"), 0, 0.45, 0)); break;
     case "cappuccio": case "elmo_ferro": case "elmo_piastre": g.add(at(mesh(new THREE.SphereGeometry(0.26, 10, 8, 0, Math.PI * 2, 0, Math.PI / 2), color), 0, 0.1, 0)); break;
     case "torcia": { const t = makeTorch(false); t.rotation.z = 1.2; g.add(at(t, 0, 0.12, 0)); break; }
-    case "scudo_legno": case "scudo_ferro": { const sh = makeShield(id === "scudo_legno" ? "#7a5434" : "#8a8a94"); sh.rotation.x = -1.2; g.add(at(sh, 0, 0.3, 0)); break; }
+    case "scudo_legno": case "scudo_ferro": { const sh = makeShield(color); sh.rotation.x = -1.2; g.add(at(sh, 0, 0.3, 0)); break; }
     case "formaggio": g.add(at(cyl(0.22, 0.22, 0.14, "#e8c860", 10), 0, 0.07, 0)); break;
     case "carne": add(g, at(box(0.42, 0.18, 0.24, "#8a3a2a"), 0, 0.1, 0), at(box(0.1, 0.1, 0.4, "#e8dcc4"), 0.2, 0.1, 0)); break;
     case "mela": g.add(at(mesh(new THREE.SphereGeometry(0.14, 8, 6), "#c03030"), 0, 0.14, 0)); break;
@@ -76,14 +83,6 @@ export function makeItem(id, color) {
   }
   return g;
 }
-export function makeArmor(id, color) {
-  const g = new THREE.Group();
-  g.add(at(box(0.66, 0.78, 0.42, color), 0, 1.2, 0));
-  if (id !== "cuoio") [-0.42, 0.42].forEach((x) => g.add(at(box(0.24, 0.16, 0.4, color), x, 1.58, 0)));
-  if (id === "piastre") g.add(at(box(0.5, 0.2, 0.46, "#a8a8b4"), 0, 0.86, 0));
-  return g;
-}
-
 export function makeSword(tier) {
   const t = tier === true ? 1 : tier || 0;
   const len = [0.8, 1.05, 1.2][t];
@@ -209,7 +208,7 @@ export function makeCamp() {
   const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
   add(g, at(tent, 2.5, 1.1, -2.6), at(cyl(0.5, 0.6, 0.2, "#3a3a3a", 8), 0, 0.1, 0), at(box(0.4, 0.4, 0.4, "#ff7a20", "#ff5a10"), 0, 0.35, 0),
     at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
-  const l = new THREE.PointLight("#ff8a30", 5, 9); l.position.set(0, 1.2, 0); g.add(l);
+  lightAnchor(g, "#ff8a30", 5, 9, 0, 1.2, 0);
   return g;
 }
 
@@ -242,6 +241,7 @@ export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false) {
     at(r, 0, 3.8, 0),
     at(box(1.0, 0.4, 1.8, "#6a4426"), -1.3, 0.3, -0.9), at(box(0.9, 0.12, 1.6, stone ? "#8a2a2a" : "#b8b0a0"), -1.3, 0.55, -0.9), at(box(0.7, 0.12, 0.4, "#e8dcc4"), -1.3, 0.58, -1.6),
     at(box(1.0, 0.08, 0.8, "#5e3c1e"), 1.25, 0.75, -0.8), at(box(0.3, 0.3, 0.3, "#c9a95a"), 1.1, 0.95, -0.9), at(box(0.5, 0.5, 0.5, "#5e3c1e"), 1.9, 0.25, 0.3),
+    at(box(0.8, 0.12, 1.7, "#b89a5a"), 0, 0.06, -1.0), at(box(0.6, 0.08, 0.35, "#e8dcc4"), 0, 0.15, -1.65),
     at(box(0.8, 0.5, 0.5, "#5a3a1a"), 1.45, 0.3, 1.05), at(box(0.84, 0.08, 0.54, "#c9a24a"), 1.45, 0.42, 1.05));
   [[0.83, -1.12], [1.67, -1.12], [0.83, -0.48], [1.67, -0.48]].forEach(([x, z]) => g.add(at(box(0.08, 0.7, 0.08, "#3a2410"), x, 0.37, z)));
   [[-2.2, 1.9], [2.2, 1.9], [-2.2, -1.9], [2.2, -1.9]].forEach(([x, z]) => g.add(at(box(0.18, 2.8, 0.18, "#3a2410"), x, 1.4, z)));
@@ -265,8 +265,8 @@ export function makeCave() {
     at(box(24, 0.1, 24, "#2a2420"), 0, 0.05, 0), at(box(5, 0.1, 3.4, "#2a2420"), 14.5, 0.05, 0),
     at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, -1.6), at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, 1.6), at(box(0.3, 0.3, 3.6, "#5a3a1a"), 17, 3.55, 0),
     at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, -0.5), at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, 0.5), at(box(1.2, 0.8, 1.6, "#4a3020"), 6, 0.5, -5));
-  [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]].forEach(([x, z]) => { const l = new THREE.PointLight("#ffb050", 8, 12); l.position.set(x, 3, z); g.add(l); g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
-  const l = new THREE.PointLight("#ffb050", 3, 6); l.position.set(16.5, 3, 0); g.add(l);
+  [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]].forEach(([x, z]) => { lightAnchor(g, "#ffb050", 8, 12, x, 3, z); g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
+  lightAnchor(g, "#ffb050", 3, 6, 16.5, 3, 0);
   return g;
 }
 
@@ -302,7 +302,7 @@ export function makeForge() {
   add(g, at(box(4.6, 0.15, 3.6, "#5a3a1a"), 0, 2.85, 0), at(box(1.4, 1.0, 1.2, "#55525a"), -1.2, 0.5, -1), at(box(1.0, 0.35, 0.8, "#ff7a20", "#ff5a10"), -1.2, 1.05, -1),
     at(box(0.5, 0.5, 0.35, "#2a2a30"), 0.6, 0.25, 0.4), at(box(0.8, 0.22, 0.35, "#3a3a42"), 0.6, 0.6, 0.4),
     at(box(1.6, 1.4, 0.1, "#3a2410"), 1.6, 0.9, -1.6));
-  const fire = new THREE.PointLight("#ff7a30", 6, 7); fire.position.set(-1.2, 1.6, -1); g.add(fire);
+  lightAnchor(g, "#ff7a30", 6, 7, -1.2, 1.6, -1);
   return g;
 }
 
@@ -318,16 +318,6 @@ export function makeStall() {
   add(g, at(box(3, 0.9, 1.2, "#6a4426"), 0, 0.45, 0), at(box(3.2, 0.1, 1.8, "#c9a24a"), 0, 2.4, 0), at(box(3.2, 0.1, 1.8, "#8b1e1e"), 0, 2.5, 0.05),
     at(box(0.5, 0.35, 0.5, "#c9a24a"), -0.8, 1.07, 0), at(box(0.4, 0.3, 0.4, "#e8c890"), 0.3, 1.05, 0), at(box(0.6, 0.6, 0.6, "#7a5434"), 1.8, 0.3, 0.6));
   [[-1.5, 0.8], [1.5, 0.8], [-1.5, -0.8], [1.5, -0.8]].forEach(([x, z]) => g.add(at(box(0.1, 2.4, 0.1, "#3a2410"), x, 1.2, z)));
-  return g;
-}
-
-export function makeMineEntrance() {
-  const g = new THREE.Group();
-  [[-3, 2.5, 3, 5], [3, 2.5, 3, 5], [0, 5.3, 9, 1.6]].forEach(([x, y, w, h]) => g.add(at(box(w, h, 3, "#5a5048"), x, y, 0)));
-  add(g, at(box(3, 4.5, 0.1, "#050302"), 0, 2.25, 1.0), at(box(0.25, 4.6, 0.25, "#5a3a1a"), -1.5, 2.3, 1.55), at(box(0.25, 4.6, 0.25, "#5a3a1a"), 1.5, 2.3, 1.55),
-    at(box(3.4, 0.3, 0.3, "#5a3a1a"), 0, 4.6, 1.55), at(box(0.1, 0.05, 6, "#6a6a72"), -0.5, 0.05, 4), at(box(0.1, 0.05, 6, "#6a6a72"), 0.5, 0.05, 4),
-    at(box(1.2, 0.8, 1.6, "#4a3020"), 0, 0.6, 4.5));
-  const l = new THREE.PointLight("#ffb050", 3, 6); l.position.set(0, 4, 2); g.add(l);
   return g;
 }
 
@@ -392,8 +382,8 @@ export function makeLantern() {
   const g = new THREE.Group();
   const glow = box(0.26, 0.34, 0.26, "#ffd080", "#ff9a30"); glow.castShadow = false;
   add(g, at(cyl(0.07, 0.09, 3.2, "#3a2410"), 0, 1.6, 0), at(box(0.7, 0.08, 0.08, "#3a2410"), 0.3, 3.1, 0), at(glow, 0.6, 2.8, 0), at(box(0.32, 0.05, 0.32, "#2a2420"), 0.6, 3.0, 0));
-  const light = new THREE.PointLight("#ffb050", 0, 13); light.position.set(0.6, 2.7, 0); g.add(light);
-  g.userData = { light, glow };
+  lightAnchor(g, "#ffb050", 7, 13, 0.6, 2.7, 0, true);
+  g.userData = { glow };
   return g;
 }
 // First-person arms, attached to the camera.

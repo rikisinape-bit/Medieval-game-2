@@ -1,7 +1,6 @@
 import { SWORDS } from "./world";
-import { ITEMS, SHOPS } from "./items";
+import { ITEMS, SHOPS, MARKUP_REP } from "./items";
 // NPC & object dialogs for the open world, with consequences.
-const price = (S, base) => Math.round(base * (S.rep.village < -20 ? 1.5 : 1));
 const has = (S, id) => S.player.inv[id] || 0;
 const names = (list) => list.map(([id, q]) => (id === "oro" ? `${q} oro` : q > 1 ? `${ITEMS[id].name} x${q}` : ITEMS[id].name)).join(", ");
 
@@ -29,7 +28,7 @@ function buildDialog(id, S) {
   if (npc && npc.role === "messenger") return { title: npc.name, text: npc.news != null ? `"Porto a Valdoro le ultime notizie da Roccanera. Dicono che la Corona ti ${npc.news >= 30 ? "stimi" : npc.news < -10 ? "cerchi" : "ignori"}."` : `"Cavalco tra Ser Alaric e le mura di Valdoro. Senza di noi, laggiù nessuno saprebbe nulla di te."`, options: [{ label: "Buon viaggio", effect: "close" }] };
   if (npc && npc.id === "cocchiere") return { title: npc.name, text: `"Guido la carrozza della Corona da vent'anni. Il forziere dietro? Non ti riguarda."`, options: [{ label: "Vai", effect: "close" }] };
   if (npc && npc.role === "villager") {
-    const pool = S.rep.village < -20 ? CHATTER.hated : S.flags.torinHelped ? CHATTER.helped : CHATTER.happy;
+    const pool = S.rep.village < MARKUP_REP ? CHATTER.hated : S.flags.torinHelped ? CHATTER.helped : CHATTER.happy;
     return { title: npc.name, text: `"${pool[(npc.name.length + Math.floor(Date.now() / 8000)) % pool.length]}"`, options: [{ label: "Saluta e vai", effect: "close" }] };
   }
   if (npc && npc.role === "bandit") {
@@ -69,14 +68,14 @@ function buildDialog(id, S) {
       title: "Bruno — Fabbro",
       text: `"Il ferro non mente. Portami argento e ti forgio una lama degna, oppure compra al banco."`,
       options: [
-        { label: "Forgia spada lunga con 3 argento", effect: "forge_sword", disabled: p.ore < 3 || p.sword !== "corta" },
+        { label: "Forgia spada lunga con 3 argento", effect: "forge_sword", disabled: p.ore < 3 },
         { label: "Forgia la Lama di Roccanera (6 argento + 20 oro)", effect: "forge_master", disabled: p.ore < 6 || p.gold < 20 || p.sword === "di Roccanera" },
         { label: "Esci dalla forgia", effect: "close" },
       ],
     };
     case "lena": return {
       title: "Lena — Mercante",
-      text: S.rep.village < -20 ? `"Per te i prezzi sono raddoppiati. Sappiamo cosa hai fatto."` : `"Pane fresco, acqua di fonte, torce e pozioni. Compro argento e roba usata."`,
+      text: S.rep.village < MARKUP_REP ? `"Per te i prezzi sono più alti della metà. Sappiamo cosa hai fatto."` : `"Pane fresco, acqua di fonte, torce e pozioni. Compro argento e roba usata."`,
       options: [
         { label: "Arrivederci", effect: "close" },
       ],
@@ -135,8 +134,8 @@ function buildDialog(id, S) {
     };
     case "rack": return {
       title: "Rastrelliera del fabbro",
-      text: "Tre spade lunghe appena affilate brillano alla luce della forgia.",
-      options: [{ label: "Ruba una spada", effect: "steal_sword", danger: true, disabled: p.sword !== "corta" }, { label: "Lascia stare", effect: "close" }],
+      text: (S.flags.rackTaken || 0) >= 3 ? "La rastrelliera è vuota." : `${["Tre spade lunghe", "Due spade lunghe", "Una spada lunga"][S.flags.rackTaken || 0]} appena affilat${(S.flags.rackTaken || 0) === 2 ? "a brilla" : "e brillano"} alla luce della forgia.`,
+      options: [{ label: "Ruba una spada", effect: "steal_sword", danger: true, disabled: (S.flags.rackTaken || 0) >= 3 }, { label: "Lascia stare", effect: "close" }],
     };
     case "brann": case "oswin": {
       const left = Object.values(S.npcs).filter((n) => n.role === "bandit" && n.alive).length;
@@ -179,23 +178,13 @@ export function applyEffect(e, S, api) {
       if (api.crime(true)) { rep("village", -35); return "Prendi 40 monete, ma qualcuno ti ha visto."; }
       return "Prendi 40 monete. Nessuno se n'è accorto.";
     }
-    case "buy_sword": p.gold -= price(S, 25); api.give("spada_lunga", 1); api.equip("spada_lunga"); return "Bruno ti consegna una spada lunga. La vecchia spada finisce nello zaino.";
-    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equip("spada_lunga"); rep("village", 3); return "Il martello canta. Bruno forgia una spada lunga col tuo argento.";
+    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga"); rep("village", 3); return "Il martello canta. Bruno forgia una spada lunga col tuo argento.";
     case "forge_master": p.ore -= 6; p.gold -= 20; api.give("spada_roccanera", 1); api.equip("spada_roccanera"); rep("village", 5); return "Bruno lavora tutta la notte: la Lama di Roccanera brilla d'azzurro. Danno massimo.";
-    case "buy_cuoio": p.gold -= price(S, 20); api.give("cuoio", 1); return "Bruno ti porge un corpetto di cuoio. Equipaggialo dallo zaino.";
-    case "buy_maglia": p.gold -= 45; api.give("maglia", 1); return "Mastro Aldo ti consegna una cotta di maglia. Equipaggiala dallo zaino.";
-    case "buy_piastre": p.gold -= 80; api.give("piastre", 1); return "Mastro Aldo ti consegna un'armatura a piastre lucente. Equipaggiala dallo zaino.";
     case "bounty": { const n = Object.values(S.npcs).filter((x) => x.role === "bandit" && !x.boss && !x.alive).length - (S.flags.bountyClaimed || 0); p.gold += n * 20; S.flags.bountyClaimed = (S.flags.bountyClaimed || 0) + n; rep("crown", n * 5); return `Alaric ti consegna ${n * 20} oro: "La valle è più sicura grazie a te."`; }
     case "morn_quest": S.flags.mornQuest = true; rep("crown", 2); return `Alaric: "Capo Morn si nasconde nel bosco a nord, al campo oltre i primi alberi. Portami la sua testa e avrai 40 monete, il doppio della taglia."`;
     case "morn_deliver": api.take("testa_morn", 1); p.gold += 40; rep("crown", 15); S.flags.mornDone = true; return `Alaric alza la testa di Capo Morn davanti ai soldati: "Il flagello del sentiero è finito!" +40 oro, la Corona ti è grata.`;
     case "spar": api.spar(api.targetId); return `${S.npcs[api.targetId].name} sguaina la spada: "In guardia! Il primo che cede perde."`;
     case "fight_bandits": api.hostile(Object.values(S.npcs).filter((x) => x.role === "bandit" && Math.hypot(x.x - p.x, x.z - p.z) < 15).map((x) => x.id)); return "I banditi sguainano le lame!";
-    case "sell_ore_bruno": { const g = p.ore * 8; p.gold += g; p.ore = 0; return `Vendi a Bruno per ${g} oro.`; }
-    case "sell_ore_lena": { const g = p.ore * 10; p.gold += g; p.ore = 0; return `Vendi a Lena per ${g} oro.`; }
-    case "sell_ore_aldo": { const g = p.ore * 12; p.gold += g; p.ore = 0; return `Vendi a Mastro Aldo per ${g} oro.`; }
-    case "buy_bread": p.gold -= price(S, 3); api.give("pane", 1); return "Pane caldo nello zaino.";
-    case "buy_water": p.gold -= price(S, 2); api.give("acqua", 1); return "Borraccia piena nello zaino.";
-    case "buy_potion": p.gold -= price(S, 12); api.give("pozione", 1); return "Pozione nello zaino.";
     case "pay_tax": p.gold -= 10; rep("crown", 10); S.flags.taxPaid = true; return "Alaric annuisce. Sei in regola con la Corona.";
     case "flatter":
       if (Math.random() < 0.45) { S.flags.taxPaid = true; rep("crown", 2); return "Alaric ride: \"Lingua d'argento! Passa, per oggi.\""; }
@@ -208,7 +197,7 @@ export function applyEffect(e, S, api) {
     case "rob_carriage": p.gold += 60; S.flags.carriageRobbed = true;
       if (api.robCarriage()) { rep("crown", -40); return "Scassini il forziere: +60 oro! Ti hanno visto: il corno d'allarme suona."; }
       rep("crown", -5); return "Scassini il forziere senza un rumore: +60 oro. Nessuno ti ha visto.";
-    case "steal_sword": api.give("spada_lunga", 1); api.equip("spada_lunga");
+    case "steal_sword": S.flags.rackTaken = (S.flags.rackTaken || 0) + 1; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga");
       if (api.crime(true, "bruno")) { rep("village", -15); return "Afferri una spada lunga... ma qualcuno ti ha visto!"; }
       return "Afferri una spada lunga. Nessuno se n'è accorto.";
     case "drink": api.heal(10); return "Bevi. +10 vita.";

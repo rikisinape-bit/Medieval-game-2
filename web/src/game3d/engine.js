@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
-import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, TOOL_OF } from "./items";
+import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
@@ -33,6 +34,8 @@ export function createGame(canvas, hooks, saved) {
 
   const obstacles = [], rects = [];
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
+  const treeG = new THREE.Group();
+  const putTree = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); treeG.add(o); if (r) obstacles.push({ x, z, r }); return o; };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
   const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
@@ -47,7 +50,9 @@ export function createGame(canvas, hooks, saved) {
     HOUSE_RECTS.forEach(([lx, lz, hw, hd]) => { const [cx, cz] = toWorld(x, z, r, lx, lz); rects.push({ cx, cz, hw, hd, ry: r }); });
     const [dx, dz] = toWorld(x, z, r, 0, 1.9), [chx, chz] = toWorld(x, z, r, CHEST_LOCAL[0], CHEST_LOCAL[1]);
     const [bx, bz] = toWorld(x, z, r, -1.3, -0.9), [ex, ez] = toWorld(x, z, r, -1.3, 0.55), [vx, vz] = toWorld(x, z, r, 0, 3.2), [ix, iz] = toWorld(x, z, r, 0, 0.9);
-    return { i, x, z, r, g, door: g.userData.door, dx, dz, chx, chz, bed: [bx, bz], bedEdge: [ex, ez, r + Math.PI], via: [[vx, vz], [ix, iz]], open: 0 };
+    const [mx, mz] = toWorld(x, z, r, 0, -1.0), [mex, mez] = toWorld(x, z, r, 0, 0.3);
+    const beds = [{ bed: [bx, bz], edge: [ex, ez, r + Math.PI], y: 0.62 }, { bed: [mx, mz], edge: [mex, mez, r + Math.PI], y: 0.2 }];
+    return { i, x, z, r, g, door: g.userData.door, dx, dz, chx, chz, beds, via: [[vx, vz], [ix, iz]], open: 0 };
   });
   const houseOf = (x, z) => {
     for (const h of houses) {
@@ -58,7 +63,7 @@ export function createGame(canvas, hooks, saved) {
   };
 
   put(makeForge(), 14, -5, 0); obstacles.push({ x: 12.8, z: -6, r: 1 }, { x: 14.6, z: -4.6, r: 0.5 });
-  put(makeSwordRack(), 15.6, -6.5, 0);
+  const rack = put(makeSwordRack(), 15.6, -6.5, 0);
   put(makeStall(), -8, 8, Math.PI, 1.6);
   put(makeWell(), 0, 0, 0, 1.2);
   DUMMIES.forEach(([x, z]) => put(makeDummy(), x, z, 0, 0.4));
@@ -82,10 +87,10 @@ export function createGame(canvas, hooks, saved) {
   const treeOk = (x, z) => pathDist(x, z) > 4.6 && Math.hypot(x - CAMP[0], z - CAMP[1]) > 5.5 && !banditDefs.some((d) => Math.hypot(x - d.pos[0], z - d.pos[1]) < 1.3) && !PICKUPS.some((p) => Math.hypot(x - p.x, z - p.z) < 1.2);
   for (let gx = -28; gx <= 28; gx += 4.6) for (let gz = -36; gz > WZ + 3; gz -= 4.6) {
     const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
-    if (treeOk(x, z)) put(makeTree(rnd() < 0.5), x, z, rnd() * 6, 0.8);
+    if (treeOk(x, z)) putTree(makeTree(rnd() < 0.5), x, z, rnd() * 6, 0.8);
   }
-  for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => put(makeTree(z % 2 === 0), s * (31.5 + (z % 3)), z, z, 0.9));
-  banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; put(makeTree(true), d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
+  for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => putTree(makeTree(z % 2 === 0), s * (31.5 + (z % 3)), z, z, 0.9));
+  banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(makeTree(true), d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
   // Wall of Valdoro and the square beyond
   const wallG = put(makeCityWall(), 0, WZ);
   const gate = wallG.userData.gate;
@@ -99,7 +104,7 @@ export function createGame(canvas, hooks, saved) {
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r]) => put(makeStall(), x, z, r, 1.6));
   put(makeBench(), -6, WZ - 25.2, 0.3);
-  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => put(makeTree(i % 2), x, z, i, 0.9));
+  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => putTree(makeTree(i % 2), x, z, i, 0.9));
   // Mine cave in the western hill
   put(makeCave(), CX, CZ);
   [[CX, -12.5, 13, 0.5], [CX, 12.5, 13, 0.5], [CX - 12.5, 0, 0.5, 13], [CX + 12.5, -6.85, 0.5, 5.15], [CX + 12.5, 6.85, 0.5, 5.15], [CX + 14.5, -2.2, 2.5, 0.5], [CX + 14.5, 2.2, 2.5, 0.5]].forEach(([cx, cz, hw, hd]) => rects.push({ cx, cz, hw, hd, ry: 0 }));
@@ -108,9 +113,29 @@ export function createGame(canvas, hooks, saved) {
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2, d = 31 + (i * 7) % 9, x = Math.cos(a) * d, z = Math.sin(a) * d;
     if ((z < -27 && Math.abs(x) < 9) || (x < -27 && Math.abs(z) < 14)) continue;
-    put(makeTree(i % 3 === 0), x, z, i, 0.9);
+    putTree(makeTree(i % 3 === 0), x, z, i, 0.9);
   }
-  [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => put(makeTree(i % 2), x, z, i, 0.9));
+  [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(makeTree(i % 2), x, z, i, 0.9));
+
+  // Bake all trees into one mesh per material: far fewer draw calls on mobile.
+  {
+    treeG.updateMatrixWorld(true);
+    const byMat = new Map();
+    treeG.traverse((o) => {
+      if (!o.isMesh) return;
+      let g = o.geometry.clone().applyMatrix4(o.matrixWorld);
+      if (g.index) g = g.toNonIndexed();
+      ["uv", "uv1", "uv2"].forEach((a) => g.deleteAttribute(a));
+      if (!byMat.has(o.material)) byMat.set(o.material, []);
+      byMat.get(o.material).push(g);
+    });
+    byMat.forEach((geos, m) => {
+      const merged = new THREE.Mesh(mergeGeometries(geos), m);
+      merged.castShadow = true; merged.receiveShadow = true;
+      scene.add(merged);
+      geos.forEach((g) => g.dispose());
+    });
+  }
 
   // Carriage (the coachman is an NPC that sits on it)
   const car = { i: 1, x: ROUTE[0].at[0], z: ROUTE[0].at[1], yaw: -0.6, wait: ROUTE[0].stop, msgT: 0, group: new THREE.Group(), stopped: false };
@@ -150,7 +175,7 @@ export function createGame(canvas, hooks, saved) {
     const s = makeSword(SWORDS[P.eq.hand].tier); s.scale.setScalar(P.eq.hand === "pugnale" ? 0.6 : P.eq.hand === "spadone" ? 1.15 : 1);
     s.rotation.x = 2.4; vm.handR.add(s);
     if (P.eq.off === "torcia") { const t = makeTorch(true); t.rotation.x = -1.5; vm.handL.add(at(t, 0, 0, 0)); torchLight = t.userData.light; }
-    else if (P.eq.off) { const sh = makeShield(P.eq.off === "scudo_legno" ? "#7a5434" : "#8a8a94"); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
+    else if (P.eq.off) { const sh = makeShield(ITEMS[P.eq.off].color); sh.rotation.set(-1.1, 0.5, 0); vm.handL.add(at(sh, 0, 0.1, -0.1)); }
     vm.g.traverse((o) => { if (o.isMesh) { o.castShadow = false; } });
   };
   equip();
@@ -180,6 +205,7 @@ export function createGame(canvas, hooks, saved) {
   const keys = {};
   let pitch = 0, dragging = null, atkT = -1, combo = 0, queued = false, riposteT = 0;
   let parryT = 0, dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
+  let paused = false;
   let dodgeDir = [0, 0], graceT = 0, region = regionOf(P.x, P.z), lastRegion = region;
   const say = (t) => t && hooks.onLog(t);
   const hasShield = () => !!(P.eq.off && ITEMS[P.eq.off].block);
@@ -208,9 +234,22 @@ export function createGame(canvas, hooks, saved) {
     const az = S.dayT * Math.PI * 2;
     sun.position.set(P.x + Math.sin(az) * 30, Math.max(4, el * 40), P.z + 12); sun.target.position.set(P.x, 0, P.z);
     const lan = S.night ? 7 : 0;
-    lanterns.forEach((l) => { l.userData.light.intensity += (lan - l.userData.light.intensity) * k; l.userData.glow.material.emissiveIntensity = S.night ? 1 : 0.1; });
+    lanterns.forEach((l) => { l.userData.glow.material.emissiveIntensity = S.night ? 1 : 0.1; });
+    lightT -= dt;
+    if (lightT <= 0) {
+      lightT = 0.4;
+      const best = anchors.filter((a) => !a.night || lan > 0).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z)).slice(0, pool.length);
+      pool.forEach((l, i) => { const a = best[i]; l.userData.a = a || null; if (a && l.userData.cur !== a) { l.userData.cur = a; l.position.set(a.x, a.y, a.z); l.color.set(a.color); l.distance = a.distance; l.intensity = 0; } });
+    }
+    pool.forEach((l) => { const a = l.userData.a; l.intensity += ((a ? a.intensity : 0) - l.intensity) * k; });
     if (torchLight) torchLight.intensity += (((S.night || region === "mine") ? 3.5 : 0.5) - torchLight.intensity) * k;
   };
+  // Fixed pool of point lights (constant light count = no shader recompiles; 6 instead of ~22 lights).
+  scene.updateMatrixWorld(true);
+  const anchors = [], wp = new THREE.Vector3();
+  scene.traverse((o) => { const a = o.userData.anchor; if (a) { o.getWorldPosition(wp); anchors.push({ ...a, x: wp.x, y: wp.y, z: wp.z }); } });
+  const pool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight("#ffb050", 0, 10); scene.add(l); return l; });
+  let lightT = 0;
   atmosphere(1);
 
   const makeHostile = (ids) => ids.forEach((id) => { const n = S.npcs[id]; if (n?.alive) n.hostile = true; });
@@ -353,7 +392,7 @@ export function createGame(canvas, hooks, saved) {
   const unequip = (slot) => { if (slot === "hand" || !P.eq[slot]) return; P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; P.eq[slot] = null; equip(); };
   const consumeItem = (id) => {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
-    if (it.kind === "food") { take(id); P.hp = Math.min(100, P.hp + it.heal); hooks.onFloat(`+${it.heal}`, "#a8e07a"); say(`${it.name}: +${it.heal} vita.`); }
+    if (it.kind === "food") { if (P.hp >= 100) { say(`Sei già in piena salute: tieni ${it.name} per dopo.`); return; } take(id); P.hp = Math.min(100, P.hp + it.heal); hooks.onFloat(`+${it.heal}`, "#a8e07a"); say(`${it.name}: +${it.heal} vita.`); }
   };
   const dropItem = (id) => {
     let q = 1;
@@ -373,11 +412,10 @@ export function createGame(canvas, hooks, saved) {
     give(pk.item, pk.qty || 1); sfx.pick(1);
     if (pk.owned && !pk.drop && ai.crime(null, true)) { S.rep.village -= 10; say("Ti hanno visto prendere roba non tua!"); }
   };
-  const shopPrice = (id) => Math.round((ITEMS[id]?.price || 0) * (S.rep.village < -20 ? 1.5 : 1));
   const shop = (kind, npcId, id) => {
     const n = S.npcs[npcId], def = SHOPS[npcId];
     if (!n?.alive || !def) return;
-    if (kind === "buy") { const p = shopPrice(id); if (P.gold < p || !def.sells.includes(id)) return; P.gold -= p; give(id, 1); sfx.pick(0.8); }
+    if (kind === "buy") { const p = buyPrice(id, S.rep); if (P.gold < p || !def.sells.includes(id)) return; P.gold -= p; give(id, 1); sfx.pick(0.8); }
     else if (id === "argento") { if (P.ore <= 0 || !def.orePrice) return; P.ore -= 1; P.gold += def.orePrice; hooks.onFloat(`+${def.orePrice} oro`, "#e8c050"); }
     else { if (!P.inv[id] || !def.buys.includes(ITEMS[id].kind)) return; take(id); const p = sellPrice(id); P.gold += p; hooks.onFloat(`+${p} oro`, "#e8c050"); sfx.pick(0.6); }
   };
@@ -399,6 +437,7 @@ export function createGame(canvas, hooks, saved) {
 
   const api = (targetId) => ({
     targetId, hostile: makeHostile, equip: equipItem, give, take,
+    equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else say(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
     heal: (v) => { P.hp = Math.min(100, P.hp + v); },
     crime: (theft, victimId) => ai.crime(S.npcs[victimId] || null, theft),
     scream: (id, text) => { const n = S.npcs[id]; if (n?.alive) ai.scream(n, P.x, P.z, text); },
@@ -439,7 +478,7 @@ export function createGame(canvas, hooks, saved) {
 
   function action(kind) {
     sfx.unlock();
-    if (dialogOpen) return;
+    if (dialogOpen || paused) return;
     if (kind === "interact") interact();
     if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "parry" && parryT <= -0.3) parryT = hasShield() ? 0.8 : 0.55;
@@ -600,12 +639,15 @@ export function createGame(canvas, hooks, saved) {
   }
 
   const sleepTime = () => S.dayT > 0.84 || S.dayT < 0.21;
+  // Each resident of a house gets their own sleeping place (before, two NPCs shared the same bed).
+  const bedSlot = {};
+  { const count = {}; NPC_DEFS.forEach((d) => { if (d.home == null) return; bedSlot[d.id] = count[d.home] || 0; count[d.home] = bedSlot[d.id] + 1; }); }
   function updateHomes() {
     const night = sleepTime();
     npcs.forEach((n) => {
       if (n.home == null || !n.alive) return;
       const h = houses[n.home];
-      if (night && !n.hostile && !n.panic) { if (!n.sleepAt) { n.sleepAt = h.bedEdge; n.sleepVia = h.via; n.viaI = 0; n.bedAt = h.bed; } }
+      if (night && !n.hostile && !n.panic) { if (!n.sleepAt) { const b = h.beds[Math.min(bedSlot[n.id] || 0, h.beds.length - 1)]; n.sleepAt = b.edge; n.sleepVia = h.via; n.viaI = 0; n.bedAt = b.bed; n.bedY = b.y; } }
       else if (!night && n.sleepAt) { n.sleepAt = null; n.exitTo = [h.via[1], h.via[0]]; n.exitI = 0; }
     });
   }
@@ -626,10 +668,29 @@ export function createGame(canvas, hooks, saved) {
     gate.position.y += ((open ? 5 : 0) - gate.position.y) * Math.min(1, dt * 1.2);
   }
 
+  function updateHud(dt) {
+    hudT -= dt;
+    if (hudT <= 0) {
+      hudT = 0.2;
+      const foe = npcs.filter((n) => n.alive && n.hostile && n.fights && ai.sameZone(n)).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+      rack.children.slice(1).forEach((sw, i) => { sw.visible = i >= (S.flags.rackTaken || 0); });
+      const c = dialogOpen || paused ? null : candidates();
+      const label = c?.label || null;
+      if (label !== prompt) { prompt = label; hooks.onPrompt(label); }
+      const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
+      hooks.onHud({
+        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, riposte: riposteT > 0,
+        dayT: S.dayT, night: S.night,
+        foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
+      });
+    }
+  }
+
   const clock = new THREE.Clock();
   let raf = 0, time = 0, bobT = 0;
   function frame() {
     const dt = Math.min(0.1, clock.getDelta());
+    if (paused) { updateHud(dt); renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; }
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt; riposteT -= dt;
@@ -662,7 +723,6 @@ export function createGame(canvas, hooks, saved) {
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
       if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
-    const foe = npcs.filter((n) => n.alive && n.hostile && n.fights && ai.sameZone(n)).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
     const h = mounted();
     if (h) { h.x = P.x; h.z = P.z; h.yaw = P.yaw; }
     const beat = h ? Math.floor(time * 4) : Math.floor((time * 9) / Math.PI);
@@ -680,7 +740,7 @@ export function createGame(canvas, hooks, saved) {
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
-      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
+      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
       else {
         const y = poseHuman(n.mesh, nt, r.walk, r.mode, r.k);
         at(n.mesh, n.x, n.riding ? 1.05 : n.ms === "seat" ? 0.35 : y, n.z, n.yaw);
@@ -710,19 +770,7 @@ export function createGame(canvas, hooks, saved) {
     vm.armL.position.set(-0.3 + (shieldUp ? 0.2 : 0), -0.3 + Math.cos(bobT * 0.5) * 0.01, -0.6 + (shieldUp ? -0.1 : 0));
     vm.g.position.y = bob * 0.5;
 
-    hudT -= dt;
-    if (hudT <= 0) {
-      hudT = 0.2;
-      const c = dialogOpen ? null : candidates();
-      const label = c?.label || null;
-      if (label !== prompt) { prompt = label; hooks.onPrompt(label); }
-      const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
-      hooks.onHud({
-        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, riposte: riposteT > 0,
-        dayT: S.dayT, night: S.night,
-        foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
-      });
-    }
+    updateHud(dt);
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
   }
@@ -759,6 +807,7 @@ export function createGame(canvas, hooks, saved) {
     input, action, choose, shop,
     look: (dx, dy) => { P.yaw -= dx * 0.005; pitch = clamp(pitch - dy * 0.004, -1.2, 1.2); },
     closeDialog: () => { dialogOpen = false; },
+    setPaused: (v) => { paused = !!v; if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
     invAction: (kind, id) => { sfx.unlock(); if (kind === "use") consumeItem(id); else if (kind === "equip") equipItem(id); else if (kind === "drop") dropItem(id); else if (kind === "unequip") unequip(id); },
     getSave: () => ({
       player: { hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, x: P.x, z: P.z, yaw: P.yaw },
