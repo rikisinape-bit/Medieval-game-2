@@ -23,21 +23,24 @@ const lightAnchor = (g, color, intensity, distance, x, y, z, night = false) => {
 };
 
 const SKIN = "#e2b48a";
+// Character looks: dark, desaturated, dirty medieval palette. Options are documented in body.js (bodyGeometries).
 export const LOOKS = {
-  player: { body: "#2d5d8c", legs: "#2a2218", head: "hood", hat: "#1f3346", cape: "#16222e" },
-  villager: { body: "#8b6b3c", legs: "#3a2e1e", head: "cap", hat: "#5a3a1c" },
-  villager2: { body: "#6a7a4a", legs: "#3a2e1e", head: "hair", hat: "#3a2414" },
-  woman: { body: "#8a3a4a", legs: "#5a2a30", head: "hair", hat: "#6a4020", dress: true, female: true },
-  miner: { body: "#5a4a36", legs: "#2a2218", head: "minerhelm", hat: "#c9a24a" },
-  smith: { body: "#3a2a1e", legs: "#2a2218", head: "hair", hat: "#1a1008", apron: "#5a3a1a" },
-  merchant: { body: "#a8822a", legs: "#3a2a17", head: "hat", hat: "#7a2a1a", apron: "#e8dcc4" },
-  knight: { body: "#b8b8c4", legs: "#8a8a94", head: "helm", hat: "#c8c8d4", plume: "#c41e1e", cape: "#7a1e1e", shield: "#7a1e1e" },
-  soldier: { body: "#8c1f1f", legs: "#3a3a40", head: "helm", hat: "#9a9aa4", shield: "#5a1414" },
-  noble: { body: "#5e3a86", legs: "#2a1e36", head: "hat", hat: "#2a1638", cape: "#3e2460" },
-  bandit: { body: "#3a4a2a", legs: "#221a12", head: "hood", hat: "#1e2616", cape: "#2a2016" },
-  coachman: { body: "#6a4a2a", legs: "#2a2218", head: "hat", hat: "#1a1008" },
-  king: { body: "#3e2a4a", legs: "#221a26", head: "crown", hat: "#8a6a2a", cape: "#4a1c1c", old: true, beard: "long", hair: "long" },
-  messenger: { body: "#c9a24a", legs: "#3a2e1e", head: "cap", hat: "#7a1e1e", cape: "#7a1e1e" },
+  player: { body: "#3b4047", legs: "#2c2924", head: "hood", hat: "#2a2e31", cape: "#1f2226", boots: "#2a1f17", straps: "#3a2a1c", pouch: "#4a3624", bracers: "#3a2c20", tallBoots: true },
+  villager: { body: "#6b5c44", legs: "#4a4234", head: "cap", hat: "#4a3d2c", wraps: "#7a705c", boots: "#3a2c20", pouch: "#4a3828", dirt: 0.42 },
+  villager2: { body: "#4f5844", legs: "#3e3528", head: "hair", vest: "#4a3b2b", wraps: "#6e6550", boots: "#3a2c20", dirt: 0.42 },
+  woman: { body: "#5c3b38", legs: "#3e2c28", head: "hair", hat: "#5e5646", dress: true, female: true, apron: "#7c7462", dirt: 0.38 },
+  miner: { body: "#4b433a", legs: "#2f2a24", head: "minerhelm", hat: "#55504a", armor: "leather", vest: "#3d2f22", sleeves: "rolled", gloves: "#2a2018", boots: "#2a2119", dirt: 0.6 },
+  smith: { body: "#3c3632", legs: "#2b2621", head: "hair", apron: "#45311f", apronBib: true, sleeves: "rolled", gloves: "#2a1e16", boots: "#2a2119", dirt: 0.5 },
+  merchant: { body: "#5a4b30", legs: "#3a3024", head: "hat", hat: "#4a2b24", coat: "coat", coatColor: "#4e3f2a", collar: "#6a5c4a", pouch: "#3a2a1c", trim: "#6e5a32", tallBoots: true },
+  knight: { body: "#4a3030", legs: "#3a3236", head: "helm", greatHelm: true, hat: "#74777c", metal: "#7a7d82", armor: "plate", tabard: "#4e1a1a", emblem: "#8a7a4a", plume: "#5e1414", cape: "#3a1414", shield: "#4e1a1a", dirt: 0.25 },
+  soldier: { body: "#5a5040", legs: "#3a3530", head: "helm", hat: "#686b70", armor: "gambeson", tabard: "#521c1c", bracers: "#3a2c20", shield: "#4a1818", tallBoots: true, dirt: 0.35 },
+  noble: { body: "#382a40", legs: "#241c28", head: "hat", hatStyle: "chaperon", hat: "#2c1f30", coat: "robe", coatColor: "#3a2a44", collar: "#6e6456", trim: "#7a6430", cape: "#2c2134", dirt: 0.2 },
+  bandit: { body: "#3a3a2e", legs: "#2a2721", head: "hood", hat: "#262a21", cape: "#2a2822", capeLen: 0.85, mask: "#2e2a22", straps: "#2a1e14", bracers: "#2e241a", tallBoots: true, angry: true, dirt: 0.5 },
+  coachman: { body: "#4a3b2b", legs: "#2e2820", head: "hat", hat: "#221b15", coat: "coat", coatColor: "#3a2f23", collar: "#2e261c", tallBoots: true, gloves: "#2a2018", dirt: 0.4 },
+  messenger: { body: "#5e5232", legs: "#3a3024", head: "cap", hat: "#4e1c1c", feather: "#b8b09a", tabard: "#4e1c1c", emblem: "#8a7a4a", cape: "#3e1818", capeLen: 0.7, satchel: "#4a3826", straps: "#3a2a1c", tallBoots: true },
+  king: { body: "#2e2236", legs: "#221a26", head: "crown", hat: "#8a6a2a", coat: "robe", coatColor: "#4a1a20", collar: "#cfc6b4", trim: "#8a7038", cape: "#3e161c", old: true, beard: "long", hair: "long", dirt: 0.15 },
+  innkeeper: { body: "#5a4a38", legs: "#3a3226", head: "hair", apron: "#8a8270", sleeves: "rolled", bulk: 1.16, pouch: "#4a3828", dirt: 0.4 },
+  herbalist: { body: "#46503a", legs: "#30302a", head: "kerchief", hat: "#5a5446", dress: true, female: true, apron: "#6a6250", pouch: "#4a3a28", satchel: "#4a3a28", dirt: 0.35 },
 };
 
 const HOLD = (o) => { at(o, 0, -0.66, 0.04); o.rotation.x = Math.PI / 2 - 0.3; return o; };
