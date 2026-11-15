@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
-import { makePlayerModel, poseHuman } from "@/game3d/models";
+import { makePlayerBody, animateIdle } from "@/game3d/characters";
 
 // Dedicated 3D view of the player in the menu. Rebuilds the model whenever the equipment changes; drag to rotate.
 export default function CharacterPreview({ eq }) {
@@ -34,7 +34,9 @@ export default function CharacterPreview({ eq }) {
       if (!st.drag) st.yaw += 0.006;
       holder.rotation.y = st.yaw;
       const m = holder.children[0];
-      if (m) poseHuman(m, (performance.now() - st.t0) / 1000, false, null);
+      const now = performance.now();
+      if (m) animateIdle(m, (now - st.t0) / 1000, Math.min(0.1, (now - (st.last || now)) / 1000));
+      st.last = now;
       renderer.render(scene, camera);
       st.raf = requestAnimationFrame(loop);
     };
@@ -51,7 +53,7 @@ export default function CharacterPreview({ eq }) {
     const st = view.current;
     if (!st) return;
     st.holder.clear();
-    st.holder.add(makePlayerModel(eq || {}));
+    st.holder.add(makePlayerBody(eq || {}));
   }, [eqKey]);
 
   const down = (e) => { const st = view.current; if (!st) return; st.drag = { id: e.pointerId, x: e.clientX }; e.currentTarget.setPointerCapture?.(e.pointerId); };

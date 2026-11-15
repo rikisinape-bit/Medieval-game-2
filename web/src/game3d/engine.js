@@ -8,6 +8,7 @@ import { createAI, FIGHT } from "./ai";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
+import { hasRig, makeRig, makePlayerBody, animateNpcRig } from "./characters";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -175,7 +176,7 @@ export function createGame(canvas, hooks, saved) {
   let playerMesh = null;
   const buildPlayerMesh = () => {
     if (playerMesh) scene.remove(playerMesh);
-    playerMesh = makePlayerModel(P.eq);
+    playerMesh = makePlayerBody(P.eq);
     playerMesh.visible = view === "third";
     scene.add(playerMesh);
   };
@@ -197,7 +198,9 @@ export function createGame(canvas, hooks, saved) {
     const n = { hp: 30, dmg: 4, loot: 3, ...d, x: d.pos[0], z: d.pos[1], yaw: 0, hpMax: d.hp || 30, alive: true, looted: false, discovered: false, witnessed: false, cd: 0, state: "idle", k: 0, stagger: 0, flash: 0, kb: 0, ...sv };
     Object.assign(n, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, sleepAt: null });
     if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
-    n.mesh = makeHuman(LOOKS[d.look], d.weapon);
+    // NPCs with a "model" use the rigged GLB characters (if they loaded); the others keep the block humans.
+    n.mesh = d.model && hasRig(d.model) ? makeRig(d.model, { tint: d.tint, weapon: d.weapon }) : makeHuman(LOOKS[d.look], d.weapon);
+    if (n.mesh.userData.rig && !n.alive) n.mesh.userData.play("Death", { once: true, end: true });
     scene.add(n.mesh);
     if (d.rider) {
       const start = RIDER_ROUTE[d.rider > 0 ? 0 : RIDER_ROUTE.length - 1];
@@ -217,7 +220,7 @@ export function createGame(canvas, hooks, saved) {
   const keys = {};
   let pitch = 0, atkT = -1, combo = 0, queued = false;
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
-  let paused = false;
+  let paused = false, hurtT = 0, swingN = 0;
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
   const setSneak = (v) => {
@@ -281,7 +284,7 @@ export function createGame(canvas, hooks, saved) {
     let raw = n.spar ? Math.ceil(n.dmg * 0.6) : n.dmg + (n.role === "bandit" && S.night ? 3 : 0);
     if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
-    P.hp -= dmg; shake = 0.35;
+    P.hp -= dmg; shake = 0.35; hurtT = 0.35;
     sfx.hit(0.9);
     fx.burst(P.x + Math.sin(P.yaw) * 0.5, 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
     hooks.onFloat(`-${dmg}`, "#ff5252");
@@ -490,7 +493,7 @@ export function createGame(canvas, hooks, saved) {
     sfx.unlock();
     if (dialogOpen || paused) return;
     if (kind === "interact") interact();
-    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
+    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; swingN++; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
     if (kind === "camera") setView(view === "first" ? "third" : "first");
     if (kind === "dodge" && dodgeCd <= 0) {
@@ -732,12 +735,12 @@ export function createGame(canvas, hooks, saved) {
       moving = true; bobT += dt * (P.mounted ? 7 : 9);
     } else [P.x, P.z] = collide(P.x, P.z);
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
-    iframe -= dt; dodgeCd -= dt; shake = Math.max(0, shake - dt);
+    iframe -= dt; dodgeCd -= dt; hurtT -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
-      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
+      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; swingN++; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
     if (h) { h.x = P.x; h.z = P.z; h.yaw = P.yaw; }
@@ -750,13 +753,25 @@ export function createGame(canvas, hooks, saved) {
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
     npcs.forEach((n) => {
       if (n.horse) at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw);
+      if (!n.alive && n.mesh.userData.rig) {
+        const u = n.mesh.userData;
+        at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; u.setOverride(null);
+        if (u.current !== "Death") u.play("Death", { once: true, fade: 0.1 });
+        if (Math.hypot(n.x - P.x, n.z - P.z) < 45) u.update(dt);
+        u.prop.visible = false; showTool(n.mesh, null); return;
+      }
       if (!n.alive) { at(n.mesh, n.x, 0.25, n.z, n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "dead"); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); return; }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
-      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
+      if (n.mesh.userData.rig) {
+        // Rigged NPC: animation clips instead of procedural poses. Far away ones are not animated (saves CPU).
+        if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], (n.bedY ?? 0.62) - 0.05, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; }
+        else { at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; }
+        if (Math.hypot(n.x - P.x, n.z - P.z) < 45) animateNpcRig(n, r, dt);
+      } else if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
       else {
         const y = poseHuman(n.mesh, nt, r.walk, r.mode, r.k);
         at(n.mesh, n.x, n.riding ? 1.05 : n.ms === "seat" ? 0.35 : y, n.z, n.yaw);
@@ -782,11 +797,23 @@ export function createGame(canvas, hooks, saved) {
     const sw = Math.sin(Math.min(1, k) * Math.PI);
     if (view === "third") {
       // Player body
-      const pm = playerMesh, ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
-      at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
-      pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
-      if (dodgeT > 0) pm.rotation.x = 0.25;
-      else pm.rotation.x = 0;
+      const pm = playerMesh;
+      if (pm.userData.rig) {
+        const u = pm.userData;
+        at(pm, P.x, P.mounted ? 1.0 : 0, P.z, P.yaw); pm.rotation.x = 0;
+        u.setOverride(P.mounted ? "ride" : P.sneak ? "crouch" : null);
+        if (dodgeT > 0) u.play("Roll", { speed: u.duration("Roll") / 0.45 });
+        else if (atkT >= 0) { if (u.swing !== swingN) { u.swing = swingN; u.play("Sword_Slash", { once: true, restart: true, fade: 0.08, speed: u.duration("Sword_Slash") / 0.5 }); } }
+        else if (hurtT > 0) u.play("HitRecieve", { once: true, fade: 0.08 });
+        else if (moving && !P.mounted) u.play(P.sneak ? "Walk" : "Run", { speed: P.sneak ? 0.7 : 1 });
+        else u.play(npcs.some((n) => n.alive && n.hostile && n.fights && Math.hypot(n.x - P.x, n.z - P.z) < 12) ? "Idle_Sword" : "Idle");
+        u.update(dt);
+      } else {
+        const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
+        at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
+        pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
+        pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
+      }
       // Camera behind the right shoulder; pulled in if a wall is in the way.
       const headY = (P.mounted ? 2.45 : 1.75) - crouch;
       const rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);

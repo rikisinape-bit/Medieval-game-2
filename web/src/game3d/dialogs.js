@@ -126,7 +126,13 @@ function buildDialog(id, S) {
     case "mira": return { title: "Mira — Speziale", text: `"Erbe, pozioni e torce per chi viaggia di notte. Il bosco è pieno di ombre."`, options: [{ label: "Vai", effect: "close" }] };
     case "bodo": return { title: "Bodo — Locandiere", text: `"Carne arrosto e vino di Valdoro! Un uomo sazio combatte meglio."`, options: [{ label: "Vai", effect: "close" }] };
     case "osric": return { title: "Osric — Mercante", text: `"Compro di tutto, vendo di tutto. Pelli, gemme, libri... e non faccio domande."`, options: [{ label: "Vai", effect: "close" }] };
-    case "isolde": return { title: "Dama Isolde", text: `"${CHATTER.valdoro[Math.floor(Date.now() / 8000) % CHATTER.valdoro.length]}"`, options: [{ label: "Inchinati e vai", effect: "close" }] };
+    case "king": return {
+      title: "Re Edric di Valdoro",
+      text: S.known.crown >= 30 ? `"I messaggeri mi parlano di te, viandante. Valdoro ha bisogno di spade fedeli: non deludermi."`
+        : S.known.crown < -10 ? `"Tu... il nome che i messaggeri sussurrano con disprezzo. Le mie guardie hanno gli occhi su di te."`
+        : `"${CHATTER.valdoro[Math.floor(Date.now() / 8000) % CHATTER.valdoro.length]} E tu chi saresti, per parlare al tuo Re?"`,
+      options: [{ label: "Inchinati e vai", effect: "close" }],
+    };
     case "carriage": return {
       title: "Carrozza della Corona",
       text: "La carrozza della Corona gira per il villaggio. Il forziere è legato dietro: se il cocchiere guarda avanti, forse non ti vedrà.",

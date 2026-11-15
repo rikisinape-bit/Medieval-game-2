@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
 import { createGame } from "@/game3d/engine";
+import { loadCharacters } from "@/game3d/characters";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import GameMenu from "@/components/GameMenu";
@@ -74,6 +75,7 @@ export default function Village3D() {
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
     (async () => {
       const saved = loadSave();
+      await loadCharacters(); // rigged GLB characters; on failure the block models are used
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,
@@ -131,6 +133,7 @@ export default function Village3D() {
   return (
     <div className="fixed inset-0 overflow-hidden bg-black" data-testid="village3d-root">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
+      {!hud && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">Caricamento…</div>}
       <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")} />
       <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />
       {hud?.foe && (
