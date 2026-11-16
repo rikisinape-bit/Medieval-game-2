@@ -26,7 +26,7 @@ const bake = (g) => {
     c.updateMatrix();
     let geo = c.geometry.clone().applyMatrix4(c.matrix);
     if (geo.index) geo = geo.toNonIndexed();
-    Object.keys(geo.attributes).forEach((k) => { if (k !== "position" && k !== "normal") geo.deleteAttribute(k); });
+    Object.keys(geo.attributes).forEach((k) => { if (k !== "position" && k !== "normal" && !(k === "uv" && c.material.map)) geo.deleteAttribute(k); });
     if (!byMat.has(c.material)) byMat.set(c.material, []);
     byMat.get(c.material).push(geo);
     g.remove(c);
@@ -216,26 +216,75 @@ export function makeCarriage() {
 }
 
 // Enterable house: walls with a door gap, a hinged door, bed, table and a chest. Local rects are used for collision.
+// With `kit` ({ wall, beam } materials of the medieval kit) only the ground floor is built, in the kit's half-timbered
+// style and with a ceiling: the upper floors and the roof come from the kit (kitHouseTop) and sit on top, at HOUSE_H.
 export const HOUSE_RECTS = [[0, -1.9, 2.2, 0.1], [-2.2, 0, 0.1, 1.9], [2.2, 0, 0.1, 1.9], [-1.35, 1.9, 0.85, 0.1], [1.35, 1.9, 0.85, 0.1], [-1.3, -0.9, 0.5, 0.9], [1.25, -0.8, 0.5, 0.4], [1.45, 1.05, 0.4, 0.25]];
 export const CHEST_LOCAL = [1.45, 1.05];
-export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false) {
+export const HOUSE_H = 2.8;
+const TILE = 1.6;                                        // metres covered by one repeat of the kit's wall texture
+// Textured box: UVs in metres / TILE on every face, so the texture keeps its size whatever the box.
+const tbox = (w, h, d, m) => {
+  const geo = new THREE.BoxGeometry(w, h, d), uv = geo.attributes.uv, n = geo.attributes.normal;
+  for (let i = 0; i < uv.count; i++) {
+    const ax = Math.abs(n.getX(i)), ay = Math.abs(n.getY(i));
+    const [su, sv] = ax > 0.5 ? [d, h] : ay > 0.5 ? [w, d] : [w, h];
+    uv.setXY(i, (uv.getX(i) * su) / TILE, (uv.getY(i) * sv) / TILE);
+  }
+  const o = new THREE.Mesh(geo, m); o.castShadow = true; o.receiveShadow = true; return o;
+};
+const beamBetween = (m, x1, y1, x2, y2, z, t = 0.14) => {        // diagonal brace in a wall facing z
+  const o = new THREE.Mesh(new THREE.BoxGeometry(Math.hypot(x2 - x1, y2 - y1), t, t), m);
+  o.position.set((x1 + x2) / 2, (y1 + y2) / 2, z); o.rotation.z = Math.atan2(y2 - y1, x2 - x1); o.castShadow = true; return o;
+};
+export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false, kit = null) {
   const g = new THREE.Group();
-  const r = cone(3.4, 2, roof, 4); r.rotation.y = Math.PI / 4;
-  const chimney = at(box(0.5, 1.2, 0.5, "#55525a"), 1.2, 4.0, -0.6); g.add(chimney);
+  const H = HOUSE_H, wm = kit ? kit.wall : null;
+  const wbox = (w, h, d) => (kit ? tbox(w, h, d, wm) : box(w, h, d, wall));
+  const beam = kit ? "#3a2210" : "#3a2410";
+  let r = null, chimney = null;
+  if (!kit) {
+    r = cone(3.4, 2, roof, 4); r.rotation.y = Math.PI / 4;
+    chimney = at(box(0.5, 1.2, 0.5, "#55525a"), 1.2, 4.0, -0.6); g.add(chimney, at(r, 0, 3.8, 0));
+  }
   const floor = box(4.4, 0.1, 3.8, stone ? "#6a6560" : "#6a5034"); floor.position.y = 0.05;
-  add(g, floor, at(box(4.4, 2.8, 0.2, wall), 0, 1.4, -1.9), at(box(0.2, 2.8, 3.8, wall), -2.2, 1.4, 0), at(box(0.2, 2.8, 3.8, wall), 2.2, 1.4, 0),
-    at(r, 0, 3.8, 0),
+  add(g, floor, at(wbox(4.4, H, 0.2), 0, H / 2, -1.9), at(wbox(0.2, H, 3.8), -2.2, H / 2, 0), at(wbox(0.2, H, 3.8), 2.2, H / 2, 0),
     at(box(1.0, 0.4, 1.8, "#6a4426"), -1.3, 0.3, -0.9), at(box(0.9, 0.12, 1.6, stone ? "#8a2a2a" : "#b8b0a0"), -1.3, 0.55, -0.9), at(box(0.7, 0.12, 0.4, "#e8dcc4"), -1.3, 0.58, -1.6),
     at(box(1.0, 0.08, 0.8, "#5e3c1e"), 1.25, 0.75, -0.8), at(box(0.3, 0.3, 0.3, "#c9a95a"), 1.1, 0.95, -0.9), at(box(0.5, 0.5, 0.5, "#5e3c1e"), 1.9, 0.25, 0.3),
     at(box(0.8, 0.12, 1.7, "#b89a5a"), 0, 0.06, -1.0), at(box(0.6, 0.08, 0.35, "#e8dcc4"), 0, 0.15, -1.65),
     at(box(0.8, 0.5, 0.5, "#5a3a1a"), 1.45, 0.3, 1.05), at(box(0.84, 0.08, 0.54, "#c9a24a"), 1.45, 0.42, 1.05));
   [[0.83, -1.12], [1.67, -1.12], [0.83, -0.48], [1.67, -0.48]].forEach(([x, z]) => g.add(at(box(0.08, 0.7, 0.08, "#3a2410"), x, 0.37, z)));
-  [[-2.2, 1.9], [2.2, 1.9], [-2.2, -1.9], [2.2, -1.9]].forEach(([x, z]) => g.add(at(box(0.18, 2.8, 0.18, "#3a2410"), x, 1.4, z)));
-  const front = [at(box(1.7, 2.8, 0.2, wall), -1.35, 1.4, 1.9), at(box(1.7, 2.8, 0.2, wall), 1.35, 1.4, 1.9), at(box(1.0, 0.9, 0.2, wall), 0, 2.35, 1.9),
-    at(box(0.6, 0.6, 0.06, "#f2b84a", "#6a4010"), -1.3, 1.7, 1.98), at(box(0.6, 0.6, 0.06, "#f2b84a", "#6a4010"), 1.3, 1.7, 1.98)];
+  [[-2.2, 1.9], [2.2, 1.9], [-2.2, -1.9], [2.2, -1.9]].forEach(([x, z]) => g.add(at(box(0.18, H, 0.18, beam), x, H / 2, z)));
+  if (kit) {
+    // Half-timbering: sill and top beams all round (outside and inside), braces on the walls, a beamed ceiling and
+    // the jetty that carries the kit's upper floor (a little wider than the ground floor).
+    const B = kit.beam;
+    const bm = (w, h, d, x, y, z) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), B); o.castShadow = true; o.receiveShadow = true; return at(o, x, y, z); };
+    [0.08, H - 0.1].forEach((y) => {
+      add(g, bm(4.56, 0.16, 0.26, 0, y, -1.9), bm(0.26, 0.16, 3.96, -2.2, y, 0), bm(0.26, 0.16, 3.96, 2.2, y, 0));
+      if (y > 1) add(g, bm(4.56, 0.16, 0.26, 0, y, 1.9)); else add(g, bm(1.75, 0.16, 0.26, -1.4, y, 1.9), bm(1.75, 0.16, 0.26, 1.4, y, 1.9));
+    });
+    add(g, bm(4.8, 0.18, 4.2, 0, H + 0.01, 0), at(box(4.36, 0.04, 3.76, "#4a3420"), 0, H - 0.2, 0));                          // jetty floor, ceiling boards
+    [-1.4, -0.45, 0.45, 1.4].forEach((x) => g.add(bm(0.14, 0.14, 3.8, x, H - 0.28, 0)));                                      // ceiling joists
+    [0.11, -0.11].forEach((dz) => {                                                                                           // braces, outside faces
+      const zb = -1.9 - dz;
+      add(g, beamBetween(B, -2.1, 0.2, -0.9, H - 0.2, zb), beamBetween(B, 2.1, 0.2, 0.9, H - 0.2, zb), bm(0.14, H, 0.04, 0, H / 2, zb));
+    });
+    [-1, 1].forEach((sx) => {
+      const side = new THREE.Group(); side.position.x = sx * 2.31; side.rotation.y = Math.PI / 2;
+      side.add(beamBetween(B, -1.8, 0.2, -0.4, H - 0.2, 0), beamBetween(B, 1.8, 0.2, 0.4, H - 0.2, 0), bm(0.14, H, 0.04, 0, H / 2, 0));
+      side.updateMatrixWorld(true); [...side.children].forEach((c) => { c.applyMatrix4(side.matrix); g.add(c); });
+    });
+  }
+  const fz = kit ? 1.99 : 1.98, glow = (x) => at(box(0.6, 0.6, 0.06, "#f2b84a", "#6a4010"), x, 1.7, fz);
+  const front = [at(wbox(1.7, H, 0.2), -1.35, H / 2, 1.9), at(wbox(1.7, H, 0.2), 1.35, H / 2, 1.9), at(wbox(1.0, H - 1.9, 0.2), 0, (H + 1.9) / 2, 1.9), glow(-1.3), glow(1.3)];
+  if (kit) [-1.3, 1.3].forEach((x) => front.push(at(box(0.78, 0.1, 0.1, beam), x, 1.35, 2.03), at(box(0.78, 0.1, 0.1, beam), x, 2.05, 2.03),
+    at(box(0.1, 0.8, 0.1, beam), x - 0.38, 1.7, 2.03), at(box(0.1, 0.8, 0.1, beam), x + 0.38, 1.7, 2.03), at(box(0.06, 0.62, 0.06, beam), x, 1.7, 2.02),
+    at(box(0.3, 0.75, 0.05, "#2e1c0e"), x - 0.58, 1.7, 2.04), at(box(0.3, 0.75, 0.05, "#2e1c0e"), x + 0.58, 1.7, 2.04)));               // window frames, shutters
+  if (kit) front.push(at(box(1.18, 0.14, 0.16, beam), 0, 1.97, 1.96), at(box(0.12, 1.9, 0.16, beam), -0.55, 0.95, 1.96), at(box(0.12, 1.9, 0.16, beam), 0.55, 0.95, 1.96)); // door frame
   front.forEach((m) => g.add(m));
   const door = at(new THREE.Group(), -0.5, 0, 1.9);
   door.add(at(box(0.95, 1.8, 0.08, "#3a2210"), 0.475, 0.9, 0), at(box(0.08, 0.08, 0.08, "#c9a24a"), 0.8, 0.95, 0.07));
+  if (kit) door.add(at(box(0.95, 0.1, 0.1, "#24160a"), 0.475, 0.4, 0.02), at(box(0.95, 0.1, 0.1, "#24160a"), 0.475, 1.4, 0.02));
   g.add(door);
   g.userData = { roof: r, chimney, door, front, open: 0 };
   return bake(g);

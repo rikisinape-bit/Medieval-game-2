@@ -110,6 +110,65 @@ export function addNature(scene, items, meshes = []) {
   return Math.round(tris);
 }
 
+// A kit material by its original name (e.g. "Wall_Tile_03_Mat"), to dress our own geometry in the kit's style.
+export const kitMaterial = (name) => {
+  for (const parts of Object.values(lib || {})) for (const p of parts) if (p.material.name === "Kit_" + name) return p.material;
+  return null;
+};
+
+/**
+ * Upper part of a kit house, for houses whose ground floor is ours (enterable): everything above `cut` metres is
+ * kept (triangles crossing the cut are clipped), then it is fitted on a w x d footprint (x = width, z = depth) and
+ * stretched by sy in height, with its base at y = 0. turn: rotate the piece a quarter turn first (front to the side).
+ * The footprint is measured on the walls just above the cut, so porches and awnings lower down do not count.
+ * Registered under a new id, usable with addNature like any other piece. Returns the id (null without the kit).
+ */
+export function kitHouseTop(id, { cut, w, d, sy = 1, turn = false }) {
+  const key = `${id}@${cut}${turn ? "t" : ""}:${w}x${d}x${sy}`;
+  if (!lib?.[id]) return null;
+  if (lib[key]) return key;
+  // 1. Clip every triangle against the plane y = cut (keep the part above).
+  const clipped = lib[id].map(({ geometry, material }) => {
+    const g = geometry.index ? geometry.toNonIndexed() : geometry;
+    const P = g.attributes.position.array, N = g.attributes.normal.array, U = g.attributes.uv.array;
+    const pos = [], nrm = [], uv = [];
+    const vert = (i) => ({ p: [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]], n: [N[i * 3], N[i * 3 + 1], N[i * 3 + 2]], u: [U[i * 2], U[i * 2 + 1]] });
+    const lerp = (a, b, t) => ({ p: a.p.map((v, k) => v + (b.p[k] - v) * t), n: a.n.map((v, k) => v + (b.n[k] - v) * t), u: a.u.map((v, k) => v + (b.u[k] - v) * t) });
+    const emit = (v) => { pos.push(v.p[0], v.p[1] - cut, v.p[2]); nrm.push(...v.n); uv.push(...v.u); };
+    for (let i = 0; i < P.length / 3; i += 3) {
+      const tri = [vert(i), vert(i + 1), vert(i + 2)], poly = [];
+      if (tri.every((v) => v.p[1] >= cut)) { tri.forEach(emit); continue; }
+      if (tri.every((v) => v.p[1] < cut)) continue;
+      for (let k = 0; k < 3; k++) {                      // Sutherland-Hodgman against one plane
+        const a = tri[k], b = tri[(k + 1) % 3], ia = a.p[1] >= cut, ib = b.p[1] >= cut;
+        if (ia) poly.push(a);
+        if (ia !== ib) poly.push(lerp(a, b, (cut - a.p[1]) / (b.p[1] - a.p[1])));
+      }
+      for (let k = 1; k + 1 < poly.length; k++) [poly[0], poly[k], poly[k + 1]].forEach(emit);
+    }
+    return { material, pos, nrm, uv };
+  }).filter((c) => c.pos.length);
+  // 2. Footprint of the walls just above the cut.
+  let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+  clipped.forEach(({ pos }) => { for (let i = 0; i < pos.length; i += 3) if (pos[i + 1] < 0.35) { x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2]); } });
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+  const [fw, fd] = turn ? [z1 - z0, x1 - x0] : [x1 - x0, z1 - z0];
+  // 3. Centre, turn, scale (non-uniform: normals use the inverse-transpose of the scale).
+  const m = new THREE.Matrix4().makeScale(w / fw, sy, d / fd);
+  if (turn) m.multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2));
+  m.multiply(new THREE.Matrix4().makeTranslation(-cx, 0, -cz));
+  lib[key] = clipped.map(({ material, pos, nrm, uv }) => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3));
+    geo.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex([...Array(pos.length / 3).keys()]);
+    geo.applyMatrix4(m); geo.normalizeNormals();
+    return { geometry: geo, material };
+  });
+  return key;
+}
+
 // One piece as its own object (for things that move, like the castle gate).
 export function kitObject(id) {
   const g = new THREE.Group();
