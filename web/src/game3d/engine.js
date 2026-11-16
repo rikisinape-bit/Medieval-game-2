@@ -9,6 +9,7 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
+import { hasNature, addNature } from "./nature";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -36,8 +37,9 @@ export function createGame(canvas, hooks, saved) {
 
   const obstacles = [], rects = [];
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
-  const treeG = new THREE.Group();
-  const putTree = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); treeG.add(o); if (r) obstacles.push({ x, z, r }); return o; };
+  // Trees are only recorded here (position + collision circle); the models are added later, all together.
+  const treeSpots = [], S_nature = { tris: 0, count: 0 };
+  const putTree = (pine, x, z, ry = 0, r = 0) => { treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r }); };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
   const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
@@ -89,10 +91,10 @@ export function createGame(canvas, hooks, saved) {
   const treeOk = (x, z) => pathDist(x, z) > 4.6 && Math.hypot(x - CAMP[0], z - CAMP[1]) > 5.5 && !banditDefs.some((d) => Math.hypot(x - d.pos[0], z - d.pos[1]) < 1.3) && !PICKUPS.some((p) => Math.hypot(x - p.x, z - p.z) < 1.2);
   for (let gx = -28; gx <= 28; gx += 4.6) for (let gz = -36; gz > WZ + 3; gz -= 4.6) {
     const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
-    if (treeOk(x, z)) putTree(makeTree(rnd() < 0.5), x, z, rnd() * 6, 0.8);
+    if (treeOk(x, z)) putTree(rnd() < 0.5, x, z, rnd() * 6, 0.8);
   }
-  for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => putTree(makeTree(z % 2 === 0), s * (31.5 + (z % 3)), z, z, 0.9));
-  banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(makeTree(true), d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
+  for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => putTree(z % 2 === 0, s * (31.5 + (z % 3)), z, z, 0.9));
+  banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(true, d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
   // Wall of Valdoro and the square beyond
   const wallG = put(makeCityWall(), 0, WZ);
   const gate = wallG.userData.gate;
@@ -106,7 +108,7 @@ export function createGame(canvas, hooks, saved) {
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r]) => put(makeStall(), x, z, r, 1.6));
   put(makeBench(), -6, WZ - 25.2, 0.3);
-  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => putTree(makeTree(i % 2), x, z, i, 0.9));
+  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
   // Mine cave in the western hill
   put(makeCave(), CX, CZ);
   [[CX, -12.5, 13, 0.5], [CX, 12.5, 13, 0.5], [CX - 12.5, 0, 0.5, 13], [CX + 12.5, -6.85, 0.5, 5.15], [CX + 12.5, 6.85, 0.5, 5.15], [CX + 14.5, -2.2, 2.5, 0.5], [CX + 14.5, 2.2, 2.5, 0.5]].forEach(([cx, cz, hw, hd]) => rects.push({ cx, cz, hw, hd, ry: 0 }));
@@ -115,12 +117,82 @@ export function createGame(canvas, hooks, saved) {
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2, d = 31 + (i * 7) % 9, x = Math.cos(a) * d, z = Math.sin(a) * d;
     if ((z < -27 && Math.abs(x) < 9) || (x < -27 && Math.abs(z) < 14)) continue;
-    putTree(makeTree(i % 3 === 0), x, z, i, 0.9);
+    putTree(i % 3 === 0, x, z, i, 0.9);
   }
-  [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(makeTree(i % 2), x, z, i, 0.9));
+  [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
 
-  // Bake all trees into one mesh per material: far fewer draw calls on mobile.
-  {
+  if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
+  // ---- Vegetation ----
+  const natureMeshes = [];
+  if (hasNature()) {
+    // Tree models from the nature pack, instanced. Same positions and collisions as before.
+    let ns = 12345; const nr = () => { ns = (ns * 16807) % 2147483647; return (ns - 1) / 2147483646; };   // own RNG: the tree layout RNG is untouched
+    const items = [];
+    const inForest = (x, z) => z < -31 && z > WZ && Math.abs(x) < 30;
+    treeSpots.forEach((t, i) => {
+      const dead = inForest(t.x, t.z) && i % 19 === 7;                              // a few dead trees in the forest
+      const id = dead ? "morto" : `${t.pine ? "pino" : "albero"}_${1 + Math.floor(nr() * 3)}`;
+      items.push({ id, x: t.x, z: t.z, ry: nr() * 6.28, k: 0.85 + nr() * 0.35 });
+    });
+    // Landmarks: great twisted trees with blood-red leaves
+    [[8.5, -71.5, 1], [-22, -48, 2], [21, -66, 1], [-19, -93, 2], [-23.5, WZ + 9, 1], [25, -37, 2]].forEach(([x, z, v]) => {
+      items.push({ id: `contorto_${v}`, x, z, ry: nr() * 6.28, k: 0.9 + nr() * 0.25 }); obstacles.push({ x, z, r: 1.1 });
+    });
+    // Undergrowth: no collisions (except the big rocks), kept away from paths, houses and other obstacles.
+    const freeOf = (x, z, m) => !obstacles.some((o) => Math.hypot(x - o.x, z - o.z) < o.r + m);
+    const scatter = (id, n, pick, ok, kMin = 0.75, kMax = 1.25) => {
+      for (let i = 0, tries = 0; i < n && tries < n * 30; tries++) {
+        const [x, z] = pick();
+        if (!ok(x, z)) continue;
+        items.push({ id, x, z, ry: nr() * 6.28, k: kMin + nr() * (kMax - kMin) }); i++;
+        if (id === "roccia") obstacles.push({ x, z, r: 0.95 });
+      }
+    };
+    const forestPt = () => [(nr() - 0.5) * 58, -34 - nr() * (-34 - WZ - 4)];
+    const offPath = (m) => (x, z) => pathDist(x, z) > m && Math.hypot(x - CAMP[0], z - CAMP[1]) > 5 && freeOf(x, z, 0.5);
+    scatter("felce", 70, forestPt, offPath(3.7));
+    scatter("cespuglio", 22, forestPt, offPath(4.2));
+    scatter("cespuglio_fiorito", 8, forestPt, offPath(4.2));
+    scatter("erba", 110, forestPt, offPath(3.4));
+    scatter("erba_alta", 60, forestPt, offPath(3.5));
+    scatter("pianta_grande", 28, forestPt, offPath(3.5));
+    scatter("pianta", 28, forestPt, offPath(3.3));
+    scatter("trifoglio", 22, forestPt, offPath(3.4));
+    scatter("roccia", 10, forestPt, offPath(5.2), 0.7, 1.3);
+    scatter("fungo", 14, () => { const t = treeSpots[Math.floor(nr() * treeSpots.length)], a = nr() * 6.28; return [t.x + Math.cos(a) * 0.75, t.z + Math.sin(a) * 0.75]; }, (x, z) => inForest(x, z) && pathDist(x, z) > 3.5, 0.7, 1.1);
+    const pathPt = () => { const i = 1 + Math.floor(nr() * (PATH.length - 1)), t = nr(), a = PATH[i - 1], b = PATH[i]; return [a[0] + (b[0] - a[0]) * t + (nr() - 0.5) * 7, a[1] + (b[1] - a[1]) * t + (nr() - 0.5) * 3]; };
+    scatter("sasso_tondo", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
+    scatter("sasso_quadro", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
+    // Village surroundings (outside the square and the dirt roads)
+    const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]];
+    const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
+    const villageOk = (m) => (x, z) => !ROADS.some(([cx, cz, w, d]) => Math.abs(x - cx) < w / 2 + 1 && Math.abs(z - cz) < d / 2 + 1)
+      && !HOUSES.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 4.3) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
+      && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && !(x < -24 && Math.abs(z) < 3) && freeOf(x, z, m);
+    scatter("erba", 55, villagePt, villageOk(0.4));
+    scatter("erba_alta", 36, villagePt, villageOk(0.4));
+    scatter("cespuglio_fiorito", 9, villagePt, villageOk(1));
+    scatter("cespuglio", 4, villagePt, villageOk(1));
+    scatter("fiori", 10, villagePt, villageOk(0.5), 0.7, 1.1);
+    scatter("petali", 8, villagePt, villageOk(0.5));
+    scatter("trifoglio", 18, villagePt, villageOk(0.4));
+    scatter("pianta", 14, villagePt, villageOk(0.4));
+    scatter("sasso_tondo", 12, villagePt, villageOk(0.3), 0.8, 1.6);
+    scatter("roccia", 3, () => { const a = nr() * 6.28, d = 26.5 + nr() * 3.5; return [Math.cos(a) * d, Math.sin(a) * d]; }, villageOk(2), 0.7, 1.1);
+    // Valdoro: grass along the walls, flowers by the fountain
+    scatter("erba_alta", 12, () => [(nr() < 0.5 ? -1 : 1) * (14.6 + nr() * 0.8), WZ - 3 - nr() * 26], (x, z) => freeOf(x, z, 0.4));
+    scatter("fiori", 4, () => { const a = nr() * 6.28; return [Math.cos(a) * 3.1, WZ - 16 + Math.sin(a) * 3.1]; }, () => true, 0.6, 0.9);
+    // Paving stones around the well, the fountain and in front of the gate
+    const ring = (cx, cz, rad, n) => { for (let i = 0; i < n; i++) { const a = (i / n) * 6.28; items.push({ id: "selciato", x: cx + Math.cos(a) * rad, z: cz + Math.sin(a) * rad, ry: -a + 1.57, k: 0.95 + nr() * 0.2 }); } };
+    ring(0, 0, 2.1, 9); ring(0, WZ - 16, 3.4, 12);
+    [-1.6, 0, 1.6].forEach((x) => [2.2, 3.5, -2.2].forEach((dz) => items.push({ id: "selciato", x: x + (nr() - 0.5) * 0.3, z: WZ + dz, ry: nr() < 0.5 ? 0 : 1.57, k: 1.3 })));
+    S_nature.tris = addNature(scene, items, natureMeshes);
+    S_nature.count = items.length;
+    console.info(`Vegetazione: ${S_nature.count} elementi, ${S_nature.tris} triangoli in ${natureMeshes.length} gruppi`);
+  } else {
+    // Fallback: the old procedural trees, baked into one mesh per material.
+    const treeG = new THREE.Group();
+    treeSpots.forEach((t) => { const o = makeTree(t.pine); at(o, t.x, 0, t.z, t.ry); treeG.add(o); });
     treeG.updateMatrixWorld(true);
     const byMat = new Map();
     treeG.traverse((o) => {
@@ -276,6 +348,9 @@ export function createGame(canvas, hooks, saved) {
     lightT -= dt;
     if (lightT <= 0) {
       lightT = 0.4;
+      // Vegetation chunks hidden beyond the fog are not drawn at all.
+      const reach = scene.fog.far + 6;
+      natureMeshes.forEach((m) => { const c = m.geometry.boundingSphere; m.visible = Math.hypot(c.center.x - P.x, c.center.z - P.z) - c.radius < reach; });
       const best = anchors.filter((a) => !a.night || lan > 0).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z)).slice(0, pool.length);
       pool.forEach((l, i) => { const a = best[i]; l.userData.a = a || null; if (a && l.userData.cur !== a) { l.userData.cur = a; l.position.set(a.x, a.y, a.z); l.color.set(a.color); l.distance = a.distance; l.intensity = 0; } });
     }
@@ -766,8 +841,10 @@ export function createGame(canvas, hooks, saved) {
 
     scanT -= dt;
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
+    const seeFar = scene.fog.far + 4;   // characters hidden by the fog are not drawn (the simulation still runs)
     npcs.forEach((n) => {
-      if (n.horse) at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw);
+      n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
+      if (n.horse) { at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }
       if (!n.alive) { at(n.mesh, n.x, 0.25, n.z, n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "dead"); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); return; }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);

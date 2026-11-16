@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
 import { createGame } from "@/game3d/engine";
+import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import GameMenu from "@/components/GameMenu";
@@ -74,6 +75,7 @@ export default function Village3D() {
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
     (async () => {
       const saved = loadSave();
+      await loadNature(); // trees, bushes, rocks... (falls back to procedural trees if it fails)
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,

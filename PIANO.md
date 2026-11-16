@@ -127,6 +127,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - **Grafica attuale (gioco web)**: tutto fatto a codice, low-poly, stesso stile per tutti (opzione A):
   - `web/src/game3d/body.js` corpi, volti, capelli, barbe, abiti e armature; `weapons.js` armi e scudi; `items3d.js` oggetti e attrezzi
   - una mesh unita per parte con colori nei vertici, materiali condivisi, geometrie in cache (~1.200 triangoli e 6–7 disegni per PNG)
+  - **vegetazione** dal pacchetto natura (pini, alberi a chioma, alberi contorti e morti, cespugli, felci, erba, funghi, rocce, sassi, selciato): originali in `assets/models/natura/` (31 file, 42 MB); `web/tools/optimize-nature.mjs` (`npm run nature`) li semplifica, scurisce le texture e crea un solo `web/public/models/natura.glb` (0,55 MB); `web/src/game3d/nature.js` li fonde in una mesh per materiale per zona di 20 m
   - i modelli GLB del pacchetto "Ultimate Modular Men" non sono più usati nel gioco; gli originali restano in `assets/models/personaggi/` (utili per Godot)
 
 ## 8. Convenzioni
