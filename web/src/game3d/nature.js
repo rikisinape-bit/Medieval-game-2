@@ -23,52 +23,59 @@ export const NATURE = {
   roccia: { s: 0.5, shadow: true }, sasso_tondo: { s: 1 }, sasso_quadro: { s: 1 }, selciato: { s: 1 },
 };
 
-let lib = null;
-export const hasNature = () => !!lib;
+let lib = null, natureOk = false, kitOk = false;
+export const hasNature = () => natureOk;
+export const hasKit = () => kitOk;
 
-export async function loadNature() {
-  try {
-    const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    let gltf;
-    if (EXT === "js") {
-      const { default: b64 } = await import(/* @vite-ignore */ new URL("models/natura.js", document.baseURI).href);
-      gltf = await loader.parseAsync(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer, "");
-    } else gltf = await loader.loadAsync("models/natura.glb");
-    const mats = new Map();
-    // Cheaper Lambert materials; foliage uses a hard alpha cut-out (no sorting problems, no overdraw blending).
-    const convert = (m) => {
-      if (!mats.has(m)) {
-        const cut = m.transparent || m.alphaTest > 0 || /Leaves|Flowers|Grass/.test(m.name);
-        if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-        mats.set(m, new THREE.MeshLambertMaterial({ map: m.map, color: m.color, alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide, name: m.name }));
-      }
-      return mats.get(m);
-    };
-    const out = {};
-    gltf.scene.updateMatrixWorld(true);
-    gltf.scene.children.forEach((node) => {
-      const parts = [];
-      node.traverse((o) => {
-        if (!o.isMesh) return;
-        // Positions are stored quantised (normalised integers): turn them into floats before baking the transform.
-        const geo = o.geometry.clone(), src = geo.attributes.position, pos = new Float32Array(src.count * 3);
-        for (let i = 0; i < src.count; i++) { pos[i * 3] = src.getX(i); pos[i * 3 + 1] = src.getY(i); pos[i * 3 + 2] = src.getZ(i); }
-        geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-        const suv = geo.attributes.uv, uv = new Float32Array(suv.count * 2);
-        for (let i = 0; i < suv.count; i++) { uv[i * 2] = suv.getX(i); uv[i * 2 + 1] = suv.getY(i); }
-        geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
-        Object.keys(geo.attributes).forEach((k) => { if (!["position", "uv"].includes(k)) geo.deleteAttribute(k); });
-        geo.applyMatrix4(o.matrixWorld); geo.computeVertexNormals();
-        parts.push({ geometry: geo, material: convert(o.material) });
-      });
-      if (parts.length) out[node.name] = parts;
+// Loads one GLB (or its base64 JS module in the published page) and returns { id: [{ geometry, material }] }.
+async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
+  const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+  let gltf;
+  if (EXT === "js") {
+    const { default: b64 } = await import(/* @vite-ignore */ new URL(`models/${name}.js`, document.baseURI).href);
+    gltf = await loader.parseAsync(Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer, "");
+  } else gltf = await loader.loadAsync(`models/${name}.glb`);
+  const mats = new Map();
+  // Cheaper Lambert materials; foliage uses a hard alpha cut-out (no sorting problems, no overdraw blending).
+  const convert = (m) => {
+    if (!mats.has(m)) {
+      const cut = m.transparent || m.alphaTest > 0 || /Leaves|Flowers|Grass/.test(m.name);
+      if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
+      const lm = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, emissive: m.emissive, alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide, name: (castAll ? "Kit_" : "") + m.name });
+      lm.userData.cast = castAll || CASTS.test(m.name);
+      mats.set(m, lm);
+    }
+    return mats.get(m);
+  };
+  // Attributes are stored quantised (normalised integers): turn them into floats before baking transforms.
+  const floatAttr = (src, size) => { const out = new Float32Array(src.count * size); for (let i = 0; i < src.count; i++) { out[i * size] = src.getX(i); out[i * size + 1] = src.getY(i); if (size === 3) out[i * size + 2] = src.getZ(i); } return new THREE.BufferAttribute(out, size); };
+  const out = {};
+  gltf.scene.updateMatrixWorld(true);
+  gltf.scene.children.forEach((node) => {
+    const parts = [];
+    node.traverse((o) => {
+      if (!o.isMesh) return;
+      const src = o.geometry, geo = new THREE.BufferGeometry();
+      geo.setIndex(src.index);
+      geo.setAttribute("position", floatAttr(src.attributes.position, 3));
+      geo.setAttribute("uv", src.attributes.uv ? floatAttr(src.attributes.uv, 2) : new THREE.BufferAttribute(new Float32Array(src.attributes.position.count * 2), 2));
+      if (keepNormals && src.attributes.normal) geo.setAttribute("normal", floatAttr(src.attributes.normal, 3));
+      geo.applyMatrix4(o.matrixWorld);
+      if (!geo.attributes.normal) geo.computeVertexNormals(); else geo.normalizeNormals();
+      parts.push({ geometry: geo, material: convert(o.material) });
     });
-    lib = out;
-  } catch (e) {
-    console.warn("Natura non caricata: restano gli alberi procedurali", e);
-    lib = null;
-  }
-  return !!lib;
+    if (parts.length) out[node.name] = parts;
+  });
+  return out;
+}
+
+// Loads the vegetation and the medieval building kit. Either can fail on its own (the game has fallbacks).
+export async function loadNature() {
+  lib = null; kitOk = false;
+  try { lib = await loadLib("natura"); } catch (e) { console.warn("Natura non caricata: restano gli alberi procedurali", e); }
+  try { const kit = await loadLib("kit", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...kit }; kitOk = true; } catch (e) { console.warn("Kit medievale non caricato: restano gli edifici procedurali", e); }
+  natureOk = !!lib && !!lib.pino_1;
+  return natureOk;
 }
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
@@ -96,9 +103,16 @@ export function addNature(scene, items, meshes = []) {
     geos.forEach((g) => g.dispose());
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, material);
-    mesh.castShadow = CASTS.test(material.name); mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
+    mesh.castShadow = !!material.userData.cast; mesh.receiveShadow = true; mesh.matrixAutoUpdate = false;
     scene.add(mesh); meshes.push(mesh);
     tris += geo.index.count / 3;
   });
   return Math.round(tris);
+}
+
+// One piece as its own object (for things that move, like the castle gate).
+export function kitObject(id) {
+  const g = new THREE.Group();
+  (lib?.[id] || []).forEach((part) => { const m = new THREE.Mesh(part.geometry, part.material); m.castShadow = true; m.receiveShadow = true; g.add(m); });
+  return g;
 }

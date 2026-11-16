@@ -9,7 +9,7 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
-import { hasNature, addNature } from "./nature";
+import { hasNature, hasKit, addNature, kitObject } from "./nature";
 import { makeMountain, mountainHeight } from "./mountain";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -39,7 +39,7 @@ export function createGame(canvas, hooks, saved) {
   const obstacles = [], rects = [];
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
   // Trees are only recorded here (position + collision circle); the models are added later, all together.
-  const treeSpots = [], S_nature = { tris: 0, count: 0 };
+  const treeSpots = [], S_nature = { tris: 0, count: 0 }, natureMeshes = [];
   const putTree = (pine, x, z, ry = 0, r = 0) => {
     if (mountainHeight(x, z) > 0.4) return;                    // no trees half-buried in the mountain
     treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r });
@@ -100,15 +100,46 @@ export function createGame(canvas, hooks, saved) {
   for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => putTree(z % 2 === 0, s * (31.5 + (z % 3)), z, z, 0.9));
   banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(true, d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
   // Wall of Valdoro and the square beyond
-  const wallG = put(makeCityWall(), 0, WZ);
-  const gate = wallG.userData.gate;
-  [-25.5, 25.5].forEach((x) => { const w = box(11, 6, 2, "#8a8478"); at(w, x, 3, WZ); scene.add(w); });
-  rects.push({ cx: -17, cz: WZ, hw: 14, hd: 1, ry: 0 }, { cx: 17, cz: WZ, hw: 14, hd: 1, ry: 0 });
+  let gate;
   const gateRect = { cx: 0, cz: WZ, hw: 3, hd: 0.6, ry: 0, off: false };
+  if (hasKit()) {
+    // Castle built from the medieval kit: gatehouse with portcullis, crenellated curtain walls, towers, keep.
+    const W1 = 9.74, kit = [];                                   // W1 = length of a wall segment
+    const add = (id, x, z, ry = 0, y = 0, k = 1) => kit.push({ id, x, z, ry, y, k });
+    add("castle_entrance", 0, WZ);
+    [1, 2, 3].forEach((i) => [-1, 1].forEach((sd) => add("castle_wall_01", sd * (6.62 + W1 * (i - 0.5)), WZ)));          // front curtain wall
+    [-1, 1].forEach((sd) => {
+      add("tower_02", sd * 7.4, WZ + 0.9);                                                                                // gate towers
+      add("tower_04", sd * 17.7, WZ + 0.3);                                                                               // where the town walls meet the front
+      add("tower_05", sd * 35.6, WZ);                                                                                     // ends of the curtain wall
+      [0, 1, 2].forEach((i) => add("castle_wall_01", sd * 17.7, WZ - 1.7 - W1 * (i + 0.5), Math.PI / 2));                 // town side walls
+      add("tower_06", sd * 17.7, WZ - 32.2);                                                                              // back corners
+      add("tower_13", sd * 17.7, WZ - 16.5);
+    });
+    [-1.5, -0.5, 0.5, 1.5].forEach((i) => add("castle_wall_01", i * W1, WZ - 32.2));                                      // back wall
+    // The keep, behind the back wall
+    add("castle_part_019", 0, WZ - 39.5); add("castle_part_013", 0, WZ - 39.5, 0, 10.5);
+    add("tower_03", -10.5, WZ - 38.5); add("tower_08", 10.2, WZ - 37.6); add("castle_part_017", 7.2, WZ - 43.5, 0, 0, 1.3); add("castle_part_020", -4, WZ - 46.5);
+    addNature(scene, kit, natureMeshes);
+    // Portcullis: its own object so it can be raised; the part that goes up inside the gatehouse is clipped away.
+    renderer.localClippingEnabled = true;
+    const clip = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 7.2)];
+    gate = kitObject("closed_gate");
+    gate.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o.material.clippingPlanes = clip; } });
+    at(gate, 0, 0, WZ - 0.3); scene.add(gate);
+    rects.push({ cx: -16.8, cz: WZ, hw: 14.5, hd: 1.7, ry: 0 }, { cx: 16.8, cz: WZ, hw: 14.5, hd: 1.7, ry: 0 },
+      { cx: -4.45, cz: WZ, hw: 2.15, hd: 2.6, ry: 0 }, { cx: 4.45, cz: WZ, hw: 2.15, hd: 2.6, ry: 0 });
+    gateRect.hw = 2.35;
+  } else {
+    const wallG = put(makeCityWall(), 0, WZ);
+    gate = wallG.userData.gate;
+    [-25.5, 25.5].forEach((x) => { const w = box(11, 6, 2, "#8a8478"); at(w, x, 3, WZ); scene.add(w); });
+    rects.push({ cx: -17, cz: WZ, hw: 14, hd: 1, ry: 0 }, { cx: 17, cz: WZ, hw: 14, hd: 1, ry: 0 });
+    obstacles.push({ x: -3.8, z: WZ + 0.4, r: 1.5 }, { x: 3.8, z: WZ + 0.4, r: 1.5 });
+    put(makeValdoroWalls(), 0, WZ);
+  }
   rects.push(gateRect);
-  obstacles.push({ x: -3.8, z: WZ + 0.4, r: 1.5 }, { x: 3.8, z: WZ + 0.4, r: 1.5 });
   put(box(34, 0.13, 30, "#8a8478"), 0, WZ - 16);
-  put(makeValdoroWalls(), 0, WZ);
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r]) => put(makeStall(), x, z, r, 1.6));
   put(makeBench(), -6, WZ - 25.2, 0.3);
@@ -130,7 +161,6 @@ export function createGame(canvas, hooks, saved) {
 
   if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
   // ---- Vegetation ----
-  const natureMeshes = [];
   if (hasNature()) {
     // Tree models from the nature pack, instanced. Same positions and collisions as before.
     let ns = 12345; const nr = () => { ns = (ns * 16807) % 2147483647; return (ns - 1) / 2147483646; };   // own RNG: the tree layout RNG is untouched
@@ -781,7 +811,7 @@ export function createGame(canvas, hooks, saved) {
       S.gateOpen = open; gateRect.off = open;
       if (Math.hypot(P.x, P.z - WZ) < 45) { sfx.gate(0.8); say(open ? "Le porte di Valdoro si aprono cigolando!" : "Le porte di Valdoro si chiudono con un tonfo."); }
     }
-    gate.position.y += ((open ? 5 : 0) - gate.position.y) * Math.min(1, dt * 1.2);
+    gate.position.y += ((open ? 5.2 : 0) - gate.position.y) * Math.min(1, dt * 1.2);
   }
 
   function updateHud(dt) {

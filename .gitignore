@@ -2,3 +2,6 @@
 *.import
 export_presets.cfg
 android/
+
+# Pacchetti originali di terzi: non vanno nel repository pubblico (vedi web/tools/convert-kit.mjs)
+assets/sorgenti/

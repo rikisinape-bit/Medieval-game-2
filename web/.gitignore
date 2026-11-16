@@ -1,2 +1,4 @@
 node_modules/
 dist/
+.kit-cache.json
+.kit-sizes.json
