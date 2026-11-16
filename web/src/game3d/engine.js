@@ -309,8 +309,8 @@ export function createGame(canvas, hooks, saved) {
     camera.remove(vm.g); vm = makeViewmodel(playerLook(P.eq)); camera.add(vm.g);
     torchLight = null; torchLamp.intensity = 0;
     const s = makeSword(0, P.eq.hand);
-    s.rotation.x = 2.4; vm.handR.add(s);                                                    // blade up and forward
-    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = -1.2; vm.handL.add(at(t, 0, -0.02, 0.02)); torchLight = torchLamp; }
+    vm.fistR.add(s);                                                                        // through the fist: blade up and forward
+    if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2; vm.fistL.add(t); torchLight = torchLamp; }
     else if (P.eq.off) {                                                                    // shield held low on the left, edge-on, face turned outwards
       const sh = makeShield(ITEMS[P.eq.off].color, SHIELD_KIND[P.eq.off]); sh.scale.setScalar(0.85);
       const w = new THREE.Group(); w.rotation.set(1.85, 0, 0); sh.rotation.y = -1.15; w.add(sh); vm.handL.add(at(w, -0.06, -0.02, 0));

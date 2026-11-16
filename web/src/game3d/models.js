@@ -65,10 +65,18 @@ export const LOOKS = {
 
 // Hand tools of the NPCs' daily routines, in the new item style (items3d.js). Same palm point as weapons.
 const GRIP_TOOLS = new Set(["ascia", "martello", "scopa"]);
-export function makeTool(id) {
+// Puts an object authored with its grip at the origin and the blade/haft along +Z into the right fist of a body
+// (bodyGeometries): at the centre of the fist, along the fist's axis. left: the left fist.
+const _z = new THREE.Vector3(0, 0, 1);
+export function inFist(o, geo, left = false) {
+  o.position.set(...(left ? geo.gripL : geo.grip));
+  o.quaternion.setFromUnitVectors(_z, new THREE.Vector3(...(left ? geo.gripAxisL : geo.gripAxis)));
+  return o;
+}
+export function makeTool(id, geo) {
   const t = toolModel(id);
-  if (GRIP_TOOLS.has(id)) { at(t, 0, -0.635, 0.015); t.rotation.x = 0.62; }
-  else at(t, 0, -0.64, 0.02);
+  if (GRIP_TOOLS.has(id)) inFist(t, geo);
+  else t.position.set(geo.grip[0], geo.grip[1] - 0.01, geo.grip[2] + 0.01);
   return t;
 }
 // World representation of an inventory item lying on the ground.
@@ -101,21 +109,20 @@ export function makeHuman(look, weapon, seed) {
   body.scale.setScalar(v.height);
   g.add(body);
   const part = (geometry) => { const m = new THREE.Mesh(geometry, BODY_MAT); m.castShadow = true; m.receiveShadow = true; return m; };
-  const pivot = (x, y, geometry) => { const p = at(new THREE.Group(), x, y, 0); p.add(part(geometry)); body.add(p); return p; };
+  const pivot = (p, geometry) => { const o = at(new THREE.Group(), p[0], p[1], p[2]); o.add(part(geometry)); body.add(o); return o; };
+  const P = geo.pivots;
   body.add(part(geo.torso));
-  const hipL = pivot(-geo.hipX, 0.82, geo.legL);
-  const hipR = pivot(geo.hipX, 0.82, geo.legR);
-  const armL = pivot(-geo.shoulderX, 1.52, geo.armL);
-  const armR = pivot(geo.shoulderX, 1.52, geo.armR);
-  const head = pivot(0, 1.8, geo.head);
+  const hipL = pivot(P.legL, geo.legL), hipR = pivot(P.legR, geo.legR);
+  const armL = pivot(P.armL, geo.armL), armR = pivot(P.armR, geo.armR);
+  const head = pivot(P.head, geo.head);
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
-  // weapon: "short" | "long" (NPCs) or any sword key (player)
-  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); at(sword, 0, -0.635, 0.015); sword.rotation.x = 0.62; armR.add(sword); }   // grip through the fist, blade forward and down
-  if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, -0.07, -0.45, 0.08, -Math.PI / 2)); }
+  // weapon: "short" | "long" (NPCs) or any sword key (player); the grip goes through the fist, along its axis
+  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); inFist(sword, geo); armR.add(sword); }
+  if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, ...geo.shieldAt, -Math.PI / 2)); }
   const tools = {};
-  ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id); t.visible = false; armR.add(t); tools[id] = t; });
-  g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null, variant: v };
+  ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.visible = false; armR.add(t); tools[id] = t; });
+  g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null, variant: v, geo };
   return g;
 }
 export const showTool = (g, id) => {
@@ -155,7 +162,7 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     case "panic": armL.rotation.x = armR.rotation.x = -2.9; armL.rotation.z = 0.3; armR.rotation.z = -0.3; break;
     case "look": head.rotation.y = 0.7 * Math.sin(t * 1.2); break;
     case "sneak": hipL.rotation.x = -0.7 + s * 0.4; hipR.rotation.x = -0.7 - s * 0.4; armL.rotation.x = armR.rotation.x = -0.6; head.rotation.x = 0.25; y = -0.3; break;
-    case "sit": hipL.rotation.x = hipR.rotation.x = -1.5; armL.rotation.x = armR.rotation.x = -0.4; y = -0.42; break;
+    case "sit": hipL.rotation.x = hipR.rotation.x = -1.5; armL.rotation.x = armR.rotation.x = -0.4; y = 0.4 - (g.userData.geo?.pivots.legR[1] ?? 0.82); break;   // hips at 0.4 m (bench, saddle)
     case "train": { const c = (t * 1.2) % 1; armR.rotation.x = c < 0.6 ? -2.6 * (c / 0.6) : -2.6 + 3.4 * Math.min(1, ((c - 0.6) / 0.4) * 1.6); break; }
     default: break;
   }
@@ -433,18 +440,22 @@ export function makeLantern() {
 // First-person arms, attached to the camera.
 // First-person arms: the player's own arm geometry (sleeves, armour, gloves) from body.js, attached to the camera.
 // rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
-export const VM_REST = { R: { pos: [0.17, -0.1, 0.06], rx: 1.4 }, L: { pos: [-0.24, -0.14, 0.06], rx: 1.3 } };
+export const VM_REST = { R: { pos: [0.3, -0.12, 0.1], rx: 1.45 }, L: { pos: [-0.36, -0.14, 0.08], rx: 1.3 } };
 export function makeViewmodel(look) {
   const geo = bodyGeometries(look, variantOf(look, "player"));
   const g = new THREE.Group();
-  const arm = (geometry, rest) => {
+  // Each arm is turned half a turn on itself (thumb up): what the fist holds (fistR / fistL, oriented like the
+  // fist, objects along +Z) points up and forwards. hand: the fist's position with the arm's plain orientation.
+  const arm = (geometry, rest, left) => {
     const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
-    const m = new THREE.Mesh(geometry, BODY_MAT); p.add(m);
-    const hand = at(new THREE.Group(), 0, -0.635, 0.015); p.add(hand);
-    g.add(p); return [p, hand];
+    const tw = new THREE.Group(); tw.rotation.y = Math.PI; p.add(tw);
+    tw.add(new THREE.Mesh(geometry, BODY_MAT));
+    const fist = inFist(new THREE.Group(), geo, left); tw.add(fist);
+    const gp = left ? geo.gripL : geo.grip, hand = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(hand);
+    g.add(p); return [p, hand, fist];
   };
-  const [armR, handR] = arm(geo.armR, VM_REST.R), [armL, handL] = arm(geo.armL, VM_REST.L);
-  return { g, armR, armL, handR, handL };
+  const [armR, handR, fistR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL] = arm(geo.armL, VM_REST.L, true);
+  return { g, armR, armL, handR, handL, fistR, fistL };
 }
 
 // The player's 3D body with the current equipment (used in third person and in the menu preview).
@@ -474,6 +485,6 @@ export function playerLook(eq) {
 }
 export function makePlayerModel(eq) {
   const g = makeHuman(playerLook(eq), eq.hand || "corta", "player");
-  if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.66, 0.06)); }
+  if (eq.off === "torcia") { const t = makeTorch(false), geo = g.userData.geo; t.position.set(...geo.gripL); t.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(geo.gripAxisL[0], 0.9, geo.gripAxisL[2]).normalize()); g.userData.armL.add(t); }
   return g;
 }
