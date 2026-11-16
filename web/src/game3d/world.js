@@ -10,7 +10,7 @@ export const SWORDS = Object.fromEntries(Object.keys(SWORD_DMG).map((k) => [k, {
 // Winding path through the forest (centre line); walkable area is the whole forest.
 export const PATH = [[0, -30], [5, -42], [-5, -54], [-11, -66], [-3, -78], [7, -88], [2, -98], [0, WZ + 1]];
 export const CAMP = [1, -74];
-export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14.5, -8.5], [6.8, -14.5], [-6, 12], [12, 20], [2, -29], [0, WZ - 7], [-8, WZ - 20], [8, WZ - 20], [0, WZ - 28], [CX + 15.5, 2.6]];
+export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14.5, -8.5], [6.8, -14.5], [-6, 12], [12, 20], [2, -29], [0, WZ - 7], [-8, WZ - 20], [8, WZ - 20], [0, WZ - 28], [CX + 18.6, 3.4]];
 
 const R = (x, z, act, dur, extra = {}) => ({ at: [x, z], act, dur, ...extra });
 

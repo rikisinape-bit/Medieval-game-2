@@ -2,6 +2,7 @@ import { SWORDS } from "./world";
 import { ITEMS, SHOPS, MARKUP_REP } from "./items";
 // NPC & object dialogs for the open world, with consequences.
 const has = (S, id) => S.player.inv[id] || 0;
+export const GATE_BRIBE = 150; // gold to bribe the knights at the gate of Valdoro
 const names = (list) => list.map(([id, q]) => (id === "oro" ? `${q} oro` : q > 1 ? `${ITEMS[id].name} x${q}` : ITEMS[id].name)).join(", ");
 
 const CHATTER = {
@@ -145,13 +146,17 @@ function buildDialog(id, S) {
     };
     case "brann": case "oswin": {
       const left = Object.values(S.npcs).filter((n) => n.role === "bandit" && n.alive).length;
-      const known = S.known.crown, open = S.gateOpen;
+      const known = S.known.crown, open = S.gateOpen, bribed = !!S.flags.gateBribed;
       return {
         title: npc.name,
-        text: open ? `"I messaggeri della Corona portano buone notizie sul tuo conto. Le porte di Valdoro sono aperte per te."` : known < -25 ? `"Sappiamo cosa hai fatto a Roccanera. Sparisci, o ti arrestiamo."` : `"Alt! Le mura di Valdoro sono chiuse ai vagabondi. Qui sappiamo solo ciò che i messaggeri a cavallo riferiscono da Roccanera: finora, il tuo nome non dice nulla. Torna quando la Corona ti conoscerà."`,
+        text: bribed ? `"L'oro è stato contato. Passa, e ricorda: noi due non ci siamo mai parlati."`
+          : open ? `"I messaggeri della Corona portano buone notizie sul tuo conto. Le porte di Valdoro sono aperte per te."`
+          : known < -25 ? `"Sappiamo cosa hai fatto a Roccanera. Sparisci, o ti arrestiamo. Non c'è oro che basti per uno come te."`
+          : `"Alt! Le mura di Valdoro sono chiuse ai vagabondi. Qui sappiamo solo ciò che i messaggeri a cavallo riferiscono da Roccanera: finora, il tuo nome non dice nulla. Torna quando la Corona ti conoscerà... a meno che la tua borsa non parli per te."`,
         options: [
           { label: "Chiedi dei banditi", next: { title: npc.name, text: left ? `"Capo Morn e i suoi tagliagole infestano il sentiero. A volte chiedono un pedaggio, a volte sgozzano e basta."` : `"Il sentiero è sicuro grazie a te. Ser Alaric saprà ricompensarti."`, options: [{ label: "Grazie", effect: "close" }] } },
-          { label: "Chiedi come entrare", next: { title: npc.name, text: `"Paga il dazio e la decima, riscuoti taglie, allenati con i soldati: ogni gesto arriva qui con i messaggeri a cavallo. Quando il tuo nome varrà abbastanza (Corona ≥ 30), le porte si apriranno."`, options: [{ label: "Capito", effect: "close" }] } },
+          { label: "Chiedi come entrare", next: { title: npc.name, text: `"Paga il dazio e la decima, riscuoti taglie, allenati con i soldati: ogni gesto arriva qui con i messaggeri a cavallo. Quando il tuo nome varrà abbastanza (Corona ≥ 30), le porte si apriranno. Oppure..." abbassa la voce "...${GATE_BRIBE} monete, e quella notte non ti abbiamo visto."`, options: [{ label: "Capito", effect: "close" }] } },
+          ...(open || bribed ? [] : [{ label: `Corrompi le guardie per entrare (${GATE_BRIBE} oro)`, effect: "bribe_gate", disabled: p.gold < GATE_BRIBE || known < -25 }]),
           { label: "Sfida il cavaliere", effect: "duel_knight", danger: true },
           { label: "Vai", effect: "close" },
         ],
@@ -213,6 +218,7 @@ export function applyEffect(e, S, api) {
       api.forest("fight"); return `Capo Morn ride: "Mi fai il solletico! Addosso!"`;
     }
     case "toll_refuse": api.forest("fight"); return `"Allora prenderemo tutto dal tuo cadavere!" I banditi attaccano!`;
+    case "bribe_gate": p.gold -= GATE_BRIBE; S.flags.gateBribed = true; return `${S.npcs[api.targetId].name} soppesa la borsa e fa un cenno al compagno: "Aprite. Questo viandante è atteso." Le porte di Valdoro sono tue, per sempre.`;
     case "duel_knight": api.hostile([api.targetId]); rep("crown", -20); return `${S.npcs[api.targetId].name} abbassa la visiera: "Che sia un duello, allora."`;
     default: return null;
   }

@@ -10,6 +10,7 @@ import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, addNature } from "./nature";
+import { makeMountain, mountainHeight } from "./mountain";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -39,7 +40,10 @@ export function createGame(canvas, hooks, saved) {
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
   // Trees are only recorded here (position + collision circle); the models are added later, all together.
   const treeSpots = [], S_nature = { tris: 0, count: 0 };
-  const putTree = (pine, x, z, ry = 0, r = 0) => { treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r }); };
+  const putTree = (pine, x, z, ry = 0, r = 0) => {
+    if (mountainHeight(x, z) > 0.4) return;                    // no trees half-buried in the mountain
+    treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r });
+  };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
   const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
@@ -111,6 +115,9 @@ export function createGame(canvas, hooks, saved) {
   [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
   // Mine cave in the western hill
   put(makeCave(), CX, CZ);
+  scene.add(makeMountain());                                   // the mountain that covers the mine
+  // Rock face on both sides of the portal: nobody walks into the slope
+  [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }));
   [[CX, -12.5, 13, 0.5], [CX, 12.5, 13, 0.5], [CX - 12.5, 0, 0.5, 13], [CX + 12.5, -6.85, 0.5, 5.15], [CX + 12.5, 6.85, 0.5, 5.15], [CX + 14.5, -2.2, 2.5, 0.5], [CX + 14.5, 2.2, 2.5, 0.5]].forEach(([cx, cz, hw, hd]) => rects.push({ cx, cz, hw, hd, ry: 0 }));
   obstacles.push({ x: CX + 6, z: -5, r: 1 });
   const ores = ORES.map(([x, z]) => ({ x, z, mesh: put(makeOreRock(), x, z, x, 1), depletedUntil: 0 }));
@@ -168,7 +175,7 @@ export function createGame(canvas, hooks, saved) {
     const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
     const villageOk = (m) => (x, z) => !ROADS.some(([cx, cz, w, d]) => Math.abs(x - cx) < w / 2 + 1 && Math.abs(z - cz) < d / 2 + 1)
       && !HOUSES.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 4.3) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
-      && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && !(x < -24 && Math.abs(z) < 3) && freeOf(x, z, m);
+      && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && !(x < -24 && Math.abs(z) < 3) && mountainHeight(x - 1.5, z) < 0.1 && freeOf(x, z, m);
     scatter("erba", 55, villagePt, villageOk(0.4));
     scatter("erba_alta", 36, villagePt, villageOk(0.4));
     scatter("cespuglio_fiorito", 9, villagePt, villageOk(1));
@@ -769,7 +776,7 @@ export function createGame(canvas, hooks, saved) {
       h.open += (target - h.open) * Math.min(1, dt * 5);
       h.door.rotation.y = h.open;
     });
-    const open = S.known.crown >= 30 && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile);
+    const open = (S.known.crown >= 30 || !!S.flags.gateBribed) && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile);
     if (open !== S.gateOpen) {
       S.gateOpen = open; gateRect.off = open;
       if (Math.hypot(P.x, P.z - WZ) < 45) { sfx.gate(0.8); say(open ? "Le porte di Valdoro si aprono cigolando!" : "Le porte di Valdoro si chiudono con un tonfo."); }

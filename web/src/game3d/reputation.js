@@ -9,7 +9,7 @@ export const REP_PLACES = [
     effects: (v) => [v < -25 ? "Le guardie ti attaccano a vista" : v < -10 ? "Le guardie in allerta ti riconoscono subito" : "Le guardie ti lasciano passare", v < -10 ? "Niente allenamenti con i soldati" : null] },
   { id: "valdoro", name: "Valdoro", kind: "Città", src: "known", key: "crown",
     note: "Ciò che a Valdoro sanno di te: si aggiorna solo quando arriva un messaggero.",
-    effects: (v) => [v >= 30 ? "Le porte della città sono aperte" : `Porte chiuse: servono 30 (ne mancano ${30 - v})`, v < -25 ? "I cavalieri alle mura minacciano di arrestarti" : null] },
+    effects: (v, S) => [v >= 30 ? "Le porte della città sono aperte" : S.flags?.gateBribed ? "Porte aperte: hai pagato le guardie" : `Porte chiuse: servono 30 (ne mancano ${30 - v}) oppure 150 monete alle guardie`, v < -25 ? "I cavalieri alle mura minacciano di arrestarti" : null] },
 ];
 
 // Level and mood (-2..2) of a reputation value, used for the face icon.
@@ -21,5 +21,5 @@ export const repLevel = (v) =>
 
 export const repSummary = (S) => REP_PLACES.map((p) => {
   const value = S[p.src]?.[p.key] ?? 0;
-  return { id: p.id, name: p.name, kind: p.kind, note: p.note, face: !!p.face, value, ...repLevel(value), effects: p.effects(value).filter(Boolean) };
+  return { id: p.id, name: p.name, kind: p.kind, note: p.note, face: !!p.face, value, ...repLevel(value), effects: p.effects(value, S).filter(Boolean) };
 });
