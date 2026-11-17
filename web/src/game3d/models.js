@@ -77,10 +77,10 @@ export function inFist(o, geo, left = false) {
   o.quaternion.setFromRotationMatrix(_basis.makeBasis(e, g.clone().cross(e), g));
   return o;
 }
-// Which way the edge must face for each blow (turn of the blade around its own length, see poseHuman):
-// overhead chop and lunge 0, horizontal cut a quarter turn (edge towards the left, where the blade goes),
-// rising backhand half a turn (edge up).
-const EDGE_ROLL = { over: 0, thrust: 0, side: -Math.PI / 2, rise: Math.PI };
+// The sword never turns in the fist: for the horizontal cut the forearm turns (a quarter turn, palm down) so the
+// edge faces where the blade goes; the overhead chop and the lunge use the edge as held, the rising backhand the back
+// edge (a false-edge cut). Turn of the sword arm on itself for each blow:
+const ARM_TWIST = { over: 0, thrust: 0, side: Math.PI / 2, rise: 0 };
 export function makeTool(id, geo) {
   const t = toolModel(id);
   if (GRIP_TOOLS.has(id)) inFist(t, geo);
@@ -124,6 +124,7 @@ export function makeHuman(look, weapon, seed) {
   const knee = (hip, h, k, geometry) => { const o = at(new THREE.Group(), k[0] - h[0], k[1] - h[1], k[2] - h[2]); o.add(part(geometry)); hip.add(o); return o; };
   const kneeL = knee(hipL, P.legL, P.shinL, geo.shinL), kneeR = knee(hipR, P.legR, P.shinR, geo.shinR);
   const armL = pivot(P.armL, geo.armL), armR = pivot(P.armR, geo.armR);
+  armL.rotation.order = armR.rotation.order = "XZY";                // y = the arm turning on itself (forearm), applied first
   const head = pivot(P.head, geo.head);
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
@@ -208,8 +209,7 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     case "train": { const cc = (t * 1.2) % 1; armR.rotation.x = cc < 0.6 ? -2.6 * (cc / 0.6) : -2.6 + 3.4 * Math.min(1, ((cc - 0.6) / 0.4) * 1.6); legs(-0.2, 0.2, 0.3, 0.3); break; }
     default: break;
   }
-  const sw = g.userData.sword;                                       // edge towards the cut
-  if (sw) sw.rotation.z = mode === "windup" || mode === "swing" ? EDGE_ROLL[atk] ?? 0 : 0;
+  if (mode === "windup" || mode === "swing") armR.rotation.y = (ARM_TWIST[atk] ?? 0) * (mode === "windup" ? ease(K) : 1 - Math.max(0, (K - 0.7) / 0.3));   // forearm turns with the sword
   return y;
 }
 
