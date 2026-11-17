@@ -15,6 +15,10 @@ const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - 
 
 
 // Small round action button. Each press is handled on pointerdown of its own finger, so it works while the joystick is held.
+// The small buttons sit on one circle around the big Attacca (centre ATK_C from the corner, radius ARC):
+// angle 0° = towards the middle of the screen, 90° = straight up. Returns [right, bottom, size].
+const ATK = 84, ATK_C = 6 + ATK / 2, ARC = 86;
+const onArc = (deg, size) => { const a = (deg * Math.PI) / 180; return [ATK_C + Math.cos(a) * ARC - size / 2, ATK_C + Math.sin(a) * ARC - size / 2, size]; };
 // at: [right, bottom, size] in px inside the cluster.
 function Btn({ testid, color, onPress, icon, label, at, active }) {
   const [right, bottom, size] = at;
@@ -162,19 +166,19 @@ export default function Village3D() {
       )}
       <div className={`pointer-events-none fixed inset-0 z-30 ${dialog ? "hidden" : ""}`}>
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
-        {/* Action buttons, in an arc around the big Attacca in the corner: on the screen edge Attacca and Nasconditi
-            above it; towards the middle Corri (Schiva in a fight) at the bottom, Para above it, Usa (Ruba when sneaking)
-            on top. The container lets touches through, only the buttons catch them. */}
-        <div className="absolute bottom-2 right-2 w-[160px] h-[170px]">
-          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={32} />} label="Attacca" at={[6, 6, 84]} />
-          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} at={[25, 100, 46]} />
+        {/* Action buttons on one circle around the big Attacca in the corner, from the bottom towards the middle up to
+            the screen edge: Corri (Schiva in a fight), Para, Usa (Ruba when sneaking), Nasconditi.
+            The container lets touches through, only the buttons catch them. */}
+        <div className="absolute bottom-2 right-2 w-[160px] h-[160px]">
+          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={32} />} label="Attacca" at={[6, 6, ATK]} />
+          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} at={onArc(100, 46)} />
           {hud?.combat
-            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} icon={<Wind size={17} />} label="Schiva" at={[100, 4, 50]} />
-            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} icon={<Footprints size={17} />} label="Corri" at={[100, 4, 50]} />}
-          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={[108, 64, 46]} />
+            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
+            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
+          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
           {hud?.sneak
-            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={[96, 120, 46]} />
-            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={[96, 120, 46]} />}
+            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
+            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
         </div>
       </div>
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
