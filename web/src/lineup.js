@@ -47,13 +47,19 @@ if (faces) {
   if (faces === "beard") B.forEach((b, i) => list.push(["villager2", "fb" + i, { hair: H[i % H.length], beard: b, old: i === 5, hairColor: i === 5 ? "#8d877c" : ["#2e2218", "#6e3418", "#45321f", "#1a1410", "#93784a", "", "#5a3f26", "#4a2214", "#76583a"][i] }]));
   if (faces === "female") FH.forEach((h, i) => list.push(["woman", "ff" + i, { hair: h, hairColor: ["#5a3f26", "#93784a", "#6e3418", "#1a1410", "#76583a", "#45321f"][i] }]));
 }
+// ?pal=1: the paladin armour on a knight without shield and cape, from the front, the side and the back
+if (q.get("pal")) {
+  list.length = 0;
+  [0, Math.PI / 2, Math.PI].forEach((ry, i) => list.push(["knight", "alaric", { shield: null, cape: null, _ry: ry }]));
+  if (q.get("pal") === "2") list.push(["playerEq", "pp", { hand: "spadone", body: "piastre", head: "elmo_piastre" }], ["playerEq", "pq", { hand: "spadone", body: "piastre", head: null }]);
+}
 const n = list.length, sp = faces ? 0.42 : 0.85;
 list.forEach(([look, id, extra], i) => {
   const g = look === "playerEq" ? makePlayerModel(extra) : makeHuman({ ...LOOKS[look], ...(extra || {}) }, ["knight", "soldier", "bandit"].includes(look) ? (look === "knight" || id === "bandit3" ? "long" : "short") : null, id);
   g.userData.atk = q.get("atk") || "over";
   const y = poseHuman(g, 0, !!q.get("walk"), q.get("mode") || null, +(q.get("k") || 0.5)); g.position.y = y;
   if (q.get("death")) poseDeath(g, +q.get("death"), +(q.get("p") || 1));
-  g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = +(q.get("ry") || 0.25);
+  g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = extra?._ry ?? +(q.get("ry") || 0.25);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g);
 });

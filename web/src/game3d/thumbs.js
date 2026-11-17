@@ -30,8 +30,9 @@ export function itemThumb(id) {
     _box.setFromObject(o); _box.getBoundingSphere(_s); _box.getCenter(_c);
     // long flat things (swords, torches, tools lying on the ground) are seen from above, so they fill the picture
     const size = _box.getSize(new THREE.Vector3()), flat = size.y < 0.35 * Math.max(size.x, size.z);
-    const dir = (flat ? new THREE.Vector3(0.12, 1, 0.3) : new THREE.Vector3(0.55, 0.85, 1)).normalize();
-    const reach = flat ? Math.hypot(size.x, size.z) / 2 : _s.radius;
+    const tall = size.y > 1.2 * Math.max(size.x, size.z);                 // standing things (the plate armour): from the front
+    const dir = (flat ? new THREE.Vector3(0.12, 1, 0.3) : tall ? new THREE.Vector3(0.35, 0.25, 1) : new THREE.Vector3(0.55, 0.85, 1)).normalize();
+    const reach = flat ? Math.hypot(size.x, size.z) / 2 : tall ? size.y * 0.55 : _s.radius;
     const dist = (reach / Math.sin(THREE.MathUtils.degToRad(cam.fov / 2))) * (flat ? 0.95 : 1.02);
     cam.position.copy(_c).addScaledVector(dir, dist); cam.lookAt(_c); cam.near = dist / 20; cam.far = dist * 4; cam.updateProjectionMatrix();
     r.render(scene, cam);

@@ -3,3 +3,4 @@ dist/
 .kit-cache.json
 .kit-sizes.json
 .bodies-cache.json
+.paladin-cache.json
