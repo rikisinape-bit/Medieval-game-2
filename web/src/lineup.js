@@ -70,10 +70,10 @@ else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") 
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
 if (faces) {                                         // one close frame per head, side by side
   r.setScissorTest(true);
-  const cw = W / n, fc = new THREE.PerspectiveCamera(16, cw / H, 0.05, 50);
+  const cw = W / n, fc = new THREE.PerspectiveCamera(+(q.get("ffov") || 16), cw / H, 0.05, 50);
   scene.children.filter((o) => o.userData.hipL).forEach((g, i) => {
     const x = g.position.x, hy = (g.userData.geo?.pivots.head[1] ?? 1.7) * (g.userData.variant?.height || 1);
-    const ca = +(q.get("ca") || 0); fc.position.set(x + Math.sin(ca) * 1.25, hy + 0.08, Math.cos(ca) * 1.25); fc.lookAt(x, hy - 0.01, 0);
+    const ca = +(q.get("ca") || 0); fc.position.set(x + Math.sin(ca) * 1.25, hy + 0.08, Math.cos(ca) * 1.25); fc.lookAt(x, hy - 0.01 + +(q.get("fdy") || 0), 0);
     r.setViewport(i * cw, 0, cw, H); r.setScissor(i * cw, 0, cw, H); r.render(scene, fc);
   });
 } else r.render(scene, cam);

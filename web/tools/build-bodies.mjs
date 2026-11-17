@@ -16,7 +16,7 @@ const SCALE = 1.11;                                  // 1.66 m model -> 1.84 m i
 // Joints measured on the original model (metres, after centring; x = the +x side).
 const SRC = {
   m: { mesh: "Body002", shoulder: [0.18, 1.33], hipY: 0.87, hipX: 0.09, neck: 1.455, crotch: 0.77, knee: 0.485 },
-  f: { mesh: "Cube001", shoulder: [0.17, 1.335], hipY: 0.88, hipX: 0.09, neck: 1.475, crotch: 0.8, knee: 0.485 },
+  f: { mesh: "Cube001", shoulder: [0.17, 1.335], hipY: 0.88, hipX: 0.09, neck: 1.425, crotch: 0.8, knee: 0.485 },
 };
 const POSE = { hang: 0.13, forward: 0.06, elbow: 0.32, knuckle: 1.35, mid: 1.35, wrist: 0.5 };   // radians (bends) / direction
 

@@ -144,12 +144,12 @@ function faceZ(B, x, y) {
  * d > 0 inflates the triangles along the normals: a shell that follows the body (clothes, armour).
  * bulk widens torso and limbs (x/z). The result is in the part's local space, like the pieces of Part().
  */
-function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07 }) {
+function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004 }) {
   const P = B.parts[part], pv = P.piv, sx = part === "head" ? 1 : bulk;
-  const out = [], col = [];
-  const vtx = (j) => [P.pos[j * 3] * sx + P.nrm[j * 3] * d, P.pos[j * 3 + 1] + P.nrm[j * 3 + 1] * d, P.pos[j * 3 + 2] * sx + P.nrm[j * 3 + 2] * d];
+  const out = [], col = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
+  const vtx = (j, dd = d) => [P.pos[j * 3] * sx + P.nrm[j * 3] * dd, P.pos[j * 3 + 1] + P.nrm[j * 3 + 1] * dd, P.pos[j * 3 + 2] * sx + P.nrm[j * 3 + 2] * dd];
   for (let i = 0; i < P.idx.length; i += 3) {
-    const tri = [P.idx[i], P.idx[i + 1], P.idx[i + 2]], v = tri.map(vtx);
+    const tri = [P.idx[i], P.idx[i + 1], P.idx[i + 2]], v = tri.map((j) => vtx(j));
     const cx = (v[0][0] + v[1][0] + v[2][0]) / 3 + pv[0], cy = (v[0][1] + v[1][1] + v[2][1]) / 3 + pv[1], cz = (v[0][2] + v[1][2] + v[2][2]) / 3 + pv[2];
     const t = P.t ? (P.t[tri[0]] + P.t[tri[1]] + P.t[tri[2]]) / 3 : 0;
     const hex = colorOf(cx, cy, cz, t, Math.min(v[0][1], v[1][1], v[2][1]) + pv[1]);   // last: lowest corner (world)
@@ -157,7 +157,18 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
     _c.set(hex);
     const grime = 1 - dirt * (1 - Math.min(1, Math.max(0, cy / 1.1))), k = grime * (1 - noise / 2 + rand() * noise);
     v.forEach((p) => { out.push(...p); col.push(_c.r * k, _c.g * k, _c.b * k); });
+    if (edge) for (let e = 0; e < 3; e++) {
+      const a = tri[e], b = tri[(e + 1) % 3], key = a < b ? `${a}_${b}` : `${b}_${a}`;
+      if (picked.has(key)) picked.set(key, null); else picked.set(key, [a, b, _c.r * k * 0.72, _c.g * k * 0.72, _c.b * k * 0.72]);
+    }
   }
+  // A shell (hair, beard, armour) gets a wall along its open border, down to the body: it reads as something with a
+  // thickness, and you cannot see between it and the skin. Both faces, so it shows from any side.
+  if (edge) picked.forEach((e) => {
+    if (!e) return;
+    const [a, b, r, g, bl] = e, A1 = vtx(a), B1 = vtx(b), A0 = vtx(a, -0.002), B0 = vtx(b, -0.002);
+    [A1, B1, B0, A1, B0, A0, A1, B0, B1, A1, A0, B0].forEach((p) => { out.push(...p); col.push(r, g, bl); });
+  });
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.computeVertexNormals();
@@ -298,8 +309,8 @@ export function bodyGeometries(look, v) {
   const fringe = F ? 0.046 : 0.052;
   // Where each hairstyle grows: forehead hairline, temples (above or over the ears), nape.
   const HAIRLINE = {
-    crop: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe + Math.abs(hx) * 0.12 : f > -0.015 ? hy > ey + 0.014 : hy > hm.chin + 0.045),
-    low: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe - 0.004 + Math.abs(hx) * 0.1 : f > -0.015 ? hy > ey - 0.008 : hy > hm.chin + 0.015),
+    crop: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe + Math.abs(hx) * 0.12 - (Math.abs(hx) > hm.halfW * 0.72 ? 0.03 : 0) : f > -0.015 ? hy > ey - 0.004 : hy > hm.chin + 0.045),
+    low: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe - 0.004 + Math.abs(hx) * 0.1 - (Math.abs(hx) > hm.halfW * 0.72 ? 0.035 : 0) : f > -0.015 ? hy > ey - 0.02 : hy > hm.chin + 0.015),
     slick: (hx, hy, f) => (f > 0.03 ? hy > ey + 0.062 : f > -0.015 ? hy > ey + 0.016 : hy > hm.chin + 0.04),
     bowl: (hx, hy, f) => (f > 0.03 ? hy > ey + 0.03 : f > -0.02 ? hy > ey - 0.002 : hy > hm.chin + 0.03),
     receding: (hx, hy, f) => hy < hm.top - 0.03 && (f < -0.012 ? hy > hm.chin + 0.045 : f < 0.04 && Math.abs(hx) > hm.halfW * 0.6 && hy > ey + 0.008),
@@ -434,8 +445,21 @@ export function bodyGeometries(look, v) {
     // the lip surface (not the underside of the nose, which can hang in front of it)
     const lipZ = (y) => fz(0, y) + 0.0015;
     const lipOver = bd ? bd[1] : 0, mz = lipZ(my) + (bd && beard !== "moustache" && beard !== "chops" ? bd[1] : 0);
-    Fc.box(F ? 0.034 : 0.038, 0.005, 0.005, F ? "#6a3430" : "#3a2420", 0, my + 0.003, mz + 0.0005);               // mouth line
-    Fc.box(F ? 0.028 : 0.03, F ? 0.008 : 0.006, 0.005, F ? "#8a4a44" : bd ? "#5a3028" : mixHex(skin, "#8a4038", 0.25), 0, my - 0.005, mz);   // lower lip
+    // Lips: the face is a flat-shaded "V" in the middle, so each lip is made of two halves turned to follow it
+    // (no piece sinks into the face or floats in front of it): upper lip, the line of the mouth, a fuller lower lip.
+    const lipCol = F ? "#9a4c46" : mixHex(skin, "#8a4038", bd ? 0.55 : 0.3), lipDark = F ? "#4a2220" : "#3a2420";
+    const LW = F ? 0.03 : 0.036, zOff = mz - lipZ(my);
+    const lipHalf = (y, h, depth, hex, sd, lift = 0) => {
+      const x1 = (sd * LW) / 2, zc = Math.max(fz(0, y), fz(sd * 0.004, y)), ze = fz(x1 * 0.92, y);
+      const ang = Math.atan2(zc - ze, LW / 2), len = Math.hypot(LW / 2, zc - ze);
+      Fc.box(len, h, depth, hex, x1 / 2, y, (zc + ze) / 2 + zOff + depth / 2 - 0.0008 + lift, 0, sd * ang, 0);
+    };
+    [-1, 1].forEach((sd) => {
+      lipHalf(my + 0.004, F ? 0.0055 : 0.0045, 0.004, lipCol, sd);                    // upper lip
+      lipHalf(my, 0.0025, 0.004, lipDark, sd, 0.0006);                                // line of the mouth
+      lipHalf(my - 0.0046, F ? 0.0068 : 0.0055, 0.0045, tone(lipCol, 0.1), sd);       // lower lip
+    });
+    Fc.box(0.005, 0.003, 0.003, tone(lipCol, -0.15), 0, my + 0.0075, Math.max(fz(0, my + 0.009), fz(0.003, my + 0.009)) + zOff + 0.0012);   // the bow in the middle of the upper lip
     if (lipOver) [-1, 1].forEach((sd) => {                                                                // moustache: two halves, the ends droop
       const droop = beard === "moustache" || beard === "chops";
       Fc.box(0.034, 0.012, 0.014, hc, sd * 0.017, my + 0.015, lipZ(my + 0.015) + lipOver + 0.002, 0, 0, sd * -0.12);

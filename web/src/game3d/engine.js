@@ -338,6 +338,25 @@ export function createGame(canvas, hooks, saved) {
     if (d.boss) add("testa_morn");
     return inv;
   };
+  // A body shows only what is still on it: armour, helmet, shield and sword taken by the player disappear from it.
+  const helmOf = (L) => (L.head === "helm" ? (L.greatHelm ? "elmo_piastre" : "elmo_ferro") : L.head === "nasal" ? "elmo_ferro" : L.head === "leatherhood" ? "cappuccio" : null);
+  const lookOf = (d, inv) => {
+    const L = { ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) };
+    if (!inv) return L;
+    if (WEAR[L.armor] && !inv[WEAR[L.armor]]) { delete L.armor; delete L.metal; }                    // what was under the armour
+    const helm = helmOf(L);
+    if (helm && !inv[helm]) { L.head = "hair"; delete L.greatHelm; delete L.plume; delete L.hat; }
+    if (L.shield && !inv[L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"]) delete L.shield;
+    return L;
+  };
+  const weaponOf = (d, inv) => (d.weapon && (!inv || inv[d.weapon === "long" ? "spada_lunga" : "spada_corta"]) ? d.weapon : null);
+  const dressBody = (n) => {
+    const d = NPC_DEFS.find((x) => x.id === n.id), dead = !n.alive;
+    if (n.mesh) scene.remove(n.mesh);
+    n.mesh = makeHuman(lookOf(d, dead ? n.inv : null), weaponOf(d, dead ? n.inv : null), d.id);
+    if (dead && d.boss && !n.inv.testa_morn) n.mesh.userData.head.visible = false;                       // the head went to Ser Alaric
+    scene.add(n.mesh); n.poseP = null;
+  };
   const npcs = NPC_DEFS.map((d) => {
     const sv = saved?.npcs?.[d.id] || {};
     const n = { hp: 30, dmg: 4, loot: 3, ...d, x: d.pos[0], z: d.pos[1], yaw: 0, hpMax: d.hp || 30, alive: true, looted: false, discovered: false, witnessed: false, cd: 0, state: "idle", k: 0, stagger: 0, flash: 0, kb: 0, ...sv };
@@ -346,8 +365,7 @@ export function createGame(canvas, hooks, saved) {
     n.purse = sv.purse ?? (n.looted ? 0 : n.loot);
     if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
     // All NPCs use the procedural low-poly humans (body.js); seed = id gives each one stable variation.
-    n.mesh = makeHuman({ ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) }, d.weapon, d.id);
-    scene.add(n.mesh);
+    dressBody(n);
     if (d.rider) {
       const start = RIDER_ROUTE[d.rider > 0 ? 0 : RIDER_ROUTE.length - 1];
       n.horse = { x: start[0] + 1.5, z: start[1], yaw: 0, mesh: put(makeHorse(d.rider > 0 ? "#2a2218" : "#8a6a4a"), start[0] + 1.5, start[1]) };
@@ -669,6 +687,11 @@ export function createGame(canvas, hooks, saved) {
     else if (kind === "gold") { P.gold += n.purse; n.purse = 0; sfx.pick(0.8); }
     else if (kind === "give") { if (!P.inv[item] || ITEMS[item]?.kind === "quest") return lootInfo(id); take(item); n.inv[item] = (n.inv[item] || 0) + 1; sfx.pick(0.5); }
     n.looted = !Object.keys(n.inv).length && !n.purse;
+    if (kind !== "gold") {                                                 // something visible came off (or went back on)?
+      const d = NPC_DEFS.find((x) => x.id === id), L = LOOKS[d.look] || {};
+      const shown = [WEAR[L.armor], helmOf(L), L.shield && (L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"), d.weapon && (d.weapon === "long" ? "spada_lunga" : "spada_corta"), d.boss && "testa_morn"].filter(Boolean);
+      if (kind === "all" || shown.includes(item)) dressBody(n);
+    }
     return lootInfo(id);
   }
 
