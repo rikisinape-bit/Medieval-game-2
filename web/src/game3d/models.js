@@ -143,7 +143,7 @@ export const showTool = (g, id) => {
 const ease = (x) => x * x * (3 - 2 * x);
 export function poseHuman(g, t, moving, mode, k = 0) {
   const { hipL, hipR, kneeL, kneeR, armL, armR, head, body } = g.userData;
-  const s = moving ? Math.sin(t * 9) * 0.6 : 0, c = moving ? Math.cos(t * 9) : 0;
+  const amp = mode === "run" ? 0.95 : 0.6, s = moving ? Math.sin(t * 9) * amp : 0, c = moving ? Math.cos(t * 9) : 0;
   hipL.rotation.set(s, 0, 0); hipR.rotation.set(-s, 0, 0);
   // knees: the leg that swings back bends (and lifts the foot), a little bend all the time while walking
   kneeL.rotation.set(moving ? 0.12 + Math.max(0, s) * 1.1 + Math.max(0, -c) * 0.25 : 0, 0, 0);
@@ -177,6 +177,9 @@ export function poseHuman(g, t, moving, mode, k = 0) {
       else { armR.rotation.x = (-2.9 + 3.4 * e) * back; armL.rotation.x = -0.8 * back; body.rotation.x = (-0.14 + 0.42 * e) * back; legs(-0.55 * e * back, 0.35 * back, 0.55 * e * back, 0.45 * back); body.position.z = 0.15 * e * back; y = -0.08 * e * back; }
       break;
     }
+    case "run":                                                       // longer strides, leaning forward, arms bent and pumping
+      if (moving) { body.rotation.x = 0.16; kneeL.rotation.x += 0.35; kneeR.rotation.x += 0.35; armL.rotation.x = -s * 0.9 - 0.25; armR.rotation.x = s * 0.9 - 0.25; y = Math.abs(Math.sin(t * 9)) * 0.04; }
+      break;
     case "slash": armR.rotation.x = -1.5; armR.rotation.z = 1.3 - 2.6 * Ks; break;
     case "stagger": armL.rotation.x = -0.4; armR.rotation.x = -0.4; armL.rotation.z = -0.7; armR.rotation.z = 0.7; head.rotation.set(-0.3, 0.4, 0); body.rotation.x = -0.22; body.position.z = -0.1; legs(0.25, -0.3, 0.2, 0.5); break;
     case "dead": legs(0.1, -0.15, 0.3, 0.1); armL.rotation.set(-2.8, 0, -0.3); armR.rotation.set(-2.6, 0, 0.3); break;

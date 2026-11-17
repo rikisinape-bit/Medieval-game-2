@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
@@ -15,14 +15,16 @@ const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - 
 
 
 // Small round action button. Each press is handled on pointerdown of its own finger, so it works while the joystick is held.
-function Btn({ testid, color, onPress, icon, label, className, big, active }) {
+// at: [right, bottom, size] in px inside the cluster.
+function Btn({ testid, color, onPress, icon, label, at, active }) {
+  const [right, bottom, size] = at;
   return (
     <button
       onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }}
       data-testid={testid}
       data-ui=""
-      className={`absolute ${big ? "w-14 h-14" : "w-11 h-11"} rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel text-[8px] active:scale-90 transition-transform select-none touch-none ${className}`}
-      style={{ borderColor: color, color }}
+      className={`absolute pointer-events-auto rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel ${size > 60 ? "text-[10px]" : "text-[8px]"} active:scale-90 transition-transform select-none touch-none`}
+      style={{ borderColor: color, color, right, bottom, width: size, height: size }}
     >
       {icon}<span className="mt-0.5 leading-none">{label}</span>
     </button>
@@ -160,12 +162,19 @@ export default function Village3D() {
       )}
       <div className={`pointer-events-none fixed inset-0 z-30 ${dialog ? "hidden" : ""}`}>
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
-        {/* Compact cluster: the container itself lets touches through, only the buttons catch them. */}
-        <div className="absolute bottom-2 right-2 w-[110px] h-[110px]">
-          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={20} />} label="Colpisci" className="pointer-events-auto bottom-0 right-0" big />
-          <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" className="pointer-events-auto bottom-[62px] right-[6px]" />
-          <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("dodge")} icon={<Wind size={15} />} label="Schiva" className="pointer-events-auto bottom-[6px] right-[62px]" />
-          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} className="pointer-events-auto bottom-[58px] right-[58px]" />
+        {/* Action buttons, in an arc around the big Attacca in the corner: on the screen edge Attacca and Nasconditi
+            above it; towards the middle Corri (Schiva in a fight) at the bottom, Para above it, Usa (Ruba when sneaking)
+            on top. The container lets touches through, only the buttons catch them. */}
+        <div className="absolute bottom-2 right-2 w-[150px] h-[166px]">
+          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={26} />} label="Attacca" at={[6, 6, 68]} />
+          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} at={[17, 84, 46]} />
+          {hud?.combat
+            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} icon={<Wind size={17} />} label="Schiva" at={[84, 4, 50]} />
+            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} icon={<Footprints size={17} />} label="Corri" at={[84, 4, 50]} />}
+          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={[92, 62, 46]} />
+          {hud?.sneak
+            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={[80, 116, 46]} />
+            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={[80, 116, 46]} />}
         </div>
       </div>
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}

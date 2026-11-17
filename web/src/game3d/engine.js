@@ -349,6 +349,8 @@ export function createGame(canvas, hooks, saved) {
     if (L.shield && !inv[L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"]) delete L.shield;
     return L;
   };
+  // What can be seen on someone: the armour, helmet, shield and sword it wears (and Morn's head).
+  const wornOf = (d) => { const L = LOOKS[d.look] || {}; return [WEAR[L.armor], helmOf(L), L.shield && (L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"), d.weapon && (d.weapon === "long" ? "spada_lunga" : "spada_corta"), d.boss && "testa_morn"].filter(Boolean); };
   const weaponOf = (d, inv) => (d.weapon && (!inv || inv[d.weapon === "long" ? "spada_lunga" : "spada_corta"]) ? d.weapon : null);
   const dressBody = (n) => {
     const d = NPC_DEFS.find((x) => x.id === n.id), dead = !n.alive;
@@ -384,6 +386,10 @@ export function createGame(canvas, hooks, saved) {
   const keys = {};
   let pitch = 0, atkT = -1, combo = 0, queued = false;
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
+  // Parry (K / Para): a short guard; blocking right at the start is a perfect parry (the enemy staggers, your next blow
+  // does double damage). Running (Shift / Corri): faster, but not while sneaking, attacking or parrying.
+  let parryT = -1, riposteT = 0, running = false, stillT = 0;
+  const inCombat = () => npcs.some((n) => n.alive && n.hostile && n.fights && ai.sameZone(n) && Math.hypot(n.x - P.x, n.z - P.z) < 14);
   let paused = false;
   const lerp = (a, b, t) => a + (b - a) * t;
   // phase p 0..1 -> [raise (x, + = up), sweep (y, + = towards the left)]
@@ -392,9 +398,11 @@ export function createGame(canvas, hooks, saved) {
     : [lerp(-0.12, 0, (p - 0.65) / 0.35), lerp(0.62, 0, (p - 0.65) / 0.35)];
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
+  if (import.meta.env.DEV) window.__P = P;                          // dev only: the player, for tests
   const setSneak = (v) => {
     if (v && P.mounted) { say("Non puoi nasconderti a cavallo."); return; }
     P.sneak = !!v;
+    if (P.sneak) running = false;
   };
   let dodgeDir = [0, 0], graceT = 0, region = regionOf(P.x, P.z), lastRegion = region;
   // say: essential message, shown briefly on screen. note: minor message, only written in the menu's diary.
@@ -453,6 +461,15 @@ export function createGame(canvas, hooks, saved) {
   const hurtPlayer = (n) => {
     const facing = Math.abs(angDiff(Math.atan2(n.x - P.x, n.z - P.z), P.yaw)) < 1.4;
     if (iframe > 0) { hooks.onFloat("SCHIVATA!", "#a8e07a"); return; }
+    if (parryT > 0 && facing) {
+      const perfect = parryT > (hasShield() ? 0.5 : 0.36);
+      fx.burst(P.x + Math.sin(P.yaw) * 0.6, 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
+      n.stagger = perfect ? 1.6 : 0.9; n.state = "idle"; n.cd = Math.max(n.cd, 0.6);
+      sfx.clash(1); shake = 0.15;
+      if (perfect) riposteT = 1.5;
+      hooks.onFloat(perfect ? "PARATA PERFETTA!" : "PARATA!", "#9fd0ff");
+      return;
+    }
     let raw = n.spar ? Math.ceil(n.dmg * 0.6) : n.dmg + (n.role === "bandit" && S.night ? 3 : 0);
     if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
@@ -543,6 +560,7 @@ export function createGame(canvas, hooks, saved) {
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
     let dmg = SWORDS[P.eq.hand].dmg + Math.round(Math.random() * 6);
     if (combo === 3) dmg = Math.round(dmg * 1.5);
+    if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
     hitNpc(n, unaware ? n.hp : dmg);
     if (unaware && !n.alive) hooks.onFloat("COLPO ALLE SPALLE", "#ff5a4a");
   };
@@ -600,7 +618,9 @@ export function createGame(canvas, hooks, saved) {
     const zoneOk = (x, z) => zoneOf(x, z) === zoneOf(P.x, P.z);
     npcs.forEach((n) => {
       const x = n.alive ? n.x : n.cx ?? n.x, z = n.alive ? n.z : n.cz ?? n.z;            // a body: where it lies, not where its feet are
-      if (zoneOk(x, z) && near(x, z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach")) list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name}` });
+      if (!(zoneOk(x, z) && near(x, z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach"))) return;
+      if (n.alive && P.sneak) { if (!n.riding && near(x, z, 1.9)) list.push({ kind: "steal", id: n.id, x, z, label: `Ruba a ${n.name}` }); return; }   // sneaking: pickpocket instead of talking
+      list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name}` });
     });
     OBJECTS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
     houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
@@ -677,10 +697,32 @@ export function createGame(canvas, hooks, saved) {
 
   // Searching a body: both inventories side by side (LootPanel). Things move one at a time, or all together.
   let lootId = null;
-  const lootInfo = (id) => { const n = S.npcs[id]; return { id, name: n.name, inv: { ...n.inv }, gold: n.purse, mine: { ...P.inv }, myGold: P.gold, ore: P.ore }; };
+  // Pickpocketing (sneaking): only what someone carries, not what it wears; every thing taken can give you away.
+  const stealable = (n) => { const w = wornOf(NPC_DEFS.find((x) => x.id === n.id)); return Object.fromEntries(Object.entries(n.inv).filter(([it]) => !w.includes(it) && ITEMS[it]?.kind !== "quest")); };
+  const stealRisk = (it) => Math.min(0.6, Math.max(0.04, (it === "oro" ? 0.12 : 0.06) + (it === "oro" ? 0 : (ITEMS[it]?.price || 2) * 0.004) - (S.night ? 0.03 : 0)));
+  const lootInfo = (id) => {
+    const n = S.npcs[id], steal = n.alive, inv = steal ? stealable(n) : { ...n.inv };
+    return { id, name: n.name, inv, gold: n.purse, mine: { ...P.inv }, myGold: P.gold, ore: P.ore, steal, risk: steal ? Object.fromEntries([...Object.keys(inv), "oro"].map((it) => [it, stealRisk(it === "oro" ? "oro" : it) + (it === "oro" ? n.purse * 0.004 : 0)])) : null };
+  };
+  const caughtStealing = (n) => {
+    n.yaw = Math.atan2(P.x - n.x, P.z - n.z); n.actT = null;
+    if (n.guard || n.role === "noble") S.rep.crown -= 10; else S.rep.village -= 10;
+    say(`${n.name} si accorge della tua mano nella sua borsa!`);
+    ai.crime(n, true);
+    if (!n.hostile && !n.panic) { if (n.fights) { n.hostile = true; say(`${n.name}: "Ladro! Ora la paghi!"`); } else ai.scream(n, P.x, P.z, "Al ladro! Al ladro!"); }
+    sfx.clash(0.4); shake = 0.15;
+  };
   function loot(kind, id, item) {
     const n = S.npcs[id];
-    if (!n || n.alive) return null;
+    if (!n) return null;
+    if (n.alive) {                                                         // stealing from someone alive
+      if (kind !== "take" && kind !== "gold") return lootInfo(id);
+      const r = kind === "gold" ? stealRisk("oro") + n.purse * 0.004 : stealRisk(item);
+      if (Math.random() < r) { caughtStealing(n); return { caught: true }; }
+      if (kind === "gold") { P.gold += n.purse; if (n.purse) hooks.onFloat(`+${n.purse} oro`, "#e8c050"); n.purse = 0; sfx.pick(0.5); }
+      else if (n.inv[item] && stealable(n)[item]) { n.inv[item] -= 1; if (n.inv[item] <= 0) delete n.inv[item]; if (ITEMS[item]?.kind === "ore") P.ore += 1; else P.inv[item] = (P.inv[item] || 0) + 1; sfx.pick(0.4); }
+      return lootInfo(id);
+    }
     const one = (it) => { if (!n.inv[it]) return; n.inv[it] -= 1; if (n.inv[it] <= 0) delete n.inv[it]; if (ITEMS[it]?.kind === "ore") P.ore += 1; else P.inv[it] = (P.inv[it] || 0) + 1; };
     if (kind === "take") { one(item); sfx.pick(0.7); }
     else if (kind === "all") { Object.keys(n.inv).forEach((it) => { while (n.inv[it]) one(it); }); P.gold += n.purse; n.purse = 0; sfx.pick(1); }
@@ -688,9 +730,7 @@ export function createGame(canvas, hooks, saved) {
     else if (kind === "give") { if (!P.inv[item] || ITEMS[item]?.kind === "quest") return lootInfo(id); take(item); n.inv[item] = (n.inv[item] || 0) + 1; sfx.pick(0.5); }
     n.looted = !Object.keys(n.inv).length && !n.purse;
     if (kind !== "gold") {                                                 // something visible came off (or went back on)?
-      const d = NPC_DEFS.find((x) => x.id === id), L = LOOKS[d.look] || {};
-      const shown = [WEAR[L.armor], helmOf(L), L.shield && (L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"), d.weapon && (d.weapon === "long" ? "spada_lunga" : "spada_corta"), d.boss && "testa_morn"].filter(Boolean);
-      if (kind === "all" || shown.includes(item)) dressBody(n);
+      if (kind === "all" || wornOf(NPC_DEFS.find((x) => x.id === id)).includes(item)) dressBody(n);
     }
     return lootInfo(id);
   }
@@ -703,6 +743,11 @@ export function createGame(canvas, hooks, saved) {
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
+    if (c.kind === "steal") {
+      const n = S.npcs[c.id], looking = !n.sleepAt && Math.abs(angDiff(Math.atan2(P.x - n.x, P.z - n.z), n.yaw)) < 1.0;
+      if (looking) { caughtStealing(n); return; }                          // it is looking right at you
+      dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return;
+    }
     if (c.kind === "npc" && !S.npcs[c.id].alive) { dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return; }
     const d = getDialog(c.id, S);
     if (d) { dialogOpen = true; startTalk(c.id); hooks.openDialog(c.id, d); }
@@ -723,6 +768,8 @@ export function createGame(canvas, hooks, saved) {
     if (kind === "interact") interact();
     if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
+    if (kind === "parry" && parryT <= -0.3 && atkT < 0 && !P.mounted) { parryT = hasShield() ? 0.8 : 0.55; running = false; }
+    if (kind === "run") { if (inCombat() && !P.mounted) kind = "dodge"; else { running = !running; if (running) setSneak(false); } }   // in a fight the button dodges
     if (kind === "camera") setView(view === "first" ? "third" : "first");
     if (kind === "dodge" && dodgeCd <= 0) {
       const kx = input.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ky = input.y + (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
@@ -926,7 +973,7 @@ export function createGame(canvas, hooks, saved) {
       if (label !== prompt) { prompt = label; hooks.onPrompt(label); }
       const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
       hooks.onHud({
-        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view,
+        hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view, running, combat: inCombat(),
         dayT: S.dayT, night: S.night, places: repSummary(S),
         foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
       });
@@ -958,12 +1005,14 @@ export function createGame(canvas, hooks, saved) {
     let moving = false;
     if (!dialogOpen && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
-      const spd = (P.mounted ? 9 : 4.5) * mag * (atkT >= 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
+      const run = (running || keys.shift) && !P.sneak && atkT < 0 && parryT <= 0;
+      const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || parryT > 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
       [P.x, P.z] = collide(P.x + mx * spd * dt, P.z + mz * spd * dt);
-      moving = true; bobT += dt * (P.mounted ? 7 : 9);
-    } else [P.x, P.z] = collide(P.x, P.z);
+      moving = true; bobT += dt * (P.mounted ? 7 : 9) * (run ? 1.45 : 1); P.running = run;
+      stillT = 0;
+    } else { [P.x, P.z] = collide(P.x, P.z); P.running = false; stillT += dt; if (stillT > 1.2) running = false; }   // stopping ends the run
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
-    iframe -= dt; dodgeCd -= dt; shake = Math.max(0, shake - dt);
+    iframe -= dt; dodgeCd -= dt; parryT -= dt; riposteT -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
@@ -1027,7 +1076,7 @@ export function createGame(canvas, hooks, saved) {
       // Player body
       const pm = playerMesh;
       pm.userData.atk = ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo
-      const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
+      const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : parryT > 0 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
       at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
@@ -1051,10 +1100,12 @@ export function createGame(canvas, hooks, saved) {
       // Slash: wind up high on the right, cut down across to the left, recover (mirrored on the 2nd combo hit).
       const side = combo === 2 ? -1 : 1, R = VM_REST.R, L = VM_REST.L;
       const [raise, sweep] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
-      vm.armR.rotation.set(R.rx + raise, side * sweep, -side * sweep * 0.5);
-      vm.armR.position.set(R.pos[0], R.pos[1] + Math.sin(bobT * 0.5) * 0.01, R.pos[2]);
-      vm.armL.rotation.set(L.rx, 0, 0);
-      vm.armL.position.set(L.pos[0], L.pos[1] + Math.cos(bobT * 0.5) * 0.01, L.pos[2]);
+      const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
+      vm.armR.rotation.set(R.rx + raise + 0.35 * g, side * sweep + 0.35 * g, -side * sweep * 0.5 + 1.15 * g);       // blade across the screen
+      vm.armR.position.set(R.pos[0] - 0.12 * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + 0.06 * g, R.pos[2]);
+      const sg = hasShield() ? g : 0;
+      vm.armL.rotation.set(L.rx + 0.25 * sg, -0.55 * sg, 0);                                                       // shield to the middle
+      vm.armL.position.set(L.pos[0] + 0.16 * sg, L.pos[1] + Math.cos(bobT * 0.5) * 0.01 + 0.05 * sg, L.pos[2]);
       vm.g.position.y = bob * 0.5 - (P.sneak && !P.mounted ? 0.03 : 0);
     }
 
@@ -1093,6 +1144,7 @@ export function createGame(canvas, hooks, saved) {
     if (kk === "v") action("camera");
     if (kk === " " || kk === "l") action("dodge");
     if (kk === "i") hooks.onToggleInventory?.();
+    if (kk === "k") action("parry");
   };
   const ku = (e) => { keys[e.key.toLowerCase()] = false; };
   const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); };
@@ -1118,7 +1170,7 @@ export function createGame(canvas, hooks, saved) {
     getSave: () => ({
       player: { hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, x: P.x, z: P.z, yaw: P.yaw },
       rep: S.rep, known: S.known, flags: S.flags, drops: S.drops, dayT: S.dayT, view,
-      npcs: Object.fromEntries(npcs.map((n) => [n.id, { alive: n.alive, looted: n.looted, discovered: n.discovered, witnessed: n.witnessed, hp: n.alive ? n.hpMax : 0, deadX: n.deadX, deadZ: n.deadZ, ...(n.alive ? {} : { inv: n.inv, purse: n.purse }) }])),
+      npcs: Object.fromEntries(npcs.map((n) => [n.id, { alive: n.alive, looted: n.looted, discovered: n.discovered, witnessed: n.witnessed, hp: n.alive ? n.hpMax : 0, deadX: n.deadX, deadZ: n.deadZ, inv: n.inv, purse: n.purse }])),
     }),
     dispose: () => {
       cancelAnimationFrame(raf);

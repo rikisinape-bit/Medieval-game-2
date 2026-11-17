@@ -162,7 +162,7 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset }) {
           {tab === "game" && (
             <div className="space-y-2 font-pixel text-sm" data-testid="menu-game">
               <p className="text-[#b8ab92]">La partita si salva da sola in questo browser ogni 5 secondi e quando chiudi o cambi app.</p>
-              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, E usa, J colpisci, C furtivo, V telecamera, Spazio schiva, I menu.</p>
+              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, I menu.</p>
               <button data-ui="" className="inv-btn inv-btn-danger flex items-center gap-1" onClick={onReset} data-testid="menu-reset"><RotateCw size={12} />Nuova partita…</button>
             </div>
           )}
