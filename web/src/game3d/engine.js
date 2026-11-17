@@ -392,10 +392,17 @@ export function createGame(canvas, hooks, saved) {
   const inCombat = () => npcs.some((n) => n.alive && n.hostile && n.fights && ai.sameZone(n) && Math.hypot(n.x - P.x, n.z - P.z) < 14);
   let paused = false;
   const lerp = (a, b, t) => a + (b - a) * t;
-  // phase p 0..1 -> [raise (x, + = up), sweep (y, + = towards the left)]
-  const fpSwing = (p) => p < 0.25 ? [lerp(0, 0.45, p / 0.25), lerp(0, -0.45, p / 0.25)]
-    : p < 0.65 ? [lerp(0.45, -0.12, (p - 0.25) / 0.4), lerp(-0.45, 0.62, (p - 0.25) / 0.4)]
-    : [lerp(-0.12, 0, (p - 0.65) / 0.35), lerp(0.62, 0, (p - 0.65) / 0.35)];
+  // First-person blows of the combo, as poses of the sword arm in view space (x right, y up, -z forward): where the
+  // fist is and where the blade points at the top of the wind-up (w) and at the end of the cut (e).
+  // 1: from high right down to the left; 2: backhand from high left down to the right; 3: flat cut from right to left
+  // at chest height. (In first person the wrist is fixed, the blade stays at right angles to the forearm.)
+  // Phase p 0..1: wind up (0..0.25), cut (..0.65, the hit is in the middle), recover.
+  const FP_CUTS = {
+    1: { w: [[0.34, 0.02, -0.46], [0.3, 0.9, -0.15]], e: [[0.0, -0.28, -0.5], [-0.75, -0.15, -0.65]] },
+    2: { w: [[0.04, 0.02, -0.46], [-0.35, 0.9, -0.15]], e: [[0.38, -0.28, -0.48], [0.75, -0.15, -0.65]] },
+    3: { w: [[0.36, -0.08, -0.46], [0.95, 0.15, 0.25]], e: [[0.02, -0.14, -0.55], [-0.95, -0.05, -0.25]] },
+  };
+  const smooth01 = (x) => x * x * (3 - 2 * x);
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
   if (import.meta.env.DEV) window.__P = P;                          // dev only: the player, for tests
@@ -658,8 +665,50 @@ export function createGame(canvas, hooks, saved) {
   const camFrom = new THREE.Vector3(), camLook = new THREE.Vector3(), _v = new THREE.Vector3(), _cv = new THREE.Vector3();
   // First-person blade: turn of the sword in the fist so its edge faces the cut, and the parry (arm turned around the
   // view axis so the blade lies across the screen, a little higher and nearer the middle).
-  const FP_EDGE = Math.PI / 2, FP_PARRY = { turn: 1.3, dx: -0.1, dy: 0.12, dz: 0, roll: 0 };
+  const FP_PARRY = { turn: 1.3, dx: -0.1, dy: 0.12, dz: 0 };
   const _pq = new THREE.Quaternion(), _fwd = new THREE.Vector3(0, 0, 1);
+  // First-person edge: the blade turns in the fist so the edge faces where it is going. At rest and when parrying the
+  // edge faces forward; during a blow it faces the direction of the cut (measured on the swing itself, at the middle
+  // of the cut), already while winding up, and the blade turns there smoothly.
+  const _fm = new THREE.Matrix4(), _fq = new THREE.Quaternion(), _t1 = new THREE.Vector3(), _t2 = new THREE.Vector3(), _ax = new THREE.Vector3(), _ed = new THREE.Vector3(), _sc = new THREE.Vector3();
+  const fistMatrix = (out) => { vm.armR.updateMatrix(); const tw = vm.fistR.parent; tw.updateMatrix(); vm.fistR.updateMatrix(); return out.multiplyMatrices(vm.armR.matrix, tw.matrix).multiply(vm.fistR.matrix); };
+  // Arm orientation that puts the fist towards `hand` with the blade as near as possible to `blade` (view space).
+  const armPose = (loc, hand, blade) => {
+    const dir = new THREE.Vector3(...hand).sub(new THREE.Vector3(...VM_REST.R.pos)).normalize(), B = new THREE.Vector3(...blade).normalize();
+    const q1 = new THREE.Quaternion().setFromUnitVectors(loc.f.clone().normalize(), dir);
+    const b1 = loc.b.clone().applyQuaternion(q1);
+    const pa = b1.addScaledVector(dir, -dir.dot(b1)).normalize(), pb = B.addScaledVector(dir, -dir.dot(B)).normalize();
+    return new THREE.Quaternion().setFromAxisAngle(dir, Math.atan2(dir.dot(pa.clone().cross(pb)), pa.dot(pb))).multiply(q1);
+  };
+  // Keyframe orientations of the arm for each blow (computed once per view model: they depend on the fist).
+  const fpKeys = () => {
+    if (vm.keys) return vm.keys;
+    const tw = vm.fistR.parent; tw.updateMatrix(); vm.fistR.updateMatrix();
+    const m = new THREE.Matrix4().multiplyMatrices(tw.matrix, vm.fistR.matrix);
+    const loc = { f: new THREE.Vector3().setFromMatrixPosition(m), b: new THREE.Vector3(0, 0, 1).transformDirection(m) };
+    const rest = new THREE.Quaternion().setFromEuler(new THREE.Euler(VM_REST.R.rx, 0, 0));
+    vm.keys = { rest };
+    Object.entries(FP_CUTS).forEach(([c, K]) => { vm.keys[c] = { w: armPose(loc, ...K.w), e: armPose(loc, ...K.e) }; });
+    return vm.keys;
+  };
+  const fpArm = (p, c, out) => {                                          // arm orientation for swing phase p of blow c
+    const K = fpKeys(), k = K[c] || K[1];
+    if (p < 0.25) return out.slerpQuaternions(K.rest, k.w, smooth01(p / 0.25));
+    if (p < 0.65) return out.slerpQuaternions(k.w, k.e, smooth01((p - 0.25) / 0.4));
+    return out.slerpQuaternions(k.e, K.rest, smooth01((p - 0.65) / 0.35));
+  };
+  const _aq = new THREE.Quaternion();
+  const tipAt = (p, c, out) => {                                         // blade point in view space for swing phase p
+    vm.armR.quaternion.copy(fpArm(p, c, _aq));
+    return out.set(0, 0, 0.5).applyMatrix4(fistMatrix(_fm));
+  };
+  let fpRoll = 0;
+  function aimEdge(dt, c, attacking) {
+    if (!vm.sword) return;
+    const want = attacking ? tipAt(0.47, c, _t2).sub(tipAt(0.41, c, _t1)) : _ed.set(0, 0, -1);   // cut direction, or forward
+    want.normalize(); _ed.copy(want);
+    return _ed;
+  }
   function startTalk(id) {
     const n = S.npcs[id];
     if (!n || !n.alive || !n.mesh) { talk = null; return; }
@@ -1018,9 +1067,11 @@ export function createGame(canvas, hooks, saved) {
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
     iframe -= dt; dodgeCd -= dt; parryT -= dt; riposteT -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
+    if (import.meta.env.DEV && window.__atk) { atkT = window.__atk.t - dt; combo = window.__atk.combo; queued = false; }   // dev only: freeze a blow (tests)
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
+      if (import.meta.env.DEV && window.__atk) atkT = window.__atk.t;
       if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
@@ -1101,15 +1152,24 @@ export function createGame(canvas, hooks, saved) {
     } else {
       camera.position.set(P.x + shk * 0.8, eyeY, P.z);
       camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);
-      // Slash: wind up high on the right, cut down across to the left, recover (mirrored on the 2nd combo hit).
-      const side = combo === 2 ? -1 : 1, R = VM_REST.R, L = VM_REST.L;
-      const [raise, sweep] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
+      // The three blows of the combo (FP_CUTS); the blade turns in the fist so the edge leads (aimEdge).
+      const R = VM_REST.R, L = VM_REST.L, blow = Math.max(1, combo);
       const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
-      vm.armR.rotation.set(R.rx + raise, side * sweep, -side * sweep * 0.5);
+      const cut = aimEdge(dt, blow, atkT >= 0 && g === 0);                // where the edge must face (view space)
+      if (atkT >= 0) vm.armR.quaternion.copy(fpArm(Math.min(1, k), blow, _aq)); else vm.armR.rotation.set(R.rx, 0, 0);
       if (g > 0) vm.armR.quaternion.premultiply(_pq.setFromAxisAngle(_fwd, FP_PARRY.turn * g));    // parry: the blade turns across the screen
       vm.armR.position.set(R.pos[0] + FP_PARRY.dx * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + FP_PARRY.dy * g, R.pos[2] + FP_PARRY.dz * g);
-      // the edge leads the cut: towards the left on the cuts from the right, towards the right on the mirrored one
-      if (vm.sword) vm.sword.rotation.z = g > 0 ? FP_PARRY.roll : side > 0 ? FP_EDGE : -FP_EDGE;
+      if (vm.sword && cut) {                                             // turn the blade (around its length) so its edge faces `cut`
+        fistMatrix(_fm).decompose(_t1, _fq, _sc);
+        _ax.set(0, 0, 1).applyQuaternion(_fq);                           // blade direction now
+        _t2.copy(cut).addScaledVector(_ax, -_ax.dot(cut));               // the part of `cut` across the blade
+        if (_t2.lengthSq() > 1e-6) {
+          _t2.applyQuaternion(_fq.invert());                              // in the fist's own space
+          const target = Math.atan2(_t2.y, _t2.x);
+          fpRoll += angDiff(target, fpRoll) * Math.min(1, dt * 16);
+        }
+        vm.sword.rotation.z = fpRoll;
+      }
       const sg = hasShield() ? g : 0;
       vm.armL.rotation.set(L.rx + 0.25 * sg, -0.55 * sg, 0);                                                       // shield to the middle
       vm.armL.position.set(L.pos[0] + 0.16 * sg, L.pos[1] + Math.cos(bobT * 0.5) * 0.01 + 0.05 * sg, L.pos[2]);
