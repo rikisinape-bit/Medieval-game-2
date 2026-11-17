@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
@@ -454,6 +454,7 @@ export function createGame(canvas, hooks, saved) {
   };
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
+    n.deathT = 0; n.deathKind = Math.floor(Math.random() * DEATH_TIME.length);   // how this one falls (animated in frame())
     sfx.scream(vAt(n.x, n.z) * 0.8, pitchOf(n) * 0.8, 0.7, true);
     note(`${n.name} cade a terra.`);
     dropLoot(n);
@@ -512,7 +513,7 @@ export function createGame(canvas, hooks, saved) {
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
     if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block) {
       fx.burst(n.x - dx * 0.3, 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
-      sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1;
+      sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
       return;
     }
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
@@ -604,6 +605,49 @@ export function createGame(canvas, hooks, saved) {
     },
   });
 
+  // Conversation close-up: the camera moves in front of the NPC (who turns to the player and talks), framing the
+  // face and shoulders on the left of the screen; the choices are on the right (InteractionDialog).
+  let talk = null;
+  const camFrom = new THREE.Vector3(), camLook = new THREE.Vector3(), _v = new THREE.Vector3();
+  function startTalk(id) {
+    const n = S.npcs[id];
+    if (!n || !n.alive || !n.mesh) { talk = null; return; }
+    const want = Math.atan2(P.x - n.x, P.z - n.z);
+    camera.getWorldDirection(_v); camLook.copy(camera.position).addScaledVector(_v, 2);
+    camFrom.copy(camera.position);
+    talk = { n, yaw0: n.yaw, want, t: 0, fov: camera.fov };
+    vm.g.visible = false; if (playerMesh) playerMesh.visible = false;
+  }
+  function endTalk() {
+    if (!talk) return;
+    camera.fov = talk.fov; camera.updateProjectionMatrix();
+    talk = null; setView(view);
+  }
+  function updateTalk(dt) {
+    const T = talk, n = T.n;
+    T.t += dt;
+    const k = 1 - Math.exp(-dt * 5);
+    const still = n.riding || n.ms === "seat" || n.sleepAt;
+    if (!still) {                                                        // turn to the player, gesture while talking
+      n.yaw += angDiff(T.want, n.yaw) * k;
+      at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0;
+      n.mesh.userData.atk = null; poseHuman(n.mesh, T.t, false, "talk");
+      showTool(n.mesh, null); n.mesh.userData.prop.visible = false;
+    }
+    const h = n.mesh.userData.variant?.height ?? 1, piv = n.mesh.userData.geo?.pivots.head;
+    const headY = n.mesh.position.y + (piv ? piv[1] : 1.75) * h, fx = Math.sin(n.yaw), fz = Math.cos(n.yaw), rx = fz, rz = -fx;   // rx/rz: screen right
+    // camera a little to the right of the face, looking past it: the NPC sits on the left third of the frame
+    let dist = 1.2, side = 0.34;
+    const free = (d, sd) => !camBlocked(n.x + fx * d + rx * sd, n.z + fz * d + rz * sd);
+    if (!free(dist, side)) { if (free(dist, -side)) side = -side; else { while (dist > 0.6 && !free(dist, side)) dist -= 0.15; } }
+    const tx = n.x + fx * dist + rx * side, ty = headY + 0.06, tz = n.z + fz * dist + rz * side;
+    const lx = n.x + rx * side * 0.95 + fx * 0.1, ly = headY - 0.1, lz = n.z + rz * side * 0.95 + fz * 0.1;
+    if (!still) n.mesh.userData.head.rotation.y += Math.atan2(side, dist) * 0.8;   // looks at the camera
+    camFrom.lerp(_v.set(tx, ty, tz), k); camLook.lerp(_v.set(lx, ly, lz), k);
+    camera.position.copy(camFrom); camera.lookAt(camLook);
+    const fov = 38; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * k; camera.updateProjectionMatrix(); }
+  }
+
   function interact() {
     if (dialogOpen) return;
     const c = candidates();
@@ -613,11 +657,11 @@ export function createGame(canvas, hooks, saved) {
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
     const d = getDialog(c.id, S);
-    if (d) { dialogOpen = true; hooks.openDialog(c.id, d); }
+    if (d) { dialogOpen = true; startTalk(c.id); hooks.openDialog(c.id, d); }
   }
 
   function choose(id, effect) {
-    dialogOpen = false;
+    dialogOpen = false; endTalk();
     if (effect === "close") {
       if (enc.state === "talk") { api(id).forest("fight"); say(`Capo Morn: "Niente risposta? Allora parlerà la spada!"`); }
       return;
@@ -711,7 +755,7 @@ export function createGame(canvas, hooks, saved) {
       if (!boss.alive || boss.hostile) { api(boss.id).forest("fight"); return; }
       const dx = boss.x - P.x, dz = boss.z - P.z, d = Math.hypot(dx, dz) || 1;
       boss.goTo = [P.x + (dx / d) * 1.8, P.z + (dz / d) * 1.8];
-      if (d < 2.6) { enc.state = "talk"; dialogOpen = true; hooks.openDialog(boss.id, getDialog(boss.id, S)); }
+      if (d < 2.6) { enc.state = "talk"; dialogOpen = true; startTalk(boss.id); hooks.openDialog(boss.id, getDialog(boss.id, S)); }
       else if (d > 26) { api(boss.id).forest("fight"); say(`${boss.name}: "Scappi? Prendetelo!"`); }
     }
   }
@@ -845,7 +889,7 @@ export function createGame(canvas, hooks, saved) {
   let raf = 0, time = 0, bobT = 0;
   function frame() {
     const dt = Math.min(0.1, clock.getDelta());
-    if (paused) { updateHud(dt); renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; }
+    if (paused) { if (talk) updateTalk(dt); updateHud(dt); renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; }
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt;
@@ -891,16 +935,23 @@ export function createGame(canvas, hooks, saved) {
     npcs.forEach((n) => {
       n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
       if (n.horse) { at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }
-      if (!n.alive) { at(n.mesh, n.x, 0.25, n.z, n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "dead"); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); return; }
-      n.cd -= dt; n.stagger -= dt; n.flash -= dt;
+      if (!n.alive) {                                                   // falling (once), then lying still
+        const kind = n.deathKind ?? n.id.length % DEATH_TIME.length;      // dead since a saved game: always the same pose
+        n.deathT = n.deathT == null ? 99 : n.deathT + dt;
+        const p = Math.min(1, n.deathT / DEATH_TIME[kind]);
+        if (n.poseP !== p) { n.poseP = p; at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); }
+        return;
+      }
+      n.cd -= dt; n.stagger -= dt; n.flash -= dt; n.blockT = (n.blockT || 0) - dt;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
       if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
       else {
-        const y = poseHuman(n.mesh, nt, r.walk, r.mode, r.k);
-        at(n.mesh, n.x, n.riding ? 1.05 : n.ms === "seat" ? 0.35 : y, n.z, n.yaw);
+        n.mesh.userData.atk = n.atk;
+        const y = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k);
+        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y, n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0;
       }
@@ -924,8 +975,9 @@ export function createGame(canvas, hooks, saved) {
     if (view === "third") {
       // Player body
       const pm = playerMesh;
+      pm.userData.atk = ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo
       const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : P.sneak ? "sneak" : null, Math.min(1, k));
-      at(pm, P.x, P.mounted ? 1.05 : ny, P.z, P.yaw);
+      at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
       // Camera behind the right shoulder; pulled in if a wall is in the way.
@@ -955,6 +1007,7 @@ export function createGame(canvas, hooks, saved) {
       vm.g.position.y = bob * 0.5 - (P.sneak && !P.mounted ? 0.03 : 0);
     }
 
+    if (talk) updateTalk(dt);
     updateHud(dt);
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
@@ -1006,7 +1059,7 @@ export function createGame(canvas, hooks, saved) {
   return {
     input, action, choose, shop,
     look: (dx, dy) => { P.yaw -= dx * 0.005; pitch = clamp(pitch - dy * 0.004, -1.2, 1.2); },
-    closeDialog: () => { dialogOpen = false; },
+    closeDialog: () => { dialogOpen = false; endTalk(); },
     setPaused: (v) => { paused = !!v; lookers.clear(); if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
     invAction: (kind, id) => { sfx.unlock(); if (kind === "use") consumeItem(id); else if (kind === "equip") equipItem(id); else if (kind === "drop") dropItem(id); else if (kind === "unequip") unequip(id); },
     getSave: () => ({

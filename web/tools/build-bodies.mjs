@@ -15,8 +15,8 @@ const SCALE = 1.11;                                  // 1.66 m model -> 1.84 m i
 
 // Joints measured on the original model (metres, after centring; x = the +x side).
 const SRC = {
-  m: { mesh: "Body002", shoulder: [0.18, 1.33], hipY: 0.87, hipX: 0.09, neck: 1.455, crotch: 0.77 },
-  f: { mesh: "Cube001", shoulder: [0.17, 1.335], hipY: 0.88, hipX: 0.09, neck: 1.475, crotch: 0.8 },
+  m: { mesh: "Body002", shoulder: [0.18, 1.33], hipY: 0.87, hipX: 0.09, neck: 1.455, crotch: 0.77, knee: 0.485 },
+  f: { mesh: "Cube001", shoulder: [0.17, 1.335], hipY: 0.88, hipX: 0.09, neck: 1.475, crotch: 0.8, knee: 0.485 },
 };
 const POSE = { hang: 0.13, forward: 0.06, elbow: 0.32, knuckle: 1.35, mid: 1.35, wrist: 0.5 };   // radians (bends) / direction
 
@@ -145,8 +145,9 @@ function build(raw, J) {
   const shoulder = sc(arms[1].S), hip = [hipX, hipY, 0];
   const inArm = (i, side) => arms[side].W[i] > 0.5;
   const legOf = (p) => (Math.abs(p[0]) < 0.28 && p[1] < crotch + 0.55 * Math.abs(p[0]) + 0.02 ? Math.sign(p[0]) || 1 : 0);
-  const kind = Ps.map((p, i) => (inArm(i, 1) ? "armR" : inArm(i, -1) ? "armL" : p[1] > neck ? "head" : legOf(p) > 0 ? "legR" : legOf(p) < 0 ? "legL" : "torso"));
-  const pivots = { torso: [0, 0, 0], head: headPivot, armR: shoulder, armL: [-shoulder[0], shoulder[1], arms[-1].S[2] * SCALE], legR: hip, legL: [-hipX, hipY, 0] };
+  const kneeY = J.knee * SCALE; let rigKnee = null;
+  const kind = Ps.map((p, i) => (inArm(i, 1) ? "armR" : inArm(i, -1) ? "armL" : p[1] > neck ? "head" : legOf(p) > 0 ? (p[1] < kneeY ? "shinR" : "legR") : legOf(p) < 0 ? (p[1] < kneeY ? "shinL" : "legL") : "torso"));
+  const pivots = { torso: [0, 0, 0], head: headPivot, armR: shoulder, armL: [-shoulder[0], shoulder[1], arms[-1].S[2] * SCALE], legR: hip, legL: [-hipX, hipY, 0], shinR: [0, kneeY, 0], shinL: [0, kneeY, 0] };
   // Body measures for clothes: exact cross-sections (triangles cut by horizontal planes) every 5 cm: half width,
   // back and front of the trunk (below the crotch: of both legs together).
   const section = (y, test) => {
@@ -159,6 +160,11 @@ function build(raw, J) {
   };
   // legs turn around the middle of the thigh
   { const pts = section(hipY - 0.12, (k) => k === "legR"); const zs = pts.map((p) => p[1]); pivots.legR[2] = pivots.legL[2] = +((Math.min(...zs) + Math.max(...zs)) / 2).toFixed(4); }
+  // knees: in the middle of the leg's section at the cut (the shin is a child of the thigh in the game)
+  { const pts = section(kneeY, (k) => k === "legR" || k === "shinR"), xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+    const kx = (Math.min(...xs) + Math.max(...xs)) / 2, kz = (Math.min(...zs) + Math.max(...zs)) / 2 - 0.01;
+    pivots.shinR = [+kx.toFixed(4), +kneeY.toFixed(4), +kz.toFixed(4)]; pivots.shinL = [-pivots.shinR[0], pivots.shinR[1], pivots.shinR[2]];
+    rigKnee = { r: +((Math.max(...xs) - Math.min(...xs)) / 2).toFixed(3) }; }
   const parts = {};
   for (const name of Object.keys(pivots)) {
     const used = new Map(), pos = [], idx = [], tt = [];
@@ -181,7 +187,7 @@ function build(raw, J) {
   }
   const prof = [];
   for (let y = 0.3; y <= neck + 0.001; y += 0.05) {
-    const pts = y > crotch + 0.2 ? section(y, (k) => k === "torso") : y > crotch ? section(y, (k) => k === "torso" || k.startsWith("leg")) : section(y, (k) => k.startsWith("leg"));
+    const pts = y > crotch + 0.2 ? section(y, (k) => k === "torso") : y > crotch ? section(y, (k) => k === "torso" || (k.startsWith("leg") || k.startsWith("shin"))) : section(y, (k) => (k.startsWith("leg") || k.startsWith("shin")));
     if (pts.length < 3) continue;
     prof.push([+y.toFixed(2), +Math.max(...pts.map((p) => Math.abs(p[0]))).toFixed(3), +Math.min(...pts.map((p) => p[1])).toFixed(3), +Math.max(...pts.map((p) => p[1])).toFixed(3)]);
   }
@@ -195,7 +201,7 @@ function build(raw, J) {
     parts,
     rig: {
       pivots: Object.fromEntries(Object.entries(pivots).map(([k, v]) => [k, r3(v)])),
-      grip: r3(gripLocal), gripAxis: r3(R.gripAxis),
+      grip: r3(gripLocal), gripAxis: r3(R.gripAxis), knee: rigKnee,
       gripL: r3(sub(sc(arms[-1].grip), pivots.armL)), gripAxisL: r3(arms[-1].gripAxis),
       height: +headTop.toFixed(3), neck: +neck.toFixed(3), crotch: +crotch.toFixed(3),
       head: { top: +(headTop - headPivot[1]).toFixed(3), chin: +(neck - headPivot[1]).toFixed(3), halfW: +Math.max(...headPts.map((p) => Math.abs(p[0]))).toFixed(3),

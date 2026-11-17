@@ -61,7 +61,7 @@ export function Part(y0, rand, dirt) {
     cap: (r, hex, x, y, z, thetaLen, sx = 1, sy = 1, sz = 1, rotx = 0, phiStart = 0, phiLen = Math.PI * 2) =>
       push(place(new THREE.SphereGeometry(r, 8, 5, phiStart, phiLen, 0, thetaLen), x, y, z, rotx, 0, 0, sx, sy, sz), hex),
     cone: (r, h, hex, x, y, z, rx = 0, rz = 0, seg = 6, sx = 1, sz = 1) => push(place(new THREE.ConeGeometry(r, h, seg), x, y, z, rx, 0, rz, sx, 1, sz), hex),
-    done: () => { const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; },
+    done: () => { if (!list.length) return null; const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; },
   };
   return api;
 }
@@ -99,16 +99,16 @@ function baseBody(female) {
   }
   const R = src.rig;
   // A few landmarks measured on the parts themselves.
-  const mid = (part, test) => { const P = parts[part], s = [0, 0, 0]; let n = 0; for (let i = 0; i < P.pos.length / 3; i++) if (test(i, P)) { s[0] += P.pos[i * 3]; s[1] += P.pos[i * 3 + 1]; s[2] += P.pos[i * 3 + 2]; n++; } return s.map((x) => x / Math.max(1, n)); };
-  const elbow = mid("armR", (i, P) => Math.abs(P.t[i] - 0.5) < 0.08), fore = mid("armR", (i, P) => Math.abs(P.t[i] - 0.78) < 0.08);
-  const kneeY = R.pivots.legR[1] * 0.5;
-  const knee = mid("legR", (i, P) => Math.abs(P.pos[i * 3 + 1] + R.pivots.legR[1] - kneeY) < 0.05);
+  // Middle of the arm's vertices around t (0 shoulder .. 1 wrist); the window widens until it finds some (low poly).
+  const armAt = (t) => { const P = parts.armR; for (let w = 0.05; w < 1; w += 0.05) { const s = [0, 0, 0]; let n = 0; for (let i = 0; i < P.t.length; i++) if (Math.abs(P.t[i] - t) < w) { s[0] += P.pos[i * 3]; s[1] += P.pos[i * 3 + 1]; s[2] += P.pos[i * 3 + 2]; n++; } if (n >= 3) return s.map((x) => x / n); } return [0, -0.3, 0]; };
+  const elbow = armAt(0.5), wrist = armAt(1.0), fore = elbow.map((e, i) => e + (wrist[i] - e) * 0.55);
+  const kneeY = R.pivots.shinR[1];
   // the foot: box around the leg's vertices below the ankle (leg space)
-  const L = parts.legR, fy = -R.pivots.legR[1] + 0.09, fp = [];
+  const L = parts.shinR, fy = -kneeY + 0.09, fp = [];
   for (let i = 0; i < L.pos.length / 3; i++) if (L.pos[i * 3 + 1] < fy) fp.push([L.pos[i * 3], L.pos[i * 3 + 1], L.pos[i * 3 + 2]]);
   const ext = (k, f) => f(...fp.map((p) => p[k]));
   const foot = { x: (ext(0, Math.min) + ext(0, Math.max)) / 2, y: (ext(1, Math.min) + fy) / 2, z: (ext(2, Math.min) + ext(2, Math.max)) / 2, w: ext(0, Math.max) - ext(0, Math.min), h: fy - ext(1, Math.min), d: ext(2, Math.max) - ext(2, Math.min) };
-  return (BASE[k] = { parts, rig: R, elbow, fore, knee, kneeY, foot });
+  return (BASE[k] = { parts, rig: R, elbow, wrist, fore, kneeY, foot, armAt });
 }
 // Torso measures at height y: half width, back and front (z), interpolated from the 5 cm profile.
 const profileAt = (R, y) => {
@@ -159,7 +159,7 @@ const cache = new Map();
 /**
  * Builds (or reuses) the geometries of one character.
  * look: LOOKS entry (+ optional female, hair, beard, sleeves, boots ...), v: variantOf(look, seed)
- * Returns { torso, head, armL, armR, legL, legR, pivots, grip, gripAxis, gripL, gripAxisL, shieldAt }:
+ * Returns { torso, head, armL, armR, legL, legR (thighs), shinL, shinR, pivots, grip, gripAxis, gripL, gripAxisL, shieldAt }:
  * every part in the local space of its pivot (pivots in the character's space, feet on y = 0).
  */
 export function bodyGeometries(look, v) {
@@ -182,7 +182,7 @@ export function bodyGeometries(look, v) {
     Pt.tube(a.w, b.w, y1, y2, hex, 0, (a.z0 + a.z1) / 2, seg, dz);
   };
   const opt = { bulk: BK, rand: r, dirt };
-  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [] };
+  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [] };
   const shell = (part, d, colorOf, o = {}) => pieces[part].push(bodyMesh(Bd, part, colorOf, { ...opt, ...o, d }));
 
   // ---------- TORSO ----------
@@ -194,24 +194,37 @@ export function bodyGeometries(look, v) {
     return legs;
   });
   const T = Part(0, r, dirt);
-  if (plate) {                                                     // breastplate (a shell over the chest), ridge, faulds, gorget
-    shell("torso", 0.022, (x, y) => (y > waistY - 0.06 && y < shY + 0.04 && !isNeck(y, x) ? (y < waistY + 0.02 ? tone(metal, -0.12) : metal) : null));
-    const c = prof(1.22, 0.03); T.box(0.03, 0.36, 0.03, tone(metal, 0.15), 0, 1.22, c.z1 - 0.005);
-    band(T, neck - 0.05, neck - 0.13, 0.025, 0.035, tone(metal, -0.05));
+  // Point on the trunk's surface at height y, across x (front, or back): the profile is taken as an ellipse.
+  const surf = (y, x, off = 0, back = false) => { const p = prof(y, off), zc = (p.z0 + p.z1) / 2, rz = (p.z1 - p.z0) / 2, k = Math.sqrt(Math.max(0, 1 - (x / p.w) ** 2)); return back ? zc - rz * k : zc + rz * k; };
+  const steel = tone(metal, 0.08), dark = tone(metal, -0.35);
+  if (plate) {
+    // cuirass: breastplate and backplate over a mail shirt, a raised plackart on the belly, a ridge down the middle
+    shell("torso", 0.026, (x, y) => (y > waistY - 0.02 && y < shY + 0.02 && !isNeck(y, x) ? (y > shY - 0.05 ? tone(metal, -0.05) : metal) : null));
+    shell("torso", 0.033, (x, y, z) => (z > 0 && y > waistY - 0.02 && y < waistY + 0.13 ? steel : null));
+    for (let y = waistY + 0.04; y < shY - 0.04; y += 0.05) T.box(0.02, 0.055, 0.014, tone(metal, 0.2), 0, y, surf(y, 0, 0.032));
+    [-1, 1].forEach((sd) => [waistY + 0.03, waistY + 0.2, shY - 0.08].forEach((y) => T.box(0.012, 0.012, 0.01, "#2a2620", sd * prof(y).w * 0.62, y, surf(y, sd * prof(y).w * 0.62, 0.03))));   // rivets
+    // faulds: three overlapping lames below the waist, each with a dark edge
+    for (let i = 0; i < 3; i++) { const y0 = waistY - 0.02 - i * 0.06; band(T, y0, y0 - 0.07, 0.03 + i * 0.012, 0.045 + i * 0.012, i % 2 ? tone(metal, -0.06) : metal, 11); band(T, y0 - 0.068, y0 - 0.075, 0.046 + i * 0.012, 0.047 + i * 0.012, dark, 11); }
+    T.tube(neckR + 0.022, neckR + 0.05, neck - 0.01, neck - 0.07, metal, 0, neckZ, 9, 1.1); T.tube(neckR + 0.05, neckR + 0.075, neck - 0.07, neck - 0.11, tone(metal, -0.08), 0, neckZ - 0.01, 9, 1.15);   // gorget
   }
-  if (mail) {                                                      // hauberk: shell + rows of rings
-    shell("torso", 0.012, (x, y) => (y > crotch && !isNeck(y, x) ? metal : null));
-    for (let y = waistY; y < shY; y += 0.06) shell("torso", 0.016, (x, yy) => (Math.abs(yy - y) < 0.012 ? tone(metal, -0.32) : null));
+  if (mail) {                                                      // hauberk: mail shell with rows of rings, leather edging at the neck
+    shell("torso", 0.012, (x, y) => (y > crotch - 0.02 && !isNeck(y, x) ? metal : null));
+    for (let y = waistY - 0.1; y < shY + 0.02; y += 0.045) shell("torso", 0.015, (x, yy) => (Math.abs(yy - y) < 0.009 ? tone(metal, -0.24) : null));
+    T.tube(neckR + 0.018, neckR + 0.04, neck - 0.02, neck - 0.06, "#3a2a1c", 0, neckZ, 9, 1.1);
   }
-  if (gamb) {                                                      // padded jacket: thick shell + quilting lines
-    shell("torso", 0.022, (x, y) => (y > crotch - 0.02 && !isNeck(y, x) ? cloth : null));
-    for (let y = waistY + 0.04; y < shY - 0.02; y += 0.09) shell("torso", 0.026, (x, yy) => (Math.abs(yy - y) < 0.014 ? tone(cloth, -0.22) : null));
+  if (gamb) {                                                      // padded jacket: thick, quilted in squares, standing collar
+    shell("torso", 0.024, (x, y) => (y > crotch - 0.02 && !isNeck(y, x) ? cloth : null));
+    const q = tone(cloth, -0.25);
+    for (let y = waistY + 0.04; y < shY - 0.02; y += 0.085) band(T, y + 0.006, y - 0.006, 0.026, 0.026, q, 12);
+    for (let y = waistY + 0.02; y < shY - 0.06; y += 0.06) [-0.09, -0.03, 0.03, 0.09].forEach((x) => { if (Math.abs(x) < prof(y).w * 0.85 && !(look.tabard && Math.abs(x) < 0.14)) { T.box(0.008, 0.06, 0.008, q, x, y + 0.03, surf(y + 0.03, x, 0.026)); T.box(0.008, 0.06, 0.008, q, x, y + 0.03, surf(y + 0.03, x, 0.026, true)); } });
+    T.tube(neckR + 0.02, neckR + 0.045, neck + 0.02, neck - 0.07, tone(cloth, -0.08), 0, neckZ, 9, 1.1);
   }
-  if (leather) {                                                   // leather jerkin: shell, laced front, stitched hem
+  if (leather) {                                                   // leather jerkin: studs, lacing, stitched hem
     const lc = look.vest || "#3e2c1e";
-    shell("torso", 0.016, (x, y) => (y > waistY - 0.07 && y < shY - 0.01 && !isNeck(y, x) ? (y < waistY - 0.02 ? tone(lc, -0.08) : lc) : null));
-    const c = prof(1.2, 0.02); T.box(0.012, 0.36, 0.012, "#1e140c", 0, 1.2, c.z1);
-    for (let y = 1.06; y < 1.36; y += 0.07) { const cc = prof(y, 0.02); T.box(0.05, 0.008, 0.01, "#1e140c", 0, y, cc.z1 + 0.004); }
+    shell("torso", 0.017, (x, y) => (y > waistY - 0.08 && y < shY - 0.005 && !isNeck(y, x) ? (y < waistY - 0.02 ? tone(lc, -0.08) : lc) : null));
+    for (let y = waistY + 0.05; y < shY - 0.06; y += 0.07) { T.box(0.05, 0.008, 0.01, "#1e140c", 0, y, surf(y, 0, 0.02)); [-1, 1].forEach((sd) => [0.05, 0.1].forEach((x) => { if (x < prof(y).w * 0.8) T.box(0.012, 0.012, 0.008, "#7a7066", sd * x, y + 0.03, surf(y + 0.03, sd * x, 0.02)); })); }
+    T.box(0.012, shY - waistY - 0.08, 0.01, "#1e140c", 0, (shY + waistY) / 2 - 0.02, surf((shY + waistY) / 2, 0, 0.018));
+    band(T, waistY - 0.07, waistY - 0.09, 0.022, 0.022, tone(lc, -0.3), 10);
   }
   if (look.vest && !leather) shell("torso", 0.014, (x, y, z) => (y > waistY - 0.06 && y < shY - 0.03 && !isNeck(y, x) && !(z > 0 && Math.abs(x) < 0.035) ? look.vest : null));   // open at the front
   if (look.coat) shell("torso", 0.018, (x, y, z) => (y > waistY - 0.05 && !isNeck(y, x) && !(z > 0 && Math.abs(x) < 0.02 && look.coat !== "robe") ? look.coatColor || cloth : null));
@@ -223,11 +236,15 @@ export function bodyGeometries(look, v) {
   else if (mail) { band(T, hemTop, crotch - 0.22, 0.02, 0.06, metal, 10); band(T, crotch - 0.21, crotch - 0.23, 0.065, 0.066, tone(metal, -0.3), 10); }
   else band(T, hemTop, crotch - 0.14, 0.012, 0.05, plate ? tone(metal, -0.1) : cloth, 9);
   if ((look.coat || look.dress || F) && trim) { const lo = look.coat === "robe" ? 0.07 : look.coat ? 0.42 : 0.06, off = look.coat === "robe" ? 0.15 : look.coat ? 0.1 : 0.2; band(T, lo + 0.05, lo, off - 0.005, off + 0.004, trim, 10); }
-  if (look.tabard) {                                               // surcoat panels, front and back
-    const c = prof(1.2, 0.03), h = 1.36 - (crotch - 0.25);
-    T.box(0.26, h, 0.02, look.tabard, 0, (1.36 + crotch - 0.25) / 2, c.z1 + 0.012, -0.04);
-    T.box(0.26, h, 0.02, look.tabard, 0, (1.36 + crotch - 0.25) / 2, c.z0 - 0.012, 0.04);
-    if (look.emblem) T.box(0.1, 0.1, 0.01, look.emblem, 0, 1.22, prof(1.22, 0.03).z1 + 0.03, 0, 0, Math.PI / 4);
+  if (look.tabard) {                                               // surcoat: follows the chest, panels hanging front and back
+    const tw = 0.13, off = plate ? 0.04 : gamb ? 0.03 : mail ? 0.022 : 0.01;
+    shell("torso", off, (x, y) => (Math.abs(x) < tw && y > waistY - 0.02 && y < shY - 0.04 ? look.tabard : null));
+    [false, true].forEach((back) => {
+      const zt = surf(waistY, 0, off + 0.02, back), lo = crotch - 0.26, h = waistY - lo;
+      T.box(tw * 2 - 0.02, h, 0.016, look.tabard, 0, (waistY + lo) / 2, zt + (back ? -1 : 1) * h * 0.08, back ? 0.16 : -0.16);
+      T.box(tw * 2 - 0.02, 0.025, 0.018, tone(look.tabard, -0.3), 0, lo + 0.012, zt + (back ? -1 : 1) * h * 0.16, back ? 0.16 : -0.16);   // hem
+    });
+    if (look.emblem) T.box(0.09, 0.09, 0.01, look.emblem, 0, (waistY + shY) / 2, surf((waistY + shY) / 2, 0, off + 0.008), 0, 0, Math.PI / 4);
   }
   // belt, buckle, pouch
   band(T, waistY + 0.028, waistY - 0.028, 0.018, 0.02, belt, 10);
@@ -249,13 +266,6 @@ export function bodyGeometries(look, v) {
     T.box(PV.armR[0] * BK * 2.1, cl, 0.03, look.cape, 0, top - cl / 2, c.z0 - 0.02 - cl * 0.06, -0.08);
     [-1, 1].forEach((sd) => T.box(0.1, 0.03, 0.16, look.cape, sd * PV.armR[0] * BK * 0.75, shY + 0.075, (c.z0 + c.z1) / 2 - 0.03, 0, 0, sd * -0.35));   // over the shoulders
   }
-  // shoulders: pauldrons / spaulders (on the torso, over the top of the arm)
-  [-1, 1].forEach((sd) => {
-    const x = sd * PV.armR[0] * BK, y = shY + 0.02, z = PV.armR[2];
-    if (plate) T.blob(0.1, 0.065, 0.1, tone(metal, 0.05), x, y, z, 7, 4);
-    else if (leather) T.blob(0.085, 0.05, 0.085, tone(look.vest || "#3e2c1e", -0.1), x, y - 0.005, z, 6, 4);
-    else if (mail) T.blob(0.08, 0.05, 0.08, metal, x, y - 0.01, z, 6, 4);
-  });
   pieces.torso.push(T.done());
 
   // ---------- HEAD (pivot = centre of the head) ----------
@@ -264,28 +274,41 @@ export function bodyGeometries(look, v) {
   // (the model's head is boxier than the old ellipsoid: what wraps it is made a little roomier)
   const hm = R.head, kx = (hm.halfW / 0.108) * 1.12, kyT = (hm.top / 0.128) * 1.06, kyB = -hm.chin / 0.135, kz = ((hm.front - hm.back) / 2 / 0.12) * 1.08, cz = (hm.front + hm.back) / 2;
   const fit = (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * kx, y * (y > 0 ? kyT : kyB), p.getZ(i) * kz + cz); } g.computeVertexNormals(); return g; };
-  shell("head", 0, () => skin);
-  const H = Part(PV.head[1], r, Math.min(0.2, dirt));
   const hc = v.hairCol, hd = look.head;
   const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood"].includes(hd);
-  if (v.hair !== "bald" || hd === "crown") H.cap(1, hc, 0, 0.012, -0.012, 1.35, 0.116, 0.136, 0.128, -0.5);
-  else H.cap(1, hc, 0, -0.01, -0.012, 0.75, 0.114, 0.13, 0.126, -1.9);                                    // bald: fringe at the back
-  if (v.hair === "long" || v.hair === "braid" || v.hair === "shaggy") H.cap(1, hc, 0, v.hair === "shaggy" ? -0.02 : -0.06, -0.03, 1.4, 0.118, v.hair === "shaggy" ? 0.15 : 0.22, 0.12, -1.75);
-  if (v.hair === "braid") H.tube(0.025, 0.018, -0.12, -0.42, hc, 0, -0.12, 5);
-  if (F && !covered) [-1, 1].forEach((sd) => {                                    // locks framing the face
-    const lng = v.hair === "long";
-    H.box(0.03, lng ? 0.26 : 0.13, 0.09, hc, sd * 0.108, lng ? -0.07 : -0.005, -0.012, 0, 0, sd * 0.06);
-    H.box(0.06, 0.03, 0.05, hc, sd * 0.06, 0.098, 0.085, 0.4, 0, sd * -0.3);    // parted fringe
-  });
-  if (v.hair === "bun") H.blob(0.05, 0.045, 0.05, hc, 0, 0.06, -0.12);
-  const beardJaw = (len) => {
-    H.tube(0.097, 0.062, -0.088, -0.088 - len, hc, 0, 0.012, 7, 1.0);                 // jaw + chin
-    [-1, 1].forEach((sd) => H.box(0.012, 0.06, 0.05, hc, sd * 0.088, -0.045, 0.01));   // sideburns
+  // Regions of the head mesh (head space: hx, hy, front = distance in front of the head's middle).
+  const ey = hm.eye, my = hm.chin * 0.52, noseY = ey - 0.042;
+  const loc = (x, y, z) => [x, y - PV.head[1], z - PV.head[2] - cz];
+  const isHair = (x, y, z) => {
+    const [hx, hy, f] = loc(x, y, z);
+    if (v.hair === "bald") return f < 0.005 && hy < hm.top - 0.045 && hy > hm.chin + 0.035;          // horseshoe round the back
+    if (f > 0.035) return hy > ey + 0.05 + Math.abs(hx) * 0.15 - (F ? 0.005 : 0);                   // forehead hairline
+    if (f > -0.015) return hy > ey + 0.012;                                                          // temples, above the ears
+    return hy > hm.chin + (v.hair === "short" || v.hair === "bald" ? 0.045 : 0.025);                // nape
   };
-  if (v.beard === "stubble") H.tube(0.096, 0.061, -0.07, -0.14, tone(skin, -0.28), 0, 0.013, 7, 1.0);
-  if (v.beard === "full") beardJaw(0.085);
-  if (v.beard === "long") { beardJaw(0.09); H.cone(0.06, 0.14, hc, 0, -0.22, 0.05, Math.PI, 0, 6, 1, 0.7); }
-  if (v.beard === "goatee") H.box(0.04, 0.055, 0.03, hc, 0, -0.12, 0.09);
+  const jaw = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.005 && Math.abs(hx) < hm.halfW * 0.92 && hy < noseY - 0.01 && (hy < my - 0.009 || Math.abs(hx) > 0.03); };
+  const lip = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.02 && Math.abs(hx) < 0.034 && hy > my + 0.004 && hy < noseY - 0.004; };
+  const chin = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > -0.02 && hy < my - 0.009 && Math.abs(hx) < 0.05; };
+  const beard = v.beard, bearded = beard === "full" || beard === "long";
+  // The skin of the head, with a little shading: eye sockets, cheeks (blush), stubble.
+  shell("head", 0, (x, y, z) => {
+    const [hx, hy, f] = loc(x, y, z);
+    if (f > 0.02 && Math.abs(hx) > 0.012 && Math.abs(hx) < hm.halfW * 0.75 && hy > ey - 0.012 && hy < ey + 0.024) return tone(skin, -0.05);   // eye sockets
+    if (beard === "stubble" && (jaw(x, y, z) || lip(x, y, z))) return tone(skin, -0.24);
+    if (look.old && f > 0.02 && hy > ey + 0.035 && hy < ey + 0.07) return tone(skin, -0.08);                 // furrowed brow
+    if (F && f > 0.0 && Math.abs(hx) > 0.03 && hy < ey - 0.015 && hy > my) return tone(skin, 0.04);
+    return skin;
+  });
+  if (!covered || v.hair === "long") shell("head", v.hair === "shaggy" ? 0.02 : 0.011, (x, y, z) => (isHair(x, y, z) ? hc : null), { noise: 0.14 });   // hair: the head's own shape, thicker
+  if (bearded) { shell("head", 0.012, (x, y, z) => (jaw(x, y, z) || lip(x, y, z) ? hc : null), { noise: 0.14 }); shell("head", 0.017, (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { noise: 0.14 }); }
+  if (beard === "goatee") shell("head", 0.012, (x, y, z) => (chin(x, y, z) || lip(x, y, z) ? hc : null), { noise: 0.14 });
+  const H = Part(PV.head[1], r, Math.min(0.2, dirt));
+  // hair volumes (old skull space, fitted below)
+  if ((v.hair === "long" || v.hair === "braid") && !covered) H.cap(1, hc, 0, -0.06, -0.03, 1.4, 0.112, 0.22, 0.118, -1.75);   // falling at the back
+  if (v.hair === "braid") H.tube(0.025, 0.018, -0.12, -0.42, hc, 0, -0.12, 5);
+  if (v.hair === "bun") H.blob(0.05, 0.045, 0.05, hc, 0, 0.06, -0.125);
+  if (v.hair === "shaggy" && !covered) for (let i = 0; i < 5; i++) H.box(0.05, 0.02, 0.05, tone(hc, -0.05), (i - 2) * 0.035, 0.105 + (i % 2) * 0.012, 0.075 - Math.abs(i - 2) * 0.012, 0.5, 0, (i - 2) * 0.2);   // ragged fringe
+  if (beard === "long") H.cone(0.055, 0.15, hc, 0, -0.225, 0.06, Math.PI, 0, 6, 1.05, 0.65);
   const hat = look.hat;
   if (hd === "hood") { H.cap(1, hat, 0, 0.012, -0.018, 2.0, 0.142, 0.158, 0.15, -0.62); H.cone(0.06, 0.18, hat, 0, 0.03, -0.16, -2.25); H.tube(0.13, 0.17, -0.12, -0.24, hat, 0, -0.015, 8, 0.9); }
   if (hd === "cap") { H.cap(1, hat, 0, 0.025, -0.01, 1.25, 0.122, 0.13, 0.132, -0.25); H.tube(0.12, 0.122, 0.06, 0.085, tone(hat, -0.2), 0, -0.01, 8, 1.06); }
@@ -317,66 +340,112 @@ export function bodyGeometries(look, v) {
   }
   if (hd === "crown") { H.tube(0.128, 0.122, 0.07, 0.125, "#7a6028", 0, 0, 8); for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; H.cone(0.02, 0.055, "#8a6e30", Math.sin(a) * 0.123, 0.15, Math.cos(a) * 0.123, 0, 0, 4); } H.box(0.025, 0.025, 0.012, "#5a1a20", 0, 0.098, 0.126); }
   if (covered && v.hair === "long") H.box(0.21, 0.12, 0.05, hc, 0, -0.12, -0.09);
-  pieces.head.push(fit(H.done()));
-  // Face details on the mesh (hidden by full helmets): eyes, brows, mouth, moustache.
+  { const g = H.done(); if (g) pieces.head.push(fit(g)); }
+  // Face details laid on the face (hidden by full helmets and masks): eyes, lids, brows, nostrils, mouth, ears.
   const faceHidden = (hd === "helm" && look.greatHelm) || look.mask;
   if (!faceHidden) {
-    const Fc = Part(PV.head[1], r, 0.1), fz = (x, y) => faceZ(Bd, x, y);
-    const ey = hm.eye, ex = hm.halfW * 0.42;
-    [-1, 1].forEach((s) => Fc.box(0.012, 0.04, 0.026, tone(skin, -0.04), s * (hm.halfW + 0.002), ey - 0.03, cz - 0.012));   // ears
+    const Fc = Part(PV.head[1], r, 0.05), fz = (x, y) => faceZ(Bd, x, y);
+    const ex = hm.halfW * 0.4, iris = ["#3a2818", "#2c3a48", "#38402a", "#4a3220"][v.seed % 4];
+    if (!covered || hd === "cap" || hd === "hat" || hd === "crown" || hd === "kerchief") [-1, 1].forEach((s) => {
+      Fc.box(0.012, 0.042, 0.03, tone(skin, -0.04), s * (hm.halfW + 0.003), ey - 0.03, cz - 0.01, 0, s * 0.25, 0);                 // ear
+      Fc.box(0.006, 0.02, 0.012, tone(skin, -0.3), s * (hm.halfW + 0.008), ey - 0.03, cz - 0.006);                                   // ear hole
+    });
     [-1, 1].forEach((s) => {
       const z = fz(s * ex, ey);
-      Fc.box(0.022, 0.012, 0.012, "#16110d", s * ex, ey, z + 0.002);                                       // eye
-      Fc.box(0.045, 0.012, 0.016, v.hairCol, s * ex, ey + 0.026, fz(s * ex, ey + 0.026) + 0.004, 0, 0, s * (look.angry ? 0.25 : -0.08));   // brow
+      Fc.box(0.026, 0.013, 0.008, "#c8bea8", s * ex, ey, z + 0.001);                                       // white of the eye
+      Fc.box(0.012, 0.013, 0.006, iris, s * (ex - 0.002), ey - 0.001, z + 0.004);                         // iris
+      Fc.box(0.005, 0.006, 0.004, "#0c0907", s * (ex - 0.002), ey - 0.001, z + 0.007);                     // pupil
+      Fc.box(0.03, 0.006, 0.01, tone(skin, -0.4), s * ex, ey + 0.009, z + 0.004, look.angry ? 0.2 : 0);    // upper lid
+      const bz = fz(s * ex, ey + 0.026);
+      Fc.box(0.04, F ? 0.006 : 0.009, 0.012, F ? tone(hc, 0.1) : hc, s * ex, ey + (F ? 0.027 : 0.025), bz + 0.004, 0, 0, s * (look.angry ? 0.3 : F ? -0.12 : -0.06));   // brow
+      if (look.old) Fc.box(0.012, 0.003, 0.004, tone(skin, -0.3), s * (ex + 0.022), ey - 0.008, fz(s * (ex + 0.02), ey - 0.008) + 0.002, 0, 0, s * 0.5);   // crow's feet
     });
-    const my = hm.chin * 0.52, mz = fz(0, my);
-    Fc.box(F ? 0.036 : 0.04, F ? 0.011 : 0.009, 0.01, F ? "#6a3430" : "#4a2a22", 0, my, mz + 0.002);       // mouth
-    if (v.beard === "full" || v.beard === "long" || v.beard === "goatee") Fc.box(0.065, 0.014, 0.018, v.hairCol, 0, my + 0.02, fz(0, my + 0.02) + 0.005);   // moustache
+    if (look.old) [0.05, 0.062].forEach((dy) => Fc.box(0.05, 0.003, 0.004, tone(skin, -0.25), 0, ey + dy, fz(0, ey + dy) + 0.002));    // forehead lines
+    [-1, 1].forEach((s) => Fc.box(0.008, 0.005, 0.006, tone(skin, -0.45), s * 0.008, noseY - 0.006, fz(s * 0.008, noseY - 0.006) + 0.001));   // nostrils
+    const bd = bearded ? 0.013 : beard === "goatee" ? 0.012 : 0, mz = fz(0, my) + bd;
+    Fc.box(F ? 0.034 : 0.038, 0.006, 0.008, F ? "#6a3430" : "#3a2420", 0, my + 0.003, mz + 0.002);                 // upper lip / mouth line
+    Fc.box(F ? 0.028 : 0.03, F ? 0.008 : 0.006, 0.008, F ? "#8a4a44" : bd ? "#5a3028" : tone(skin, -0.15), 0, my - 0.005, mz + 0.001);   // lower lip
+    if (bearded || beard === "goatee") Fc.box(0.06, 0.012, 0.016, hc, 0, my + 0.016, fz(0, my + 0.016) + bd + 0.003, 0, 0, 0);   // moustache
+    if (F && !covered) [-1, 1].forEach((sd) => {                                                          // locks framing the face
+      const lng = v.hair === "long" || v.hair === "braid", h = lng ? 0.2 : 0.11;
+      Fc.box(0.014, h, 0.055, hc, sd * (hm.halfW - 0.001), ey + 0.055 - h / 2, cz - 0.012, 0, 0, sd * 0.07);
+      Fc.box(0.03, 0.02, 0.07, hc, sd * (hm.halfW - 0.012), ey + 0.062, cz + 0.004, 0, 0, sd * 0.5);                 // over the temple
+    });
     pieces.head.push(Fc.done());
   }
 
-  // ---------- ARMS ----------
+  // ---------- ARMS (armour that moves with the arm: pauldrons, couters, gauntlets) ----------
   const arm = (side) => {
     const name = side > 0 ? "armR" : "armL";
     const sleeve = look.sleeves === "rolled" ? skin : cloth;
-    const hand = plate ? tone(metal, -0.05) : look.gloves || skin;
+    const hand = plate ? tone(metal, -0.12) : look.gloves || skin;
     shell(name, 0, (x, y, z, t) => (t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
-    if (plate) { shell(name, 0.016, (x, y, z, t) => (t < 1.02 ? (t > 0.62 ? tone(metal, 0.06) : metal) : null)); }
-    if (mail) for (let t0 = 0.08; t0 < 0.9; t0 += 0.1) shell(name, 0.012, (x, y, z, t) => (Math.abs(t - t0) < 0.02 ? tone(metal, -0.3) : null));
-    if (gamb) shell(name, 0.016, (x, y, z, t) => (t < 0.97 ? (Math.abs(t - 0.25) < 0.03 || Math.abs(t - 0.6) < 0.03 ? tone(cloth, -0.22) : cloth) : null));
-    if (look.bracers && !plate) shell(name, 0.012, (x, y, z, t) => (t > 0.66 && t < 0.98 ? look.bracers : null));
+    const A = Part(PV.armR[1], r, 0.2), at = (t) => { const p = Bd.armAt(t); return [p[0] * side * BK, p[1], p[2] * BK]; };
+    const ring = (t1, t2, r1, r2, hex) => { const a1 = at(t1), a2 = at(t2); A.tube(r1, r2, a1[1], a2[1], hex, (a1[0] + a2[0]) / 2, (a1[2] + a2[2]) / 2, 8); };
+    if (plate) {
+      shell(name, 0.016, (x, y, z, t) => (t > 0.12 && t < 0.47 ? metal : t > 0.56 && t < 0.98 ? steel : null));                    // rerebrace, vambrace
+      A.cap(1, metal, side * 0.015, 0.015, -0.005, 1.75, 0.106, 0.088, 0.104);                                       // pauldron: a dome over the shoulder
+      [0.1, 0.2].forEach((t, i) => ring(t, t + 0.1, 0.088 - i * 0.008, 0.09 - i * 0.008, i ? tone(metal, -0.06) : steel));          // ...and its lames
+      const e = at(0.5); A.blob(0.048, 0.045, 0.048, steel, e[0], e[1], e[2], 6, 4); A.cone(0.045, 0.02, tone(metal, -0.05), e[0] + side * 0.04, e[1], e[2] - 0.01, 0, side * Math.PI / 2, 6);   // couter + wing
+      ring(0.95, 1.08, 0.048, 0.062, tone(metal, -0.05));                                                                           // gauntlet cuff
+      shell(name, 0.007, (x, y, z, t) => (t > 1.02 ? hand : null));
+    } else if (mail) {
+      for (let t0 = 0.08; t0 < 0.82; t0 += 0.09) shell(name, 0.011, (x, y, z, t) => (Math.abs(t - t0) < 0.02 ? tone(metal, -0.26) : null));
+      A.cap(1, tone(metal, -0.05), side * 0.012, 0.0, 0, 1.6, 0.095, 0.075, 0.095);
+    } else if (gamb) {
+      shell(name, 0.016, (x, y, z, t) => (t < 0.97 ? (Math.abs(t - 0.25) < 0.03 || Math.abs(t - 0.6) < 0.03 || Math.abs(t - 0.85) < 0.025 ? tone(cloth, -0.24) : cloth) : null));
+      A.cap(1, tone(cloth, -0.06), side * 0.012, 0.0, 0, 1.6, 0.098, 0.08, 0.098);
+    } else if (leather) {
+      const lc = tone(look.vest || "#3e2c1e", -0.1);
+      A.cap(1, lc, side * 0.014, 0.01, 0, 1.7, 0.1, 0.078, 0.1); ring(0.12, 0.22, 0.08, 0.082, tone(lc, 0.08));                   // spaulder
+    }
+    if (look.bracers && !plate) { shell(name, 0.013, (x, y, z, t) => (t > 0.64 && t < 0.97 ? look.bracers : null)); [0.7, 0.8, 0.9].forEach((t) => shell(name, 0.016, (x, y, z, tt) => (Math.abs(tt - t) < 0.015 ? tone(look.bracers, -0.3) : null))); }
     if (look.sleeves === "rolled") shell(name, 0.01, (x, y, z, t) => (t > 0.42 && t < 0.5 ? cloth : null));
     if (look.coat && look.sleeves !== "rolled") shell(name, look.coat === "robe" ? 0.03 : 0.024, (x, y, z, t) => (t > 0.78 && t < 0.98 ? look.coatColor || cloth : null));   // wide cuff
     if (look.coat) shell(name, 0.016, (x, y, z, t) => (t < 0.8 ? look.coatColor || cloth : null));
     if (look.gloves && !plate) shell(name, 0.005, (x, y, z, t) => (t > 0.97 && t < 1.08 ? tone(look.gloves, 0.1) : null));   // glove cuff
-    if (plate) { const A = Part(PV.armR[1], r, 0.2), e = Bd.elbow; A.blob(0.05, 0.045, 0.05, tone(metal, 0.1), e[0] * side, e[1], e[2] - 0.02, 6, 4); pieces[name].push(A.done()); }   // couter
+    pieces[name].push(A.done());
   };
   arm(1); arm(-1);
 
   // ---------- LEGS ----------
-  const bootTop = look.tallBoots ? Bd.kneeY + 0.06 : 0.3;
-  const shoe = (name, hex, sole) => {                               // shoe over the bare toes of the model
-    const L = Part(PV.legR[1], r, dirt), f = Bd.foot, sd = name === "legR" ? 1 : -1;
+  // ---------- LEGS: thigh + shin (the shin hangs from the knee) ----------
+  const kneeY = Bd.kneeY, bootTop = look.tallBoots ? kneeY + 0.06 : 0.3;
+  const legCol = (x, y) => (plate ? (y < 0.12 ? tone(metal, -0.1) : tone(metal, -0.08)) : y < bootTop ? boots : legs);
+  const shoe = (name, hex, sole) => {                               // shoe over the bare toes of the model (shin space)
+    const L = Part(kneeY, r, dirt), f = Bd.foot, sd = name === "shinR" ? 1 : -1;
     L.box(f.w + 0.012, f.h * 0.75, f.d + 0.012, hex, f.x * sd, f.y - f.h * 0.1, f.z + 0.004);
     L.box(f.w + 0.016, 0.018, f.d + 0.02, sole, f.x * sd, f.y - f.h * 0.45, f.z + 0.006);
     pieces[name].push(L.done());
   };
-  const leg = (name) => {
-    shell(name, 0, (x, y) => (plate ? (y < 0.12 ? tone(metal, -0.1) : tone(metal, -0.08)) : y < bootTop ? boots : legs));
-    if (plate) { shell(name, 0.016, (x, y) => (y < hipY - 0.12 ? (y < 0.13 ? tone(metal, -0.1) : metal) : null)); const L = Part(PV.legR[1], r, 0.2), k = Bd.knee; L.blob(0.055, 0.05, 0.05, tone(metal, 0.1), k[0] * (name === "legR" ? 1 : -1), k[1], k[2] + 0.04, 6, 4); pieces[name].push(L.done()); shoe(name, tone(metal, -0.1), tone(metal, -0.35)); }
-    else {
-      shell(name, 0.01, (x, y) => (y < bootTop ? boots : null));                                   // boot
-      shoe(name, tone(boots, -0.05), "#1a1410");
-      if (look.tallBoots) shell(name, 0.018, (x, y) => (y < bootTop + 0.005 && y > bootTop - 0.04 ? tone(boots, 0.15) : null));   // turned-down cuff
-      if (look.wraps) for (let y0 = bootTop + 0.04; y0 < Bd.kneeY + 0.02; y0 += 0.05) shell(name, 0.008, (x, y) => (Math.abs(y - y0) < 0.015 ? look.wraps : null));
+  const leg = (sd) => {
+    const th = sd > 0 ? "legR" : "legL", sh = sd > 0 ? "shinR" : "shinL", hp = PV[th], kp = PV[sh];
+    [th, sh].forEach((name) => shell(name, 0, legCol));
+    // knee joint filler (thigh space): covers the gap behind the knee when it bends
+    const Kf = Part(hp[1], r, dirt); Kf.blob(R.knee.r * 0.95, R.knee.r * 1.1, R.knee.r * 0.95, legCol(0, kneeY), (kp[0] - hp[0]) * sd * sd, kp[1] - hp[1], kp[2] - hp[2], 7, 5); pieces[th].push(Kf.done());
+    if (plate) {                                                    // cuisse with tassets, poleyn with its wing, greave, sabaton
+      shell(th, 0.018, (x, y) => (y > kneeY + 0.03 ? metal : null)); shell(sh, 0.018, (x, y) => (y < kneeY - 0.04 && y > 0.1 ? steel : null));
+      const Tt = Part(hp[1], r, 0.2), top = prof(crotch + 0.02);
+      [0, 1].forEach((i) => Tt.box(0.13, 0.08, 0.02, i ? tone(metal, -0.06) : metal, 0.01 * sd, -0.06 - i * 0.065, (top.z1 - hp[2]) + 0.02 + i * 0.006, -0.12));   // tassets, front of the thigh
+      pieces[th].push(Tt.done());
+      const Pk = Part(kneeY, r, 0.2); Pk.blob(0.058, 0.055, 0.045, tone(metal, 0.14), 0, 0, 0.05, 6, 4); Pk.cone(0.04, 0.018, metal, sd * 0.05, 0, 0.03, 0, sd * Math.PI / 2, 6);
+      Pk.box(0.08, 0.012, 0.09, dark, 0, -0.06, 0.012); pieces[sh].push(Pk.done());
+      shoe(sh, tone(metal, -0.08), tone(metal, -0.4));
+      const Sb = Part(kneeY, r, 0.2), f = Bd.foot; [0.25, 0.5].forEach((k) => Sb.box(f.w + 0.016, 0.008, 0.008, dark, f.x * sd, f.y + f.h * 0.28, f.z - f.d / 2 + f.d * k)); pieces[sh].push(Sb.done());   // lames of the sabaton
+      return;
     }
+    shell(sh, 0.01, (x, y) => (y < bootTop ? boots : null)); if (bootTop > kneeY) shell(th, 0.01, (x, y) => (y < bootTop ? boots : null));   // boot
+    shoe(sh, tone(boots, -0.05), "#1a1410");
+    if (look.tallBoots) [th, sh].forEach((name) => shell(name, 0.018, (x, y) => (y < bootTop + 0.005 && y > bootTop - 0.04 ? tone(boots, 0.15) : null)));   // turned-down cuff
+    if (look.wraps) for (let y0 = bootTop + 0.04; y0 < kneeY - 0.02; y0 += 0.05) shell(sh, 0.008, (x, y) => (Math.abs(y - y0) < 0.015 ? look.wraps : null));
   };
-  leg("legR"); leg("legL");
+  leg(1); leg(-1);
 
-  const merge = (list) => { const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; };
+  const merge = (all) => { const list = all.filter((x) => x && x.attributes.position.count); const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; };
   const geo = Object.fromEntries(Object.entries(pieces).map(([k, l]) => [k, merge(l)]));
   // The parts are built around the pivots of the unwidened body: shoulders and hips move out with the bulk.
-  const pivots = { ...PV, armR: [PV.armR[0] * BK, PV.armR[1], PV.armR[2]], armL: [PV.armL[0] * BK, PV.armL[1], PV.armL[2]], legR: [PV.legR[0] * BK, PV.legR[1], 0], legL: [PV.legL[0] * BK, PV.legL[1], 0] };
+  const wide = (p) => [p[0] * BK, p[1], p[2]];
+  const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL) };
   const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
   const out = { ...geo, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
   cache.set(key, out);

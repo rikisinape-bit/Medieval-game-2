@@ -135,7 +135,7 @@ export default function Village3D() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
       {!hud && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">Caricamento…</div>}
       <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")} />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />
+      {!dialog && <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />}
       {hud?.foe && (
         <div className="fixed top-9 left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
           <div className="font-title text-xs tracking-widest text-red-300 text-center">{hud.foe.name}</div>
@@ -155,7 +155,7 @@ export default function Village3D() {
       {toast && (
         <div key={toast.id} className="fixed top-8 left-2 z-20 max-w-[42vw] pointer-events-none font-pixel text-[12px] leading-tight bg-black/45 rounded-sm px-2 py-0.5 text-[#e8dcc4] toast-in" data-testid="village3d-log">{toast.t}</div>
       )}
-      <div className="pointer-events-none fixed inset-0 z-30">
+      <div className={`pointer-events-none fixed inset-0 z-30 ${dialog ? "hidden" : ""}`}>
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
         {/* Compact cluster: the container itself lets touches through, only the buttons catch them. */}
         <div className="absolute bottom-2 right-2 w-[110px] h-[110px]">
