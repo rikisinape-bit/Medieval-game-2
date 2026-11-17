@@ -2,6 +2,7 @@
 // the ground in the game) is rendered once by a small off-screen renderer and kept as an image (data URL).
 import * as THREE from "three";
 import { makeItem } from "./models";
+import { setupPaladinEnv } from "./body";
 
 const SIZE = 128;
 const cache = new Map();
@@ -10,7 +11,7 @@ const _box = new THREE.Box3(), _c = new THREE.Vector3(), _s = new THREE.Sphere()
 
 function setup() {
   r = new THREE.WebGLRenderer({ canvas: document.createElement("canvas"), alpha: true, antialias: true, preserveDrawingBuffer: true });
-  r.setPixelRatio(1); r.setSize(SIZE, SIZE, false); r.setClearColor(0x000000, 0);
+  r.setPixelRatio(1); r.setSize(SIZE, SIZE, false); r.setClearColor(0x000000, 0); setupPaladinEnv(r);
   scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight("#fff4e0", "#3a3026", 1.5));
   const d = new THREE.DirectionalLight("#fff0d8", 2.2); d.position.set(2, 4, 3); scene.add(d);

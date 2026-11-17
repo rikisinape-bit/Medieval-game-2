@@ -3,7 +3,7 @@
 // Items are authored resting on the ground (y = 0); tools are authored with the grip point at the origin and the
 // handle/head towards +Z (like weapons), so they sit in the same palm position.
 import * as THREE from "three";
-import { Part, rng } from "./body";
+import { Part, rng, PALADIN_MAT } from "./body";
 import { WEAPON_MAT } from "./weapons";
 import PALADIN from "./paladin.json";
 import BODIES from "./bodydata.json";
@@ -68,13 +68,14 @@ const TOOL_ITEMS = new Set(["martello", "ascia", "scopa"]);
 const PALADIN_ITEMS = { piastre: ["torso", "padR", "padL"], elmo_piastre: ["head"] };
 const paladinGeo = (id) => {
   const M = PALADIN.m, PV = BODIES.m.rig.pivots, piv = { torso: [0, 0, 0], head: PV.head, padR: PV.armR, padL: PV.armL };
-  const pos = [], col = [];
+  const pos = [], uv = [];
   PALADIN_ITEMS[id].forEach((n) => {
     const P = M.parts[n], o = piv[n];
-    for (let t = 0; t < P.i.length; t += 3) for (let j = 0; j < 3; j++) { const v = P.i[t + j] * 3; pos.push(P.p[v] + o[0], P.p[v + 1] + o[1], P.p[v + 2] + o[2]); col.push(...[0, 1, 2].map((c) => (P.c[(t + j) * 3 + c] / 255) ** 2.2)); }
+    for (let t = 0; t < P.i.length; t++) { const v = P.i[t]; pos.push(P.p[v * 3] + o[0], P.p[v * 3 + 1] + o[1], P.p[v * 3 + 2] + o[2]); uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); }
   });
   const g = new THREE.BufferGeometry();
-  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+  g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute("color", new THREE.Float32BufferAttribute(new Array(pos.length).fill(1), 3));
   g.computeBoundingBox(); const b = g.boundingBox;
   g.translate(-(b.min.x + b.max.x) / 2, -b.min.y, -(b.min.z + b.max.z) / 2);            // standing on the ground, centred
   g.computeVertexNormals();
@@ -94,7 +95,7 @@ const build = (id) => {
 const meshOf = (id) => {
   const { geo, glow } = build(id);
   const g = new THREE.Group();
-  const m = new THREE.Mesh(geo, WEAPON_MAT); m.castShadow = true; g.add(m);
+  const m = new THREE.Mesh(geo, PALADIN_ITEMS[id] && PALADIN.m ? PALADIN_MAT : WEAPON_MAT); m.castShadow = true; g.add(m);
   glow.forEach(([gg, c, x, y, z]) => { const gm = new THREE.Mesh(gg, glowMat(c)); gm.position.set(x, y, z); g.add(gm); });
   return g;
 };

@@ -57,11 +57,13 @@ function ourBody(k) {
     const yb = Math.min(...S.filter((a) => a.p.y > 0.12).map((a) => a.p.y)), low = S.filter((a) => a.p.y >= yb - 0.005 && a.p.y < yb + 0.05);
     const ankle = new THREE.Box3().setFromPoints(low.map((a) => a.p)).getCenter(new THREE.Vector3()); ankle.y = 0.095;
     const toes = S.filter((a) => a.p.y < 0.1).sort((a, b) => b.p.z - a.p.z)[0].p;
-    const joint = (n) => V(PV[arm]).add(V(R[s > 0 ? n : `${n}L`]));            // elbow / wrist of the posed arm (build-bodies)
-    return { arm, leg, shin, shoulder: V(PV[arm]), elbow: joint("elbow"), wrist: joint("wrist"), hip: V(PV[leg]), knee: V(PV[shin]), ankle,
+    // shoulder, elbow and wrist on the real axis of the posed arm (build-bodies' probes): the plates hug the arm
+    const ax = (i) => V(PV[arm]).add(V(R[s > 0 ? "axis" : "axisL"][i]));
+    const sh0 = ax(0), el = ax(1), shoulder = sh0.clone().add(sh0.clone().sub(el).multiplyScalar(0.05 / 0.47));
+    return { arm, leg, shin, shoulder, elbow: el, wrist: ax(2), hip: V(PV[leg]), knee: V(PV[shin]), ankle,
       toe: new THREE.Vector3(ankle.x, 0.03, toes.z - 0.02),
       // the arm part also holds a bit of chest and back around the shoulder: measure the arm on its own (t = 0 shoulder .. 1 wrist)
-      armPts: pts(arm), torsoTop: pts("torso").map((a) => a.p),
+      armPts: pts(arm), armTris: B.parts[arm].i, torsoTop: pts("torso").map((a) => a.p),
       pts: { leg: pts(leg).map((a) => a.p), shin: S.map((a) => a.p) } };
   };
   const torso = pts("torso").map((a) => a.p), head = pts("head").map((a) => a.p);
@@ -107,11 +109,30 @@ function build(k) {
     // scaled along the bone by the length and around it by the arm's real thickness (vertices near the axis).
     const near = (pts, A, B) => { const ax = B.clone().sub(A), L = ax.length(); ax.normalize(); return pts.filter((p) => { const v = p.clone().sub(A), u = v.dot(ax) / L; return u > 0.25 && u < 0.85 && v.sub(ax.clone().multiplyScalar(v.dot(ax))).length() < 0.09; }); };
     const ourArm = Q.armPts.map((a) => a.p), srcArm = kindPts("upper").concat(kindPts("fore")).filter(sx);
+    // The joints are not on the axis of the arm's mesh (bones run off-centre): the segment is re-centred on the real
+    // middle of the arm's cross-sections at 30% and 80% of its length, for both bodies, so rings (straps, cuffs) stay
+    // round the arm and plates sit on its surface.
+    // middle of the cross-section of a mesh (vertices V, triangles I) by the plane at u0 along A->B, near the axis
+    const ringC = (V, I, A, B, u0) => {
+      const ax = B.clone().sub(A), L = ax.length(); ax.normalize(); const c0 = A.clone().lerp(B, u0), d = (p) => p.clone().sub(c0).dot(ax), bb = new THREE.Box3();
+      for (let t = 0; t < I.length; t += 3) for (let e = 0; e < 3; e++) {
+        const a = V[I[t + e]], b = V[I[t + (e + 1) % 3]], da = d(a), db = d(b);
+        if (da * db > 0 || da === db) continue;
+        const q = a.clone().lerp(b, da / (da - db)); if (q.distanceTo(c0) < 0.085) bb.expandByPoint(q);
+      }
+      if (process.env.DBG) console.log("ring", u0, bb.isEmpty() ? "empty" : bb.getSize(new THREE.Vector3()).toArray().map((x) => x.toFixed(3)).join(","));
+      return bb.isEmpty() ? c0 : bb.getCenter(new THREE.Vector3());
+    };
+    const recentre = (V, I, A, B, u1 = 0.3, u2 = 0.8) => { const c1 = ringC(V, I, A, B, u1), c2 = ringC(V, I, A, B, u2), d = c2.clone().sub(c1).multiplyScalar(1 / (u2 - u1)); return [c1.clone().addScaledVector(d, -u1), c1.clone().addScaledVector(d, 1 - u1)]; };
+    const srcV = sbVerts.map((v) => v.p), srcTris = (kind) => { const out = []; for (let t = 0; t < C.body.i.length; t += 3) { const tri = [C.body.i[t], C.body.i[t + 1], C.body.i[t + 2]]; if (tri.every((j) => sbVerts[j].k === kind && sbVerts[j].p.x * s > 0)) out.push(...tri); } return out; };
     const armSeg = (name, a, b) => {
-      const ro = radius(near(ourArm, Q[a], Q[b]), Q[a], Q[b], 0.25, 0.85), rs = radius(near(srcArm, S[a], S[b]), S[a], S[b], 0.25, 0.85);
+      // only the model's arm is re-centred (dense mesh); our arm's joints come from its own axis (build-bodies)
+      const [sA, sB] = recentre(srcV, srcTris(name), S[a], S[b], name === "upper" ? 0.55 : 0.3, name === "upper" ? 0.85 : 0.8), oA = Q[a], oB = Q[b];
+      if (process.env.DBG) console.log("centre", name, s, "src shift", sA.distanceTo(S[a]).toFixed(3), sB.distanceTo(S[b]).toFixed(3), "ours", oA.distanceTo(Q[a]).toFixed(3), oB.distanceTo(Q[b]).toFixed(3));
+      const ro = radius(near(ourArm, oA, oB), oA, oB, 0.25, 0.85), rs = radius(near(srcArm, sA, sB), sA, sB, 0.25, 0.85);
       const kk = Math.min(1.25, Math.max(0.85, ro / rs));
       if (process.env.DBG) console.log("arm", name, s, "ours", ro.toFixed(3), "src", rs.toFixed(3));
-      maps[`${name}${s}`] = { f: segMap(frame(S[a], S[b], s), frame(Q[a], Q[b], s), kk * 1.04), part: Q.arm, k: kk,
+      maps[`${name}${s}`] = { f: segMap(frame(sA, sB, s), frame(oA, oB, s), kk * 1.02), part: Q.arm, k: kk,
         t: (p) => { const ax = S.wrist.clone().sub(S.elbow); return 0.52 + 0.48 * p.clone().sub(S.elbow).dot(ax) / ax.lengthSq(); } };
     };
     armSeg("upper", "shoulder", "elbow"); armSeg("fore", "elbow", "wrist");
@@ -166,7 +187,7 @@ function build(k) {
   const head = (p) => new THREE.Vector3(oc.x + (p.x - hc.x) * hk.x, oc.y + (p.y - hc.y) * hk.y, oc.z + (p.z - hc.z) * hk.z);
 
   const PV = O.PV, pivotOf = { torso: [0, 0, 0], head: PV.head, armR: PV.armR, armL: PV.armL, legR: PV.legR, legL: PV.legL, shinR: PV.shinR, shinL: PV.shinL, padR: PV.armR, padL: PV.armL };
-  const parts = Object.fromEntries(Object.keys(pivotOf).map((n) => [n, { p: [], i: [], c: [], map: new Map() }]));
+  const parts = Object.fromEntries(Object.keys(pivotOf).map((n) => [n, { p: [], i: [], c: [], uv: [], map: new Map() }]));
   return { maps, trunk, head, parts, pivotOf, kinfo: Object.fromEntries(Object.entries(maps).map(([n, m]) => [n, m.k && +m.k.toFixed(2)])) };
 }
 
@@ -205,8 +226,9 @@ for (const k of ["m"]) {
       const Q = P.map((p, j) => mapOf(kinds[j])(p));
       const prt = F.parts[part], piv = F.pivotOf[part];
       Q.forEach((q, j) => {
-        const key = `${q.x.toFixed(4)},${q.y.toFixed(4)},${q.z.toFixed(4)}`;
-        if (!prt.map.has(key)) { prt.map.set(key, prt.p.length / 3); prt.p.push(+(q.x - piv[0]).toFixed(4), +(q.y - piv[1]).toFixed(4), +(q.z - piv[2]).toFixed(4)); }
+        const u = M.uv[ids[j] * 2], w = M.uv[ids[j] * 2 + 1];
+        const key = `${q.x.toFixed(4)},${q.y.toFixed(4)},${q.z.toFixed(4)},${u.toFixed(4)},${w.toFixed(4)}`;    // a vertex per position and UV (texture seams)
+        if (!prt.map.has(key)) { prt.map.set(key, prt.p.length / 3); prt.p.push(+(q.x - piv[0]).toFixed(4), +(q.y - piv[1]).toFixed(4), +(q.z - piv[2]).toFixed(4)); prt.uv.push(+u.toFixed(4), +w.toFixed(4)); }
         prt.i.push(prt.map.get(key));
       });
       // colours per corner, from the painted texture (a little towards the face's middle: no bleeding at the seams)
@@ -217,8 +239,11 @@ for (const k of ["m"]) {
       });
     }
   }
-  out[k] = { parts: Object.fromEntries(Object.entries(F.parts).filter(([, p]) => p.i.length).map(([n, p]) => [n, { p: p.p, i: p.i, c: p.c }])), textured: !!tex };
+  out[k] = { parts: Object.fromEntries(Object.entries(F.parts).filter(([, p]) => p.i.length).map(([n, p]) => [n, { p: p.p, i: p.i, uv: p.uv, ...(tex ? {} : { c: p.c }) }])), textured: !!tex };
   console.log(k, Object.entries(out[k].parts).map(([n, p]) => `${n}:${p.i.length / 3}`).join(" "), "scale", JSON.stringify(F.kinfo));
 }
 fs.writeFileSync(OUT, JSON.stringify(out));
+// The painted texture for the game: 1024 px JPEG (the armour is drawn with it, see body.js PALADIN_MAT)
+const TEX_OUT = new URL("../src/game3d/paladin_albedo.jpg", import.meta.url).pathname;
+if (fs.existsSync(TEX)) { await sharp(TEX).resize(1024, 1024).toColourspace("srgb").jpeg({ quality: 84 }).toFile(TEX_OUT); console.log("texture ->", TEX_OUT, (fs.statSync(TEX_OUT).size / 1024).toFixed(0), "KB"); }
 console.log(`${tex ? "colori dalla texture" : "texture mancante: colori per pezzo"} -> ${OUT} (${(fs.statSync(OUT).size / 1024).toFixed(0)} KB)`);

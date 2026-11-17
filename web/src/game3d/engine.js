@@ -5,7 +5,7 @@ import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
-import { rng, hashStr } from "./body";
+import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
@@ -20,6 +20,7 @@ const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z,
 
 export function createGame(canvas, hooks, saved) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  setupPaladinEnv(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -439,6 +440,7 @@ export function createGame(canvas, hooks, saved) {
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
     scene.fog.near += (near - scene.fog.near) * k; scene.fog.far += (far - scene.fog.far) * k;
     sun.intensity += (si - sun.intensity) * k; hemi.intensity += (hi - hemi.intensity) * k;
+    PALADIN_MAT.envMapIntensity = 0.2 + 0.85 * Math.min(1, hemi.intensity / 0.9);   // the steel's reflections follow the daylight
     const az = S.dayT * Math.PI * 2;
     sun.position.set(P.x + Math.sin(az) * 30, Math.max(4, el * 40), P.z + 12); sun.target.position.set(P.x, 0, P.z);
     const lan = S.night ? 7 : 0;

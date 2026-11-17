@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { ITEMS, SWORD_TIER } from "./items";
-import { BODY_MAT, bodyGeometries, variantOf } from "./body";
+import { BODY_MAT, PALADIN_MAT, bodyGeometries, variantOf } from "./body";
 import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
 import { itemModel, toolModel, hasItemModel } from "./items3d";
 
@@ -116,18 +116,20 @@ export function makeHuman(look, weapon, seed) {
   const body = new THREE.Group(); // scaled for per-NPC height; the outer group's scale is used by the engine (hit flash)
   body.scale.setScalar(v.height);
   g.add(body);
-  const part = (geometry) => { const m = new THREE.Mesh(geometry, BODY_MAT); m.castShadow = true; m.receiveShadow = true; return m; };
-  const pivot = (p, geometry) => { const o = at(new THREE.Group(), p[0], p[1], p[2]); o.add(part(geometry)); body.add(o); return o; };
+  const part = (geometry, mat = BODY_MAT) => { const m = new THREE.Mesh(geometry, mat); m.castShadow = true; m.receiveShadow = true; return m; };
+  // a part's mesh, plus its piece of paladin armour (own material) if any
+  const parts = (o, name) => { if (geo[name]) o.add(part(geo[name])); if (geo.pal?.[name]) o.add(part(geo.pal[name], PALADIN_MAT)); return o; };
+  const pivot = (p, name) => { const o = at(new THREE.Group(), p[0], p[1], p[2]); parts(o, name); body.add(o); return o; };
   const P = geo.pivots;
-  body.add(part(geo.torso));
-  const hipL = pivot(P.legL, geo.legL), hipR = pivot(P.legR, geo.legR);
-  const knee = (hip, h, k, geometry) => { const o = at(new THREE.Group(), k[0] - h[0], k[1] - h[1], k[2] - h[2]); o.add(part(geometry)); hip.add(o); return o; };
-  const kneeL = knee(hipL, P.legL, P.shinL, geo.shinL), kneeR = knee(hipR, P.legR, P.shinR, geo.shinR);
-  const armL = pivot(P.armL, geo.armL), armR = pivot(P.armR, geo.armR);
+  parts(body, "torso");
+  const hipL = pivot(P.legL, "legL"), hipR = pivot(P.legR, "legR");
+  const knee = (hip, h, k, name) => { const o = at(new THREE.Group(), k[0] - h[0], k[1] - h[1], k[2] - h[2]); parts(o, name); hip.add(o); return o; };
+  const kneeL = knee(hipL, P.legL, P.shinL, "shinL"), kneeR = knee(hipR, P.legR, P.shinR, "shinR");
+  const armL = pivot(P.armL, "armL"), armR = pivot(P.armR, "armR");
   armL.rotation.order = armR.rotation.order = "XZY";                // y = the arm turning on itself (forearm), applied first
-  const head = pivot(P.head, geo.head);
+  const head = pivot(P.head, "head");
   // pauldrons of the paladin armour: their own pivots at the shoulders, they follow the arm half way (poseHuman)
-  const padR = geo.padR ? pivot(P.armR, geo.padR) : null, padL = geo.padL ? pivot(P.armL, geo.padL) : null;
+  const padR = geo.pal?.padR ? pivot(P.armR, "padR") : null, padL = geo.pal?.padL ? pivot(P.armL, "padL") : null;
   if (padR) padR.rotation.order = padL.rotation.order = "XZY";
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
@@ -538,6 +540,7 @@ export function makeViewmodel(look) {
     const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
     const tw = new THREE.Group(); tw.rotation.y = Math.PI; p.add(tw);
     tw.add(new THREE.Mesh(geometry, BODY_MAT));
+    const pal = geo.pal?.[left ? "armL" : "armR"]; if (pal) tw.add(new THREE.Mesh(pal, PALADIN_MAT));   // paladin bracers
     const fist = inFist(new THREE.Group(), geo, left); tw.add(fist);
     const gp = left ? geo.gripL : geo.grip, hand = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(hand);
     g.add(p); return [p, hand, fist];

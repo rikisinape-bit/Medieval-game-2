@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { PALADIN_READY, setupPaladinEnv } from "./game3d/body";
 import { LOOKS, makeHuman, poseHuman, poseDeath, makeSword, makeShield, makeItem, makeSwordRack, makePlayerModel } from "./game3d/models";
 const q = new URLSearchParams(location.search);
 const W = +(q.get("w") || 1400), H = +(q.get("h") || 560);
-const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); setupPaladinEnv(r); r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color("#5d6870");
 scene.add(new THREE.HemisphereLight("#d8dce8", "#3a3026", 0.9));
 const d = new THREE.DirectionalLight("#fff0d8", 1.8); d.position.set(4, 7, 6); d.castShadow = true; Object.assign(d.shadow.camera, { left: -10, right: 10, top: 5, bottom: -2 }); scene.add(d);
@@ -75,6 +76,7 @@ if (hand != null || q.get("weapons") || q.get("items")) {} else if (q.get("top")
 else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
+await PALADIN_READY;
 if (q.get("cpos")) { cam.fov = +(q.get("fov") || 30); cam.updateProjectionMatrix(); cam.position.set(...q.get("cpos").split(",").map(Number)); cam.lookAt(...q.get("clook").split(",").map(Number)); }
 if (faces) {                                         // one close frame per head, side by side
   r.setScissorTest(true);
