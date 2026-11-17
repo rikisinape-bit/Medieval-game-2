@@ -45,6 +45,38 @@ function pca(pts) {
   return { c, axes };
 }
 
+// One step of Loop subdivision on an indexed triangle mesh (flat arrays). Open borders use the boundary rules.
+function loop(P, I) {
+  const nv = P.length / 3, V = (i) => [P[i * 3], P[i * 3 + 1], P[i * 3 + 2]];
+  const edges = new Map(), key = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const nbr = Array.from({ length: nv }, () => new Set());
+  for (let t = 0; t < I.length; t += 3) for (let e = 0; e < 3; e++) {
+    const a = I[t + e], b = I[t + ((e + 1) % 3)], c = I[t + ((e + 2) % 3)], k = key(a, b);
+    if (!edges.has(k)) edges.set(k, { a, b, opp: [] });
+    edges.get(k).opp.push(c); nbr[a].add(b); nbr[b].add(a);
+  }
+  const out = [], idxOf = new Map();
+  const boundaryN = Array.from({ length: nv }, () => []);
+  edges.forEach((e) => { if (e.opp.length === 1) { boundaryN[e.a].push(e.b); boundaryN[e.b].push(e.a); } });
+  for (let i = 0; i < nv; i++) {                                          // moved original vertices
+    const v = V(i), bn = boundaryN[i];
+    if (bn.length >= 2) out.push(...add(mul(v, 0.75), mul(add(V(bn[0]), V(bn[1])), 0.125)));
+    else { const n = nbr[i].size, beta = n > 3 ? 3 / (8 * n) : 3 / 16; let s3 = [0, 0, 0]; nbr[i].forEach((j) => { s3 = add(s3, V(j)); }); out.push(...add(mul(v, 1 - n * beta), mul(s3, beta))); }
+  }
+  edges.forEach((e, k) => {                                               // new edge points
+    idxOf.set(k, out.length / 3);
+    const pa = V(e.a), pb = V(e.b);
+    if (e.opp.length === 2) out.push(...add(mul(add(pa, pb), 0.375), mul(add(V(e.opp[0]), V(e.opp[1])), 0.125)));
+    else out.push(...mul(add(pa, pb), 0.5));
+  });
+  const idx = [];
+  for (let t = 0; t < I.length; t += 3) {
+    const [a, b, c] = [I[t], I[t + 1], I[t + 2]], ab = idxOf.get(key(a, b)), bc = idxOf.get(key(b, c)), ca = idxOf.get(key(c, a));
+    idx.push(a, ab, ca, ab, b, bc, ca, bc, c, ab, bc, ca);
+  }
+  return { p: out, i: idx };
+}
+
 function build(raw, J) {
   // 1. weld + centre + scale
   const map = new Map(), V = [], I = [];
@@ -185,6 +217,8 @@ function build(raw, J) {
     }
     parts[name] = { p: pos, i: idx, ...(name.startsWith("arm") ? { t: tt } : {}) };
   }
+  // The head is subdivided once (Loop): rounder, more natural, and hairlines / beards get finer edges.
+  { const sub1 = loop(parts.head.p, parts.head.i); parts.head = { p: sub1.p.map((x) => +x.toFixed(4)), i: sub1.i }; }
   const prof = [];
   for (let y = 0.3; y <= neck + 0.001; y += 0.05) {
     const pts = y > crotch + 0.2 ? section(y, (k) => k === "torso") : y > crotch ? section(y, (k) => k === "torso" || (k.startsWith("leg") || k.startsWith("shin"))) : section(y, (k) => (k.startsWith("leg") || k.startsWith("shin")));

@@ -17,7 +17,13 @@ export const rng = (seed) => { let t = seed >>> 0; return () => { t = (t + 0x6d2
 
 // ---- palettes (dark, desaturated) ----
 export const SKINS = ["#c4a184", "#b08a6b", "#9a7556", "#7c5a40", "#d2b296", "#a88466"];
-export const HAIRS = ["#1d1814", "#33261b", "#4a3826", "#5e4a33", "#6f6a62", "#8d877c", "#2a1f17"];
+// hair: black, dark brown, brown, chestnut, light brown, dark blond, red, auburn; greys for the old
+export const HAIRS = ["#1a1410", "#2e2218", "#45321f", "#5a3f26", "#76583a", "#93784a", "#6e3418", "#4a2214"];
+export const GREYS = ["#6f6a62", "#8d877c", "#a8a298", "#5e5850"];
+const MALE_HAIR = ["short", "short", "buzz", "bowl", "long", "ponytail", "receding", "curly", "shaggy", "bald"];
+const OLD_HAIR = ["receding", "receding", "bald", "long", "short"];
+const FEMALE_HAIR = ["bun", "braid", "twinbraids", "long", "ponytail", "crown"];
+const BEARDS = ["none", "none", "stubble", "stubble", "full", "boxed", "pointed", "forked", "goatee", "moustache", "chops", "long"];
 
 // ---- geometry helpers: each piece is converted to non-indexed position+normal+color ----
 const _c = new THREE.Color();
@@ -71,15 +77,18 @@ export function variantOf(look, seed) {
   const r = rng(hashStr(seed || "x"));
   const female = !!look.female;
   const skin = look.skin || SKINS[Math.floor(r() * SKINS.length)];
-  const hairCol = look.hairColor || HAIRS[Math.floor(r() * (look.old ? 2 : 5)) + (look.old ? 4 : 0)];
-  const hair = look.hair || (female ? ["bun", "long", "braid"][Math.floor(r() * 3)] : ["short", "short", "shaggy", "bald", "long"][Math.floor(r() * 5)]);
-  const beard = female ? "none" : look.beard || ["none", "stubble", "full", "full", "goatee", "long"][Math.floor(r() * 6)];
+  const pick = (list) => list[Math.floor(r() * list.length)];
+  const hairCol = look.hairColor || (look.old ? pick(GREYS) : pick(HAIRS));
+  const hair = look.hair || (female ? pick(FEMALE_HAIR) : look.old ? pick(OLD_HAIR) : pick(MALE_HAIR));
+  const beard = female ? "none" : look.beard || pick(BEARDS);
   const height = (female ? 0.95 : 1) * (0.96 + r() * 0.08);
   const bulk = look.bulk || (0.94 + r() * 0.12);
   const shift = (r() - 0.5) * 0.12; // small colour shift so clothes are not identical
   return { female, skin, hairCol, hair, beard, height, bulk, shift, seed: hashStr(seed || "x") };
 }
 // Slightly shift a colour's lightness (per-NPC clothes variation).
+// Mix two colours (k = 0 -> a, 1 -> b).
+export const mixHex = (a, b, k) => `#${new THREE.Color(a).lerp(new THREE.Color(b), k).getHexString()}`;
 export const tone = (hex, k) => { const c = new THREE.Color(hex); const h = {}; c.getHSL(h); c.setHSL(h.h, h.s * 0.92, Math.min(1, Math.max(0, h.l * (1 + k)))); return `#${c.getHexString()}`; };
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -143,7 +152,7 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
     const tri = [P.idx[i], P.idx[i + 1], P.idx[i + 2]], v = tri.map(vtx);
     const cx = (v[0][0] + v[1][0] + v[2][0]) / 3 + pv[0], cy = (v[0][1] + v[1][1] + v[2][1]) / 3 + pv[1], cz = (v[0][2] + v[1][2] + v[2][2]) / 3 + pv[2];
     const t = P.t ? (P.t[tri[0]] + P.t[tri[1]] + P.t[tri[2]]) / 3 : 0;
-    const hex = colorOf(cx, cy, cz, t);
+    const hex = colorOf(cx, cy, cz, t, Math.min(v[0][1], v[1][1], v[2][1]) + pv[1]);   // last: lowest corner (world)
     if (!hex) continue;
     _c.set(hex);
     const grime = 1 - dirt * (1 - Math.min(1, Math.max(0, cy / 1.1))), k = grime * (1 - noise / 2 + rand() * noise);
@@ -274,41 +283,97 @@ export function bodyGeometries(look, v) {
   // (the model's head is boxier than the old ellipsoid: what wraps it is made a little roomier)
   const hm = R.head, kx = (hm.halfW / 0.108) * 1.12, kyT = (hm.top / 0.128) * 1.06, kyB = -hm.chin / 0.135, kz = ((hm.front - hm.back) / 2 / 0.12) * 1.08, cz = (hm.front + hm.back) / 2;
   const fit = (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * kx, y * (y > 0 ? kyT : kyB), p.getZ(i) * kz + cz); } g.computeVertexNormals(); return g; };
-  const hc = v.hairCol, hd = look.head;
+  const hc = v.hairCol, hd = look.head, hs = v.hair;
   const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood"].includes(hd);
-  // Regions of the head mesh (head space: hx, hy, front = distance in front of the head's middle).
-  const ey = hm.eye, my = hm.chin * 0.52, noseY = ey - 0.042;
+  // Regions of the head mesh (head space: hx across, hy up from the head's centre, f = in front of the head's middle).
+  // Landmarks found on the face itself: the tip of the nose is the most forward point of the middle of the face,
+  // eyes and mouth are placed from it (the two heads have different proportions).
+  if (!Bd.marks) {
+    let best = -1, nose = 0;
+    for (let y = hm.top - 0.06; y > hm.chin - 0.04; y -= 0.002) { const z = faceZ(Bd, 0, y); if (z > best) { best = z; nose = y; } }
+    Bd.marks = { nose, eye: nose + 0.04, mouth: nose - 0.038 };
+  }
+  const ey = Bd.marks.eye, my = Bd.marks.mouth, noseY = Bd.marks.nose + 0.004, back = hm.back - cz;
   const loc = (x, y, z) => [x, y - PV.head[1], z - PV.head[2] - cz];
-  const isHair = (x, y, z) => {
-    const [hx, hy, f] = loc(x, y, z);
-    if (v.hair === "bald") return f < 0.005 && hy < hm.top - 0.045 && hy > hm.chin + 0.035;          // horseshoe round the back
-    if (f > 0.035) return hy > ey + 0.05 + Math.abs(hx) * 0.15 - (F ? 0.005 : 0);                   // forehead hairline
-    if (f > -0.015) return hy > ey + 0.012;                                                          // temples, above the ears
-    return hy > hm.chin + (v.hair === "short" || v.hair === "bald" ? 0.045 : 0.025);                // nape
+  const fringe = F ? 0.046 : 0.052;
+  // Where each hairstyle grows: forehead hairline, temples (above or over the ears), nape.
+  const HAIRLINE = {
+    crop: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe + Math.abs(hx) * 0.12 : f > -0.015 ? hy > ey + 0.014 : hy > hm.chin + 0.045),
+    low: (hx, hy, f) => (f > 0.035 ? hy > ey + fringe - 0.004 + Math.abs(hx) * 0.1 : f > -0.015 ? hy > ey - 0.008 : hy > hm.chin + 0.015),
+    slick: (hx, hy, f) => (f > 0.03 ? hy > ey + 0.062 : f > -0.015 ? hy > ey + 0.016 : hy > hm.chin + 0.04),
+    bowl: (hx, hy, f) => (f > 0.03 ? hy > ey + 0.03 : f > -0.02 ? hy > ey - 0.002 : hy > hm.chin + 0.03),
+    receding: (hx, hy, f) => hy < hm.top - 0.03 && (f < -0.012 ? hy > hm.chin + 0.045 : f < 0.04 && Math.abs(hx) > hm.halfW * 0.6 && hy > ey + 0.008),
+    bald: (hx, hy, f) => f < 0.005 && hy < hm.top - 0.045 && hy > hm.chin + 0.035,
   };
-  const jaw = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.005 && Math.abs(hx) < hm.halfW * 0.92 && hy < noseY - 0.01 && (hy < my - 0.009 || Math.abs(hx) > 0.03); };
+  const STYLE = {   // hairline, thickness of the hair (inflated head), colour tweak
+    short: ["crop", 0.009], buzz: ["crop", 0.003, -0.25], bowl: ["bowl", 0.016], long: ["low", 0.012], ponytail: ["slick", 0.007],
+    receding: ["receding", 0.007], curly: ["crop", 0.012], shaggy: ["low", 0.019], bald: ["bald", 0.005],
+    bun: ["crop", 0.008], braid: ["crop", 0.008], twinbraids: ["crop", 0.008], crown: ["crop", 0.008],
+  };
+  const [lineName, thick, darken = 0] = STYLE[hs] || STYLE.short, hairline = HAIRLINE[lineName];
+  const isHair = (x, y, z, t, ymin) => hairline(...loc(x, y, z)) && ymin - PV.head[1] > hm.chin + 0.03;   // no slivers hanging from the neck cut
+  const beard = v.beard;
+  // beard line: from the corners of the mouth it rises across the cheek to the sideburn in front of the ear
+  const jaw = (x, y, z, t, ymin) => { const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx); return f > -0.012 && ax < hm.halfW * 0.95 && (ymin === undefined || ymin - PV.head[1] > hm.chin - 0.01) && (hy < my - 0.009 || (ax > 0.03 && hy < Math.min(ey - 0.022, my + 0.012 + (ax - 0.03) * 1.1))); };
   const lip = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.02 && Math.abs(hx) < 0.034 && hy > my + 0.004 && hy < noseY - 0.004; };
-  const chin = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > -0.02 && hy < my - 0.009 && Math.abs(hx) < 0.05; };
-  const beard = v.beard, bearded = beard === "full" || beard === "long";
-  // The skin of the head, with a little shading: eye sockets, cheeks (blush), stubble.
+  const chin = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.0 && hy < my - 0.009 && Math.abs(hx) < 0.045; };
+  const cheeks = (x, y, z) => { const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx); return f > -0.012 && ax > 0.04 && hy < Math.min(ey - 0.022, my + 0.012 + (ax - 0.03) * 1.1) && hy > hm.chin + 0.005; };
+  // What each beard covers (shells over the face) and how thick: [region, thickness, chin thickness]
+  const BEARD = {
+    full: [(x, y, z, t, m) => jaw(x, y, z, t, m) || lip(x, y, z), 0.01, 0.014], boxed: [(x, y, z, t, m) => jaw(x, y, z, t, m) || lip(x, y, z), 0.007, 0.009],
+    pointed: [(x, y, z, t, m) => jaw(x, y, z, t, m) || lip(x, y, z), 0.008, 0.012], forked: [(x, y, z, t, m) => jaw(x, y, z, t, m) || lip(x, y, z), 0.01, 0.013],
+    long: [(x, y, z, t, m) => jaw(x, y, z, t, m) || lip(x, y, z), 0.011, 0.015], goatee: [(x, y, z) => chin(x, y, z) || lip(x, y, z), 0.01, 0.012],
+    moustache: [lip, 0.009, 0],
+    chops: [(x, y, z, t, m) => { const [hx, hy, f] = loc(x, y, z); return lip(x, y, z) || (Math.abs(hx) > hm.halfW * 0.55 && f > -0.03 && hy < ey - 0.012 && hy > my - 0.02 && m - PV.head[1] > hm.chin); }, 0.011, 0],
+  };
+  const bd = BEARD[beard];
+  // The skin of the head with soft shading: lighter forehead, eye sockets, nose tip and cheeks a little red,
+  // shadow under the jaw, stubble.
+  const stub = mixHex(skin, hc, 0.38);
   shell("head", 0, (x, y, z) => {
     const [hx, hy, f] = loc(x, y, z);
-    if (f > 0.02 && Math.abs(hx) > 0.012 && Math.abs(hx) < hm.halfW * 0.75 && hy > ey - 0.012 && hy < ey + 0.024) return tone(skin, -0.05);   // eye sockets
-    if (beard === "stubble" && (jaw(x, y, z) || lip(x, y, z))) return tone(skin, -0.24);
-    if (look.old && f > 0.02 && hy > ey + 0.035 && hy < ey + 0.07) return tone(skin, -0.08);                 // furrowed brow
-    if (F && f > 0.0 && Math.abs(hx) > 0.03 && hy < ey - 0.015 && hy > my) return tone(skin, 0.04);
+    if (hy < hm.chin + 0.006 && f < 0.0) return tone(skin, -0.06);                                                    // under the jaw
+    if (beard === "stubble" && (jaw(x, y, z) || lip(x, y, z))) return tone(stub, -0.1);
+    if (f > 0.02 && Math.abs(hx) > 0.012 && Math.abs(hx) < hm.halfW * 0.72 && hy > ey - 0.012 && hy < ey + 0.022) return tone(skin, -0.06);   // eye sockets
+    if (f > 0.06 && Math.abs(hx) < 0.014 && hy > noseY - 0.012 && hy < noseY + 0.01) return mixHex(skin, "#b05a48", 0.12);   // nose tip
+    if (f > 0.0 && Math.abs(hx) > 0.03 && hy < ey - 0.012 && hy > my) return mixHex(skin, "#b05a48", 0.05);          // cheeks
+    if (look.old && f > 0.02 && hy > ey + 0.035 && hy < ey + 0.07) return tone(skin, -0.08);                          // furrowed brow
+    if (f > 0.04 && hy > ey + 0.03) return tone(skin, 0.04);                                                          // forehead catches the light
     return skin;
   });
-  if (!covered || v.hair === "long") shell("head", v.hair === "shaggy" ? 0.02 : 0.011, (x, y, z) => (isHair(x, y, z) ? hc : null), { noise: 0.14 });   // hair: the head's own shape, thicker
-  if (bearded) { shell("head", 0.012, (x, y, z) => (jaw(x, y, z) || lip(x, y, z) ? hc : null), { noise: 0.14 }); shell("head", 0.017, (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { noise: 0.14 }); }
-  if (beard === "goatee") shell("head", 0.012, (x, y, z) => (chin(x, y, z) || lip(x, y, z) ? hc : null), { noise: 0.14 });
+  const hairHex = darken ? mixHex(hc, skin, 0.35) : hc;
+  if (!covered || hs === "long") shell("head", thick, (x, y, z, t, ymin) => (isHair(x, y, z, t, ymin) ? hairHex : null), { noise: 0.16 });   // the hair: the head's own shape, thicker
+  if (bd) {
+    shell("head", bd[1], (x, y, z, t, m) => (bd[0](x, y, z, t, m) ? hc : null), { noise: 0.16 });
+    if (bd[2]) shell("head", bd[2], (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { noise: 0.16 });
+  }
+  // Hair and beard volumes, in head space: tails, braids, buns, curls, the end of the beard.
+  const Hx = Part(PV.head[1], r, 0.08), fz0 = (x, y) => faceZ(Bd, x, y);
+  const braidChain = (pts, w) => pts.forEach(([x, y, z], i) => Hx.blob(w * (1 - i * 0.04), w * 1.5, w * 0.8, tone(hc, i % 2 ? -0.1 : 0.05), x + (i % 2 ? 0.003 : -0.003), y, z, 5, 4, i % 2 ? 0.35 : -0.35));
+  if (!covered) {
+    if (hs === "long") {                                                                                          // falling to the shoulders
+      Hx.tube(hm.halfW * 0.95, hm.halfW * 1.1, ey + 0.02, hm.chin - 0.14, hc, 0, back * 0.55 + cz, 8, 0.62);
+      [-1, 1].forEach((sd) => Hx.box(0.02, 0.17, 0.05, tone(hc, -0.05), sd * (hm.halfW + 0.004), ey - 0.07, cz - 0.03, 0, 0, sd * 0.06));
+    }
+    if (hs === "ponytail") { const zb = back + cz - 0.008; Hx.box(0.03, 0.016, 0.03, "#2a1e14", 0, ey + (F ? 0.04 : 0.0), zb - 0.01); Hx.tube(0.026, 0.012, ey + (F ? 0.035 : -0.005), ey - (F ? 0.2 : 0.17), hc, 0, zb - 0.025, 6, 1, -0.25); }
+    if (hs === "bun") { Hx.blob(0.045, 0.04, 0.042, tone(hc, 0.05), 0, ey + 0.055, back + cz - 0.012, 7, 5); Hx.tube(0.03, 0.03, ey + 0.035, ey + 0.045, "#3a2a1c", 0, back + cz - 0.02, 7); }
+    if (hs === "braid") braidChain(Array.from({ length: 11 }, (_, i) => [0, ey - 0.02 - i * 0.024, back + cz - 0.012 - i * 0.003]), 0.015);
+    if (hs === "twinbraids") [-1, 1].forEach((sd) => braidChain(Array.from({ length: 10 }, (_, i) => [sd * (hm.halfW * 0.86 - i * 0.002), ey - 0.04 - i * 0.022, cz - 0.02 + i * 0.012]), 0.011));
+    if (hs === "crown") for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; Hx.blob(0.014, 0.012, 0.016, tone(hc, i % 2 ? -0.1 : 0.05), Math.sin(a) * hm.halfW * 0.98, ey + 0.05, cz + Math.cos(a) * (hm.front - hm.back) * 0.5 * 0.96 - 0.004, 5, 4); }
+    if (hs === "curly") for (let i = 0; i < 14; i++) { const a = i * 2.4, t = 0.25 + (i % 5) * 0.14; Hx.blob(0.022, 0.02, 0.022, tone(hc, (i % 3) * 0.05 - 0.04), Math.sin(a) * hm.halfW * t * 1.6, ey + 0.065 + (1 - t) * 0.045, cz + Math.cos(a) * 0.07 - 0.01, 5, 4); }
+    if (hs === "shaggy") for (let i = 0; i < 6; i++) Hx.box(0.04, 0.022, 0.03, tone(hc, -0.05), (i - 2.5) * 0.028, ey + 0.058 + (i % 2) * 0.01, fz0((i - 2.5) * 0.028, ey + 0.058) + 0.012, 0.6, 0, (i - 2.5) * 0.18);   // ragged fringe
+    if (hs === "bowl") Hx.box(hm.halfW * 1.7, 0.014, 0.02, tone(hc, -0.08), 0, ey + 0.033, fz0(0, ey + 0.033) + 0.014);   // the straight cut of the fringe
+  }
+  if (bd) {
+    const cy = hm.chin + 0.01, czf = fz0(0, cy + 0.01);
+    if (beard === "full") Hx.blob(0.04, 0.022, 0.026, tone(hc, 0.02), 0, cy - 0.004, czf - 0.016, 7, 4);
+    if (beard === "pointed") Hx.cone(0.035, 0.075, hc, 0, cy - 0.035, czf - 0.008, Math.PI, 0, 6, 1, 0.8);
+    if (beard === "forked") [-1, 1].forEach((sd) => Hx.cone(0.022, 0.07, hc, sd * 0.02, cy - 0.032, czf - 0.008, Math.PI, sd * -0.18, 5, 1, 0.8));
+    if (beard === "long") { Hx.cone(0.05, 0.17, hc, 0, cy - 0.075, czf - 0.016, Math.PI, 0, 7, 1.05, 0.7); Hx.box(0.03, 0.012, 0.03, "#3a2a1c", 0, cy - 0.11, czf - 0.012); }
+    if (beard === "goatee") Hx.cone(0.022, 0.035, hc, 0, cy - 0.012, czf - 0.004, Math.PI, 0, 5, 1, 0.8);
+  }
+  { const g = Hx.done(); if (g) pieces.head.push(g); }
   const H = Part(PV.head[1], r, Math.min(0.2, dirt));
-  // hair volumes (old skull space, fitted below)
-  if ((v.hair === "long" || v.hair === "braid") && !covered) H.cap(1, hc, 0, -0.06, -0.03, 1.4, 0.112, 0.22, 0.118, -1.75);   // falling at the back
-  if (v.hair === "braid") H.tube(0.025, 0.018, -0.12, -0.42, hc, 0, -0.12, 5);
-  if (v.hair === "bun") H.blob(0.05, 0.045, 0.05, hc, 0, 0.06, -0.125);
-  if (v.hair === "shaggy" && !covered) for (let i = 0; i < 5; i++) H.box(0.05, 0.02, 0.05, tone(hc, -0.05), (i - 2) * 0.035, 0.105 + (i % 2) * 0.012, 0.075 - Math.abs(i - 2) * 0.012, 0.5, 0, (i - 2) * 0.2);   // ragged fringe
-  if (beard === "long") H.cone(0.055, 0.15, hc, 0, -0.225, 0.06, Math.PI, 0, 6, 1.05, 0.65);
   const hat = look.hat;
   if (hd === "hood") { H.cap(1, hat, 0, 0.012, -0.018, 2.0, 0.142, 0.158, 0.15, -0.62); H.cone(0.06, 0.18, hat, 0, 0.03, -0.16, -2.25); H.tube(0.13, 0.17, -0.12, -0.24, hat, 0, -0.015, 8, 0.9); }
   if (hd === "cap") { H.cap(1, hat, 0, 0.025, -0.01, 1.25, 0.122, 0.13, 0.132, -0.25); H.tube(0.12, 0.122, 0.06, 0.085, tone(hat, -0.2), 0, -0.01, 8, 1.06); }
@@ -339,16 +404,17 @@ export function bodyGeometries(look, v) {
     if (look.plume) H.box(0.03, 0.12, 0.2, look.plume, 0, 0.22, -0.03);
   }
   if (hd === "crown") { H.tube(0.128, 0.122, 0.07, 0.125, "#7a6028", 0, 0, 8); for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; H.cone(0.02, 0.055, "#8a6e30", Math.sin(a) * 0.123, 0.15, Math.cos(a) * 0.123, 0, 0, 4); } H.box(0.025, 0.025, 0.012, "#5a1a20", 0, 0.098, 0.126); }
-  if (covered && v.hair === "long") H.box(0.21, 0.12, 0.05, hc, 0, -0.12, -0.09);
+  if (covered && (hs === "long" || hs === "braid" || hs === "ponytail")) H.box(0.18, 0.12, 0.04, hc, 0, -0.12, -0.11);
   { const g = H.done(); if (g) pieces.head.push(fit(g)); }
   // Face details laid on the face (hidden by full helmets and masks): eyes, lids, brows, nostrils, mouth, ears.
   const faceHidden = (hd === "helm" && look.greatHelm) || look.mask;
   if (!faceHidden) {
     const Fc = Part(PV.head[1], r, 0.05), fz = (x, y) => faceZ(Bd, x, y);
     const ex = hm.halfW * 0.4, iris = ["#3a2818", "#2c3a48", "#38402a", "#4a3220"][v.seed % 4];
-    if (!covered || hd === "cap" || hd === "hat" || hd === "crown" || hd === "kerchief") [-1, 1].forEach((s) => {
-      Fc.box(0.012, 0.042, 0.03, tone(skin, -0.04), s * (hm.halfW + 0.003), ey - 0.03, cz - 0.01, 0, s * 0.25, 0);                 // ear
-      Fc.box(0.006, 0.02, 0.012, tone(skin, -0.3), s * (hm.halfW + 0.008), ey - 0.03, cz - 0.006);                                   // ear hole
+    const earsHidden = hs === "long" || (F && (hs === "twinbraids"));
+    if ((!covered || hd === "cap" || hd === "hat" || hd === "crown" || hd === "kerchief") && !earsHidden) [-1, 1].forEach((s) => {
+      Fc.blob(0.008, 0.02, 0.014, mixHex(skin, "#b05a48", 0.1), s * (hm.halfW - 0.001), ey - 0.03, cz - 0.012, 6, 4);   // ear
+      Fc.box(0.004, 0.014, 0.008, tone(skin, -0.32), s * (hm.halfW + 0.005), ey - 0.03, cz - 0.01);                   // ear hole
     });
     [-1, 1].forEach((s) => {
       const z = fz(s * ex, ey);
@@ -356,20 +422,24 @@ export function bodyGeometries(look, v) {
       Fc.box(0.012, 0.013, 0.006, iris, s * (ex - 0.002), ey - 0.001, z + 0.004);                         // iris
       Fc.box(0.005, 0.006, 0.004, "#0c0907", s * (ex - 0.002), ey - 0.001, z + 0.007);                     // pupil
       Fc.box(0.03, 0.006, 0.01, tone(skin, -0.4), s * ex, ey + 0.009, z + 0.004, look.angry ? 0.2 : 0);    // upper lid
-      const bz = fz(s * ex, ey + 0.026);
-      Fc.box(0.04, F ? 0.006 : 0.009, 0.012, F ? tone(hc, 0.1) : hc, s * ex, ey + (F ? 0.027 : 0.025), bz + 0.004, 0, 0, s * (look.angry ? 0.3 : F ? -0.12 : -0.06));   // brow
+      Fc.box(0.024, 0.003, 0.006, tone(skin, -0.18), s * ex, ey - 0.009, z + 0.002);                       // lower lid
+      // brow in two pieces: thicker near the nose, thinner and lower at the end
+      const brow = F ? tone(hc, 0.12) : tone(hc, 0.02), by = ey + (F ? 0.027 : 0.025), tilt = look.angry ? 0.35 : F ? -0.1 : -0.03;
+      Fc.box(0.022, F ? 0.007 : 0.01, 0.012, brow, s * (ex - 0.008), by + (look.angry ? -0.003 : 0), fz(s * (ex - 0.008), by) + 0.004, 0, 0, s * tilt);
+      Fc.box(0.022, F ? 0.005 : 0.007, 0.01, brow, s * (ex + 0.013), by - 0.003, fz(s * (ex + 0.013), by - 0.003) + 0.003, 0, 0, s * (tilt - 0.25));
       if (look.old) Fc.box(0.012, 0.003, 0.004, tone(skin, -0.3), s * (ex + 0.022), ey - 0.008, fz(s * (ex + 0.02), ey - 0.008) + 0.002, 0, 0, s * 0.5);   // crow's feet
     });
     if (look.old) [0.05, 0.062].forEach((dy) => Fc.box(0.05, 0.003, 0.004, tone(skin, -0.25), 0, ey + dy, fz(0, ey + dy) + 0.002));    // forehead lines
     [-1, 1].forEach((s) => Fc.box(0.008, 0.005, 0.006, tone(skin, -0.45), s * 0.008, noseY - 0.006, fz(s * 0.008, noseY - 0.006) + 0.001));   // nostrils
-    const bd = bearded ? 0.013 : beard === "goatee" ? 0.012 : 0, mz = fz(0, my) + bd;
-    Fc.box(F ? 0.034 : 0.038, 0.006, 0.008, F ? "#6a3430" : "#3a2420", 0, my + 0.003, mz + 0.002);                 // upper lip / mouth line
-    Fc.box(F ? 0.028 : 0.03, F ? 0.008 : 0.006, 0.008, F ? "#8a4a44" : bd ? "#5a3028" : tone(skin, -0.15), 0, my - 0.005, mz + 0.001);   // lower lip
-    if (bearded || beard === "goatee") Fc.box(0.06, 0.012, 0.016, hc, 0, my + 0.016, fz(0, my + 0.016) + bd + 0.003, 0, 0, 0);   // moustache
-    if (F && !covered) [-1, 1].forEach((sd) => {                                                          // locks framing the face
-      const lng = v.hair === "long" || v.hair === "braid", h = lng ? 0.2 : 0.11;
-      Fc.box(0.014, h, 0.055, hc, sd * (hm.halfW - 0.001), ey + 0.055 - h / 2, cz - 0.012, 0, 0, sd * 0.07);
-      Fc.box(0.03, 0.02, 0.07, hc, sd * (hm.halfW - 0.012), ey + 0.062, cz + 0.004, 0, 0, sd * 0.5);                 // over the temple
+    // the lip surface (not the underside of the nose, which can hang in front of it)
+    const lipZ = (y) => fz(0, y) + 0.0015;
+    const lipOver = bd ? bd[1] : 0, mz = lipZ(my) + (bd && beard !== "moustache" && beard !== "chops" ? bd[1] : 0);
+    Fc.box(F ? 0.034 : 0.038, 0.005, 0.005, F ? "#6a3430" : "#3a2420", 0, my + 0.003, mz + 0.0005);               // mouth line
+    Fc.box(F ? 0.028 : 0.03, F ? 0.008 : 0.006, 0.005, F ? "#8a4a44" : bd ? "#5a3028" : mixHex(skin, "#8a4038", 0.25), 0, my - 0.005, mz);   // lower lip
+    if (lipOver) [-1, 1].forEach((sd) => {                                                                // moustache: two halves, the ends droop
+      const droop = beard === "moustache" || beard === "chops";
+      Fc.box(0.034, 0.012, 0.014, hc, sd * 0.017, my + 0.015, lipZ(my + 0.015) + lipOver + 0.002, 0, 0, sd * -0.12);
+      if (droop) Fc.box(0.01, 0.03, 0.012, tone(hc, -0.05), sd * 0.034, my - 0.002, lipZ(my) - 0.004 + lipOver, 0, 0, sd * 0.15);
     });
     pieces.head.push(Fc.done());
   }

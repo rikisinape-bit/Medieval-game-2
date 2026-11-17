@@ -5,6 +5,7 @@ import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
+import { rng, hashStr } from "./body";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
@@ -322,10 +323,27 @@ export function createGame(canvas, hooks, saved) {
   equip();
   setView(view);
 
+  // What an NPC carries (and keeps on the body when it dies): the armour and weapons it wears, a few goods of its
+  // trade, some random things and its purse. Stable for each NPC (seeded with its id).
+  const WEAR = { plate: "piastre", mail: "maglia", leather: "cuoio" };
+  const belongings = (d) => {
+    const r = rng(hashStr(d.id) + 3), inv = {}, add = (id) => { inv[id] = (inv[id] || 0) + 1; };
+    (LOOT_OF[d.role] || LOOT_OF.villager).forEach(([id, c]) => { if (r() < c) add(id); });
+    if (d.weapon) add(d.weapon === "long" ? "spada_lunga" : "spada_corta");
+    const L = LOOKS[d.look] || {};
+    if (WEAR[L.armor]) add(WEAR[L.armor]);
+    if (L.head === "helm") add(L.greatHelm ? "elmo_piastre" : "elmo_ferro"); else if (L.head === "nasal") add("elmo_ferro"); else if (L.head === "leatherhood") add("cappuccio");
+    if (L.shield) add(L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro");
+    if (SHOPS[d.id]) { const st = SHOPS[d.id].sells; for (let i = 0; i < 3; i++) add(st[Math.floor(r() * st.length)]); }
+    if (d.boss) add("testa_morn");
+    return inv;
+  };
   const npcs = NPC_DEFS.map((d) => {
     const sv = saved?.npcs?.[d.id] || {};
     const n = { hp: 30, dmg: 4, loot: 3, ...d, x: d.pos[0], z: d.pos[1], yaw: 0, hpMax: d.hp || 30, alive: true, looted: false, discovered: false, witnessed: false, cd: 0, state: "idle", k: 0, stagger: 0, flash: 0, kb: 0, ...sv };
     Object.assign(n, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, sleepAt: null });
+    n.inv = sv.inv ? { ...sv.inv } : n.looted ? {} : belongings(d);
+    n.purse = sv.purse ?? (n.looted ? 0 : n.loot);
     if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
     // All NPCs use the procedural low-poly humans (body.js); seed = id gives each one stable variation.
     n.mesh = makeHuman({ ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) }, d.weapon, d.id);
@@ -441,23 +459,11 @@ export function createGame(canvas, hooks, saved) {
   const snd = { scream: (n) => sfx.scream(vAt(n.x, n.z), pitchOf(n)), swing: (n) => sfx.swing(vAt(n.x, n.z) * 0.8) };
   const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf });
 
-  const dropLoot = (n) => {
-    const rolls = [...(LOOT_OF[n.role] || LOOT_OF.villager)];
-    if (n.weapon) rolls.push([n.weapon === "long" ? "spada_lunga" : "spada_corta", 0.5]);
-    if (SHOPS[n.id]) { const st = SHOPS[n.id].sells; rolls.push([st[Math.floor(Math.random() * st.length)], 0.9], [st[Math.floor(Math.random() * st.length)], 0.6]); }
-    const got = rolls.filter(([, c]) => Math.random() < c).map(([id]) => id);
-    got.forEach((id, i) => {
-      const a = (i / Math.max(1, got.length)) * Math.PI * 2;
-      const [x, z] = pushOut(n.x + Math.cos(a) * 0.9, n.z + Math.sin(a) * 0.9);
-      const d = { item: id, qty: 1, x, z }; S.drops.push(d); addPick({ id: `d${Date.now()}${i}`, ...d, drop: true });
-    });
-  };
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
     n.deathT = 0; n.deathKind = Math.floor(Math.random() * DEATH_TIME.length);   // how this one falls (animated in frame())
     sfx.scream(vAt(n.x, n.z) * 0.8, pitchOf(n) * 0.8, 0.7, true);
     note(`${n.name} cade a terra.`);
-    dropLoot(n);
     if (n.id === "cocchiere") { car.stopped = true; say("La carrozza resta ferma: nessuno la guida più."); }
     if (n.role === "messenger") say("Senza messaggero, le notizie non viaggeranno più su questa strada.");
     if (SHOPS[n.id]) say(`${SHOPS[n.id].title} resterà chiusa per sempre.`);
@@ -574,7 +580,10 @@ export function createGame(canvas, hooks, saved) {
     const list = [];
     const near = (x, z, r = 2.6) => Math.hypot(x - P.x, z - P.z) < r;
     const zoneOk = (x, z) => zoneOf(x, z) === zoneOf(P.x, P.z);
-    npcs.forEach((n) => { if (zoneOk(n.x, n.z) && near(n.x, n.z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach")) list.push({ kind: "npc", id: n.id, x: n.x, z: n.z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name}` }); });
+    npcs.forEach((n) => {
+      const x = n.alive ? n.x : n.cx ?? n.x, z = n.alive ? n.z : n.cz ?? n.z;            // a body: where it lies, not where its feet are
+      if (zoneOk(x, z) && near(x, z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach")) list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name}` });
+    });
     OBJECTS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
     houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
     picks.forEach((pk) => { if (near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""}` }); });
@@ -608,7 +617,7 @@ export function createGame(canvas, hooks, saved) {
   // Conversation close-up: the camera moves in front of the NPC (who turns to the player and talks), framing the
   // face and shoulders on the left of the screen; the choices are on the right (InteractionDialog).
   let talk = null;
-  const camFrom = new THREE.Vector3(), camLook = new THREE.Vector3(), _v = new THREE.Vector3();
+  const camFrom = new THREE.Vector3(), camLook = new THREE.Vector3(), _v = new THREE.Vector3(), _cv = new THREE.Vector3();
   function startTalk(id) {
     const n = S.npcs[id];
     if (!n || !n.alive || !n.mesh) { talk = null; return; }
@@ -648,6 +657,21 @@ export function createGame(canvas, hooks, saved) {
     const fov = 38; if (Math.abs(camera.fov - fov) > 0.05) { camera.fov += (fov - camera.fov) * k; camera.updateProjectionMatrix(); }
   }
 
+  // Searching a body: both inventories side by side (LootPanel). Things move one at a time, or all together.
+  let lootId = null;
+  const lootInfo = (id) => { const n = S.npcs[id]; return { id, name: n.name, inv: { ...n.inv }, gold: n.purse, mine: { ...P.inv }, myGold: P.gold, ore: P.ore }; };
+  function loot(kind, id, item) {
+    const n = S.npcs[id];
+    if (!n || n.alive) return null;
+    const one = (it) => { if (!n.inv[it]) return; n.inv[it] -= 1; if (n.inv[it] <= 0) delete n.inv[it]; if (ITEMS[it]?.kind === "ore") P.ore += 1; else P.inv[it] = (P.inv[it] || 0) + 1; };
+    if (kind === "take") { one(item); sfx.pick(0.7); }
+    else if (kind === "all") { Object.keys(n.inv).forEach((it) => { while (n.inv[it]) one(it); }); P.gold += n.purse; n.purse = 0; sfx.pick(1); }
+    else if (kind === "gold") { P.gold += n.purse; n.purse = 0; sfx.pick(0.8); }
+    else if (kind === "give") { if (!P.inv[item] || ITEMS[item]?.kind === "quest") return lootInfo(id); take(item); n.inv[item] = (n.inv[item] || 0) + 1; sfx.pick(0.5); }
+    n.looted = !Object.keys(n.inv).length && !n.purse;
+    return lootInfo(id);
+  }
+
   function interact() {
     if (dialogOpen) return;
     const c = candidates();
@@ -656,6 +680,7 @@ export function createGame(canvas, hooks, saved) {
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
+    if (c.kind === "npc" && !S.npcs[c.id].alive) { dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return; }
     const d = getDialog(c.id, S);
     if (d) { dialogOpen = true; startTalk(c.id); hooks.openDialog(c.id, d); }
   }
@@ -939,7 +964,10 @@ export function createGame(canvas, hooks, saved) {
         const kind = n.deathKind ?? n.id.length % DEATH_TIME.length;      // dead since a saved game: always the same pose
         n.deathT = n.deathT == null ? 99 : n.deathT + dt;
         const p = Math.min(1, n.deathT / DEATH_TIME[kind]);
-        if (n.poseP !== p) { n.poseP = p; at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null); }
+        if (n.poseP !== p) {
+          n.poseP = p; at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null);
+          if (p === 1) { n.mesh.updateMatrixWorld(true); const c = n.mesh.userData.body.localToWorld(_cv.set(0, 1.0, 0)); n.cx = c.x; n.cz = c.z; }   // middle of the body on the ground
+        }
         return;
       }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt; n.blockT = (n.blockT || 0) - dt;
@@ -1060,12 +1088,14 @@ export function createGame(canvas, hooks, saved) {
     input, action, choose, shop,
     look: (dx, dy) => { P.yaw -= dx * 0.005; pitch = clamp(pitch - dy * 0.004, -1.2, 1.2); },
     closeDialog: () => { dialogOpen = false; endTalk(); },
+    loot: (kind, id, item) => loot(kind, id, item),
+    closeLoot: () => { dialogOpen = false; lootId = null; },
     setPaused: (v) => { paused = !!v; lookers.clear(); if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
     invAction: (kind, id) => { sfx.unlock(); if (kind === "use") consumeItem(id); else if (kind === "equip") equipItem(id); else if (kind === "drop") dropItem(id); else if (kind === "unequip") unequip(id); },
     getSave: () => ({
       player: { hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, x: P.x, z: P.z, yaw: P.yaw },
       rep: S.rep, known: S.known, flags: S.flags, drops: S.drops, dayT: S.dayT, view,
-      npcs: Object.fromEntries(npcs.map((n) => [n.id, { alive: n.alive, looted: n.looted, discovered: n.discovered, witnessed: n.witnessed, hp: n.alive ? n.hpMax : 0, deadX: n.deadX, deadZ: n.deadZ }])),
+      npcs: Object.fromEntries(npcs.map((n) => [n.id, { alive: n.alive, looted: n.looted, discovered: n.discovered, witnessed: n.witnessed, hp: n.alive ? n.hpMax : 0, deadX: n.deadX, deadZ: n.deadZ, ...(n.alive ? {} : { inv: n.inv, purse: n.purse }) }])),
     }),
     dispose: () => {
       cancelAnimationFrame(raf);

@@ -4,6 +4,7 @@ import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
+import LootPanel from "@/components/LootPanel";
 import GameMenu from "@/components/GameMenu";
 import RepFace from "@/components/RepFace";
 import Shop from "@/components/Shop";
@@ -64,6 +65,7 @@ export default function Village3D() {
   const [floats, setFloats] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [shop, setShop] = useState(null);
+  const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export default function Village3D() {
         openDialog: (id, d) => setDialog({ id, d }),
         onToggleInventory: () => setMenuOpen((o) => !o),
         openShop: (id, def) => setShop({ id, def }),
+        openLoot: (info) => setLoot(info),
         onLog: (t, quiet) => {
           const id = `${Date.now()}${Math.random()}`;
           setLog((l) => [{ id, t, quiet }, ...l].slice(0, 60));
@@ -115,7 +118,7 @@ export default function Village3D() {
 
   const act = (k) => gameRef.current?.action(k);
   // True pause: menu, shop, dialogs and the reset confirmation all stop the world.
-  const paused = menuOpen || !!shop || !!dialog || askReset;
+  const paused = menuOpen || !!shop || !!dialog || !!loot || askReset;
   useEffect(() => { gameRef.current?.setPaused(paused); }, [paused, hud === null]);
   // Escape closes the menu / shop (dialogs handle Escape themselves).
   useEffect(() => {
@@ -167,6 +170,7 @@ export default function Village3D() {
       </div>
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
+      {loot && <LootPanel info={loot} onAct={(k, id, item) => gameRef.current?.loot(k, id, item)} onClose={() => { gameRef.current?.closeLoot(); setLoot(null); }} />}
       <InteractionDialog
         interaction={dialog?.d}
         onChoose={(effect) => { const d = dialog; setDialog(null); if (d) gameRef.current?.choose(d.id, effect); }}
