@@ -169,6 +169,13 @@ export function kitHouseTop(id, { cut, w, d, sy = 1, turn = false }) {
   return key;
 }
 
+// Size [width x, height y, depth z] of a kit piece (metres, before scaling), or null.
+export function kitSize(id) {
+  const parts = lib?.[id]; if (!parts) return null;
+  const b = new THREE.Box3(); parts.forEach((p) => { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox); });
+  return b.getSize(new THREE.Vector3()).toArray();
+}
+
 // One piece as its own object (for things that move, like the castle gate).
 export function kitObject(id) {
   const g = new THREE.Group();

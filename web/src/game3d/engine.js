@@ -10,7 +10,7 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
-import { hasNature, hasKit, addNature, kitObject, kitMaterial, kitHouseTop } from "./nature";
+import { hasNature, hasKit, addNature, kitObject, kitMaterial, kitHouseTop, kitSize } from "./nature";
 import { makeMountain, mountainHeight } from "./mountain";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -57,14 +57,18 @@ export function createGame(canvas, hooks, saved) {
   // Roccanera (option A): our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
   // [kit house, cut height, quarter turn, height stretch, extra turn of the whole top]
   const KIT_TOPS = [["house_03", 1.75, true, 1.25, 0], ["house_04", 1.7, false, 1.25, 0], ["house_05", 2.5, false, 1.1, 0],
-    ["house_02", 1.85, true, 1.2, 0], ["house_03", 1.75, true, 1.25, Math.PI], ["house_07", 0.6, false, 1.1, 0]];
+    ["house_02", 1.85, true, 1.2, 0], ["house_03", 1.75, true, 1.25, Math.PI], ["house_07", 0.6, false, 1.1, 0],
+    // Valdoro: taller town houses (more stretch: three storeys over the stone ground floor)
+    ["house_02", 1.85, true, 1.35, Math.PI], ["house_03", 1.75, true, 1.4, 0], ["house_04", 1.7, false, 1.45, 0], ["house_02", 1.85, true, 1.35, 0]];
   const kitWall = hasKit() && kitMaterial("Wall_Tile_03_Mat"), kitBeam = hasKit() && kitMaterial("Brown_02_Mat");
   const kitHouse = kitWall && kitBeam ? { wall: kitWall, beam: kitBeam } : null, houseTops = [];
+  // Valdoro's ground floors are of dressed stone, like the castle (the kit's other wall texture)
+  const kitStone = kitHouse && kitMaterial("Wall_Tile_01_Mat"), kitTown = kitStone ? { ...kitHouse, wall: kitStone } : kitHouse;
   const houses = HOUSES.map(([x, z, r], i) => {
-    const stone = i >= 6, top = !stone && kitHouse && KIT_TOPS[i];
+    const stone = i >= 6, top = kitHouse && KIT_TOPS[i];
     const id = top && kitHouseTop(top[0], { cut: top[1], turn: top[2], sy: top[3], w: 4.7, d: 4.1 });
     if (id) houseTops.push({ id, x, z, y: HOUSE_H + 0.1, ry: r + top[4] });
-    const g = put(makeHouse(stone ? "#9a948a" : i % 2 ? "#b89a6a" : "#a8886a", stone ? "#5a3a3a" : i % 3 ? "#7a4a22" : "#5a3a22", stone, id ? kitHouse : null), x, z, r);
+    const g = put(makeHouse(stone ? "#9a948a" : i % 2 ? "#b89a6a" : "#a8886a", stone ? "#5a3a3a" : i % 3 ? "#7a4a22" : "#5a3a22", stone, id ? (stone ? kitTown : kitHouse) : null), x, z, r);
     HOUSE_RECTS.forEach(([lx, lz, hw, hd]) => { const [cx, cz] = toWorld(x, z, r, lx, lz); rects.push({ cx, cz, hw, hd, ry: r }); });
     const [dx, dz] = toWorld(x, z, r, 0, 1.9), [chx, chz] = toWorld(x, z, r, CHEST_LOCAL[0], CHEST_LOCAL[1]);
     const [bx, bz] = toWorld(x, z, r, -1.3, -0.9), [ex, ez] = toWorld(x, z, r, -1.3, 0.55), [vx, vz] = toWorld(x, z, r, 0, 3.2), [ix, iz] = toWorld(x, z, r, 0, 0.9);
@@ -73,6 +77,15 @@ export function createGame(canvas, hooks, saved) {
     return { i, x, z, r, g, door: g.userData.door, dx, dz, chx, chz, beds, via: [[vx, vz], [ix, iz]], open: 0 };
   });
   if (houseTops.length) addNature(scene, houseTops, natureMeshes);
+  // Valdoro: whole kit houses (not enterable) against the town walls, facing the square, with their collisions:
+  // tall narrow ones on the side walls, low ones in the corners by the gate. [kit house, x, z, turn, scale]
+  const TOWN = [["house_05", 14.05, WZ - 17.1, -Math.PI / 2, 1.3], ["house_05", -14.05, WZ - 17.1, Math.PI / 2, 1.3],
+    ["house_07", 12.6, WZ - 3.4, Math.PI, 1.3], ["house_07", -12.6, WZ - 3.4, Math.PI, 1.3]];
+  const townKit = hasKit() ? TOWN.filter(([id]) => kitSize(id)) : [];
+  if (townKit.length) {
+    addNature(scene, townKit.map(([id, x, z, ry, k]) => ({ id, x, z, ry, k })), natureMeshes);
+    townKit.forEach(([id, x, z, ry, k]) => { const [w, , d] = kitSize(id); rects.push({ cx: x, cz: z, hw: (w * k) / 2 - 0.1, hd: (d * k) / 2 - 0.1, ry }); });
+  }
   const houseOf = (x, z) => {
     for (const h of houses) {
       const dx = x - h.x, dz = z - h.z, lx = Math.cos(h.r) * dx - Math.sin(h.r) * dz, lz = Math.sin(h.r) * dx + Math.cos(h.r) * dz;
@@ -154,7 +167,7 @@ export function createGame(canvas, hooks, saved) {
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r]) => put(makeStall(), x, z, r, 1.6));
   put(makeBench(), -6, WZ - 25.2, 0.3);
-  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
+  [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => { if (!(hasKit() && i < 2)) putTree(i % 2, x, z, i, 0.9); });   // by the gate: town houses instead
   // Mine cave in the western hill
   put(makeCave(), CX, CZ);
   scene.add(makeMountain());                                   // the mountain that covers the mine
@@ -1167,6 +1180,7 @@ export function createGame(canvas, hooks, saved) {
     }
 
     if (talk) updateTalk(dt);
+    if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);
     renderer.render(scene, camera);
     raf = requestAnimationFrame(frame);
