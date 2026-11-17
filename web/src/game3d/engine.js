@@ -310,7 +310,7 @@ export function createGame(canvas, hooks, saved) {
     camera.remove(vm.g); vm = makeViewmodel(playerLook(P.eq)); camera.add(vm.g);
     torchLight = null; torchLamp.intensity = 0;
     const s = makeSword(0, P.eq.hand);
-    vm.fistR.add(s);                                                                        // through the fist: blade up and forward
+    vm.fistR.add(s); vm.sword = s;                                                          // through the fist: blade up and forward
     if (P.eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2; vm.fistL.add(t); torchLight = torchLamp; }
     else if (P.eq.off) {                                                                    // shield held low on the left, edge-on, face turned outwards
       const sh = makeShield(ITEMS[P.eq.off].color, SHIELD_KIND[P.eq.off]); sh.scale.setScalar(0.85);
@@ -656,6 +656,10 @@ export function createGame(canvas, hooks, saved) {
   // face and shoulders on the left of the screen; the choices are on the right (InteractionDialog).
   let talk = null;
   const camFrom = new THREE.Vector3(), camLook = new THREE.Vector3(), _v = new THREE.Vector3(), _cv = new THREE.Vector3();
+  // First-person blade: turn of the sword in the fist so its edge faces the cut, and the parry (arm turned around the
+  // view axis so the blade lies across the screen, a little higher and nearer the middle).
+  const FP_EDGE = Math.PI / 2, FP_PARRY = { turn: 1.3, dx: -0.1, dy: 0.12, dz: 0, roll: 0 };
+  const _pq = new THREE.Quaternion(), _fwd = new THREE.Vector3(0, 0, 1);
   function startTalk(id) {
     const n = S.npcs[id];
     if (!n || !n.alive || !n.mesh) { talk = null; return; }
@@ -1101,8 +1105,11 @@ export function createGame(canvas, hooks, saved) {
       const side = combo === 2 ? -1 : 1, R = VM_REST.R, L = VM_REST.L;
       const [raise, sweep] = atkT >= 0 ? fpSwing(Math.min(1, k)) : [0, 0];
       const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
-      vm.armR.rotation.set(R.rx + raise + 0.35 * g, side * sweep + 0.35 * g, -side * sweep * 0.5 + 1.15 * g);       // blade across the screen
-      vm.armR.position.set(R.pos[0] - 0.12 * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + 0.06 * g, R.pos[2]);
+      vm.armR.rotation.set(R.rx + raise, side * sweep, -side * sweep * 0.5);
+      if (g > 0) vm.armR.quaternion.premultiply(_pq.setFromAxisAngle(_fwd, FP_PARRY.turn * g));    // parry: the blade turns across the screen
+      vm.armR.position.set(R.pos[0] + FP_PARRY.dx * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + FP_PARRY.dy * g, R.pos[2] + FP_PARRY.dz * g);
+      // the edge leads the cut: towards the left on the cuts from the right, towards the right on the mirrored one
+      if (vm.sword) vm.sword.rotation.z = g > 0 ? FP_PARRY.roll : side > 0 ? FP_EDGE : -FP_EDGE;
       const sg = hasShield() ? g : 0;
       vm.armL.rotation.set(L.rx + 0.25 * sg, -0.55 * sg, 0);                                                       // shield to the middle
       vm.armL.position.set(L.pos[0] + 0.16 * sg, L.pos[1] + Math.cos(bobT * 0.5) * 0.01 + 0.05 * sg, L.pos[2]);

@@ -66,6 +66,7 @@ else if (q.get("weapons")) { cam.fov = 34; cam.updateProjectionMatrix(); cam.pos
 const range = q.get("range");
 if (hand != null || q.get("weapons") || q.get("items")) {} else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
 else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
+else if (q.get("top")) { const x = ((+q.get("top") - (n - 1) / 2) * sp); cam.fov = 26; cam.updateProjectionMatrix(); cam.position.set(x, 4.2, 0.6); cam.lookAt(x, 1.0, 0.45); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
 if (faces) {                                         // one close frame per head, side by side

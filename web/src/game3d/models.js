@@ -65,14 +65,22 @@ export const LOOKS = {
 
 // Hand tools of the NPCs' daily routines, in the new item style (items3d.js). Same palm point as weapons.
 const GRIP_TOOLS = new Set(["ascia", "martello", "scopa"]);
-// Puts an object authored with its grip at the origin and the blade/haft along +Z into the right fist of a body
-// (bodyGeometries): at the centre of the fist, along the fist's axis. left: the left fist.
-const _z = new THREE.Vector3(0, 0, 1);
+// Puts an object authored with its grip at the origin, the blade/haft along +Z and the edges along ±X (weapons.js)
+// into the right fist of a body (bodyGeometries): at the centre of the fist, along the fist's axis, with the edge
+// in line with the knuckles, as a sword is really held: the edge leads when the arm swings (front/back), the flat
+// of the blade faces the sides. left: the left fist.
+const _X = new THREE.Vector3(1, 0, 0), _basis = new THREE.Matrix4();
 export function inFist(o, geo, left = false) {
+  const g = new THREE.Vector3(...(left ? geo.gripAxisL : geo.gripAxis)).normalize();
+  const e = _X.clone().cross(g).normalize();                 // edge: in the swing plane of the arm, at right angles to the grip
   o.position.set(...(left ? geo.gripL : geo.grip));
-  o.quaternion.setFromUnitVectors(_z, new THREE.Vector3(...(left ? geo.gripAxisL : geo.gripAxis)));
+  o.quaternion.setFromRotationMatrix(_basis.makeBasis(e, g.clone().cross(e), g));
   return o;
 }
+// Which way the edge must face for each blow (turn of the blade around its own length, see poseHuman):
+// overhead chop and lunge 0, horizontal cut a quarter turn (edge towards the left, where the blade goes),
+// rising backhand half a turn (edge up).
+const EDGE_ROLL = { over: 0, thrust: 0, side: -Math.PI / 2, rise: Math.PI };
 export function makeTool(id, geo) {
   const t = toolModel(id);
   if (GRIP_TOOLS.has(id)) inFist(t, geo);
@@ -120,7 +128,7 @@ export function makeHuman(look, weapon, seed) {
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
   // weapon: "short" | "long" (NPCs) or any sword key (player); the grip goes through the fist, along its axis
-  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); inFist(sword, geo); armR.add(sword); }
+  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); const hold = inFist(new THREE.Group(), geo); hold.add(sword); armR.add(hold); }
   if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, ...geo.shieldAt, -Math.PI / 2)); }
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.visible = false; armR.add(t); tools[id] = t; });
@@ -200,6 +208,8 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     case "train": { const cc = (t * 1.2) % 1; armR.rotation.x = cc < 0.6 ? -2.6 * (cc / 0.6) : -2.6 + 3.4 * Math.min(1, ((cc - 0.6) / 0.4) * 1.6); legs(-0.2, 0.2, 0.3, 0.3); break; }
     default: break;
   }
+  const sw = g.userData.sword;                                       // edge towards the cut
+  if (sw) sw.rotation.z = mode === "windup" || mode === "swing" ? EDGE_ROLL[atk] ?? 0 : 0;
   return y;
 }
 
