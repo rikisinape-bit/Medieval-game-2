@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import BODIES from "./bodydata.json";
 import PALADIN from "./paladin.json";
-import PALADIN_TEX from "./paladin_albedo.jpg?inline";
+import PALADIN_TEX from "./paladin_albedo.jpg";   // inlined in the code (vite.config: the published page only takes data: images)
 
 // The paladin armour has its own material: its painted texture (UVs of the original model) and a metallic, fairly
 // glossy surface so the steel catches the light. Vertex colours carry the dirt towards the ground.
