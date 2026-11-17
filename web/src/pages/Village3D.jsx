@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon } from "lucide-react";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
+import LootPanel from "@/components/LootPanel";
 import GameMenu from "@/components/GameMenu";
 import RepFace from "@/components/RepFace";
 import Shop from "@/components/Shop";
@@ -14,14 +15,20 @@ const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - 
 
 
 // Small round action button. Each press is handled on pointerdown of its own finger, so it works while the joystick is held.
-function Btn({ testid, color, onPress, icon, label, className, big, active }) {
+// The small buttons sit on one circle around the big Attacca (centre ATK_C from the corner, radius ARC):
+// angle 0° = towards the middle of the screen, 90° = straight up. Returns [right, bottom, size].
+const ATK = 84, ATK_C = 6 + ATK / 2, ARC = 86;
+const onArc = (deg, size) => { const a = (deg * Math.PI) / 180; return [ATK_C + Math.cos(a) * ARC - size / 2, ATK_C + Math.sin(a) * ARC - size / 2, size]; };
+// at: [right, bottom, size] in px inside the cluster.
+function Btn({ testid, color, onPress, icon, label, at, active }) {
+  const [right, bottom, size] = at;
   return (
     <button
       onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }}
       data-testid={testid}
       data-ui=""
-      className={`absolute ${big ? "w-14 h-14" : "w-11 h-11"} rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel text-[8px] active:scale-90 transition-transform select-none touch-none ${className}`}
-      style={{ borderColor: color, color }}
+      className={`absolute pointer-events-auto rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel ${size > 60 ? "text-[11px]" : "text-[8px]"} active:scale-90 transition-transform select-none touch-none`}
+      style={{ borderColor: color, color, right, bottom, width: size, height: size }}
     >
       {icon}<span className="mt-0.5 leading-none">{label}</span>
     </button>
@@ -64,6 +71,7 @@ export default function Village3D() {
   const [floats, setFloats] = useState([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [shop, setShop] = useState(null);
+  const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
 
   useEffect(() => {
@@ -83,6 +91,7 @@ export default function Village3D() {
         openDialog: (id, d) => setDialog({ id, d }),
         onToggleInventory: () => setMenuOpen((o) => !o),
         openShop: (id, def) => setShop({ id, def }),
+        openLoot: (info) => setLoot(info),
         onLog: (t, quiet) => {
           const id = `${Date.now()}${Math.random()}`;
           setLog((l) => [{ id, t, quiet }, ...l].slice(0, 60));
@@ -115,7 +124,7 @@ export default function Village3D() {
 
   const act = (k) => gameRef.current?.action(k);
   // True pause: menu, shop, dialogs and the reset confirmation all stop the world.
-  const paused = menuOpen || !!shop || !!dialog || askReset;
+  const paused = menuOpen || !!shop || !!dialog || !!loot || askReset;
   useEffect(() => { gameRef.current?.setPaused(paused); }, [paused, hud === null]);
   // Escape closes the menu / shop (dialogs handle Escape themselves).
   useEffect(() => {
@@ -135,7 +144,7 @@ export default function Village3D() {
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
       {!hud && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">Caricamento…</div>}
       <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")} />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />
+      {!dialog && <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />}
       {hud?.foe && (
         <div className="fixed top-9 left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
           <div className="font-title text-xs tracking-widest text-red-300 text-center">{hud.foe.name}</div>
@@ -155,18 +164,26 @@ export default function Village3D() {
       {toast && (
         <div key={toast.id} className="fixed top-8 left-2 z-20 max-w-[42vw] pointer-events-none font-pixel text-[12px] leading-tight bg-black/45 rounded-sm px-2 py-0.5 text-[#e8dcc4] toast-in" data-testid="village3d-log">{toast.t}</div>
       )}
-      <div className="pointer-events-none fixed inset-0 z-30">
+      <div className={`pointer-events-none fixed inset-0 z-30 ${dialog ? "hidden" : ""}`}>
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
-        {/* Compact cluster: the container itself lets touches through, only the buttons catch them. */}
-        <div className="absolute bottom-2 right-2 w-[110px] h-[110px]">
-          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={20} />} label="Colpisci" className="pointer-events-auto bottom-0 right-0" big />
-          <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" className="pointer-events-auto bottom-[62px] right-[6px]" />
-          <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("dodge")} icon={<Wind size={15} />} label="Schiva" className="pointer-events-auto bottom-[6px] right-[62px]" />
-          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} className="pointer-events-auto bottom-[58px] right-[58px]" />
+        {/* Action buttons on one circle around the big Attacca in the corner, from the bottom towards the middle up to
+            the screen edge: Corri (Schiva in a fight), Para, Usa (Ruba when sneaking), Nasconditi.
+            The container lets touches through, only the buttons catch them. */}
+        <div className="absolute bottom-2 right-2 w-[160px] h-[160px]">
+          <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={32} />} label="Attacca" at={[6, 6, ATK]} />
+          <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} at={onArc(100, 46)} />
+          {hud?.combat
+            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
+            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
+          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
+          {hud?.sneak
+            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
+            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
         </div>
       </div>
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
+      {loot && <LootPanel info={loot} onAct={(k, id, item) => gameRef.current?.loot(k, id, item)} onClose={() => { gameRef.current?.closeLoot(); setLoot(null); }} />}
       <InteractionDialog
         interaction={dialog?.d}
         onChoose={(effect) => { const d = dialog; setDialog(null); if (d) gameRef.current?.choose(d.id, effect); }}

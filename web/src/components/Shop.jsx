@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { X, Coins, Gem, ShoppingBag } from "lucide-react";
 import { ITEMS, sellPrice, buyPrice, priceMarkup } from "@/game3d/items";
+import ItemPic from "@/components/ItemPic";
 
 const KIND = { food: "Cibo", sword: "Arma", armor: "Armatura", helm: "Elmo", offhand: "Mano sinistra", tool: "Attrezzo", misc: "Merce", quest: "Missione", ore: "Minerale" };
 
@@ -29,7 +30,8 @@ export default function Shop({ hud, shopId, def, onTrade, onClose }) {
           <div className="grid sm:grid-cols-2 gap-1.5" data-testid="shop-buy-list">
             {def.sells.map((id) => { const it = ITEMS[id], p = buyPrice(id, hud.rep); return (
               <div key={id} className="rounded-sm border border-[color:hsl(var(--border))] bg-black/20 px-2 py-1.5 flex items-center justify-between gap-2" data-testid={`shop-buy-${id}`}>
-                <div className="font-pixel text-sm leading-tight"><div>{it.name}</div><div className="text-[10px] text-[#b8ab92]">{KIND[it.kind]}{it.desc ? ` · ${it.desc}` : ""}</div></div>
+                <ItemPic id={id} size={44} className="shrink-0 rounded-sm bg-black/30" />
+                <div className="font-pixel text-sm leading-tight mr-auto"><div>{it.name}</div><div className="text-[10px] text-[#b8ab92]">{KIND[it.kind]}{it.desc ? ` · ${it.desc}` : ""}</div></div>
                 <button className="inv-btn whitespace-nowrap" disabled={hud.gold < p} onClick={() => onTrade("buy", id)} data-testid={`shop-buy-${id}-btn`}>{p} oro</button>
               </div>); })}
           </div>
@@ -37,13 +39,15 @@ export default function Shop({ hud, shopId, def, onTrade, onClose }) {
           <div className="grid sm:grid-cols-2 gap-1.5" data-testid="shop-sell-list">
             {def.orePrice > 0 && (
               <div className="rounded-sm border border-[color:hsl(var(--border))] bg-black/20 px-2 py-1.5 flex items-center justify-between gap-2" data-testid="shop-sell-argento">
-                <div className="font-pixel text-sm leading-tight"><div>Argento grezzo ×{hud.ore}</div><div className="text-[10px] text-[#b8ab92]">Minerale</div></div>
+                <ItemPic id="argento" size={44} className="shrink-0 rounded-sm bg-black/30" />
+                <div className="font-pixel text-sm leading-tight mr-auto"><div>Argento grezzo ×{hud.ore}</div><div className="text-[10px] text-[#b8ab92]">Minerale</div></div>
                 <button className="inv-btn whitespace-nowrap" disabled={hud.ore <= 0} onClick={() => onTrade("sell", "argento")} data-testid="shop-sell-argento-btn">+{def.orePrice} oro</button>
               </div>
             )}
             {mine.map(([id, q]) => { const it = ITEMS[id]; return (
               <div key={id} className="rounded-sm border border-[color:hsl(var(--border))] bg-black/20 px-2 py-1.5 flex items-center justify-between gap-2" data-testid={`shop-sell-${id}`}>
-                <div className="font-pixel text-sm leading-tight"><div>{it.name} ×{q}</div><div className="text-[10px] text-[#b8ab92]">{KIND[it.kind]}</div></div>
+                <ItemPic id={id} size={44} className="shrink-0 rounded-sm bg-black/30" />
+                <div className="font-pixel text-sm leading-tight mr-auto"><div>{it.name} ×{q}</div><div className="text-[10px] text-[#b8ab92]">{KIND[it.kind]}</div></div>
                 <button className="inv-btn whitespace-nowrap" onClick={() => onTrade("sell", id)} data-testid={`shop-sell-${id}-btn`}>+{sellPrice(id)} oro</button>
               </div>); })}
             {mine.length === 0 && !(def.orePrice > 0 && hud.ore > 0) && <div className="font-pixel text-sm text-[#b8ab92] italic col-span-2" data-testid="shop-sell-empty">Non hai nulla che interessi a questo mercante (compra: {def.buys.map((k) => KIND[k]).join(", ")}).</div>}

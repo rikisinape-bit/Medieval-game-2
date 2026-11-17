@@ -1,5 +1,7 @@
 import { angDiff, zoneOf } from "./world";
 
+// Attack styles (poseHuman): overhead chop, horizontal cut, lunge, rising backhand. Each NPC blow picks one.
+const ATTACKS = ["over", "side", "thrust", "rise"];
 export const FIGHT = {
   knight: { block: 0.35, sp: 3.4, wind: 0.5 }, soldier: { block: 0.25, sp: 3.0, wind: 0.6 },
   smith: { block: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.2, sp: 3.8, wind: 0.55 },
@@ -65,6 +67,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
     if (n.hostile && n.fights && sameZone(n)) {
       const F = FIGHT[n.role] || FIGHT.soldier;
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
+      out.mode = "guard";
       if (n.stagger > 0) out.mode = "stagger";
       else if (n.state === "windup") {
         n.k += dt / F.wind; out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);
@@ -76,7 +79,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
       else {
         face(P.x, P.z, 8);
         if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
-        else { n.state = "windup"; n.k = 0; }
+        else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }
       const home = n.role === "bandit" && Math.hypot(n.x - n.pos[0], n.z - n.pos[1]) > 22;
       if (d > 35 || home || (n.spar && d > 15)) {

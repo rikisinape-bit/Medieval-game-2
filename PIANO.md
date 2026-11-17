@@ -125,11 +125,26 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - Servono screenshot ed elenco (nome file, tipo, peso, rigato sì/no)
 
 - **Grafica attuale (gioco web)**: tutto fatto a codice, low-poly, stesso stile per tutti (opzione A):
-  - `web/src/game3d/body.js` corpi, volti, capelli, barbe, abiti e armature; `weapons.js` armi e scudi; `items3d.js` oggetti e attrezzi
-  - una mesh unita per parte con colori nei vertici, materiali condivisi, geometrie in cache (~1.200 triangoli e 6–7 disegni per PNG)
+  - `web/src/game3d/body.js` corpi, volti, capelli, barbe, abiti e armature: il corpo è il modello base low-poly (uomo/donna) in `assets/models/personaggi/corpo_base/`, preparato da `npm run corpi` (`convert-bodies.mjs` + `build-bodies.mjs` → `src/game3d/bodydata.json`: braccia abbassate, pugni chiusi, parti rigide con perni, punto e asse dell'impugnatura, misure del busto); i vestiti sono dipinti sul corpo o gusci che ne seguono la forma; le armi si impugnano con `inFist()` in `models.js`; pagina di prova `bodyview.html`; gambe con ginocchio (coscia + stinco); `poseHuman` ha 4 attacchi (`atk`: over, side, thrust, rise), guardia e parata, `poseDeath` 4 cadute animate; dialoghi in primo piano (`startTalk`/`updateTalk` in `engine.js`, pannello laterale `InteractionDialog.jsx`); testa suddivisa (Loop) con capelli e barbe dipinti/gonfiati sulla testa, 9 acconciature maschili, 6 femminili, 9 barbe, punti del viso (naso, occhi, bocca) trovati sul profilo; i PNG portano un inventario (`belongings` in `engine.js`: armi, armatura indossata, merce, oggetti a caso, borsa) che resta sul cadavere: si fruga con il doppio menu `LootPanel.jsx` e il corpo mostra solo ciò che gli resta (`dressBody`: armatura, elmo, scudo, spada, testa di Morn); i gusci (capelli, barbe, armature) hanno un bordo pieno verso la pelle; comandi touch ad arco (Attacca grande nell'angolo, Nasconditi sopra; verso il centro Corri/Schiva, Para, Usa/Ruba); corsa (Maiusc), parata a tempo con parata perfetta e contrattacco (K), borseggio da furtivo (rischio per oggetto, la vittima reagisce); la spada non gira mai nel pugno (filo in linea con le nocche): il filo va sul taglio girando il braccio su sé stesso (avambraccio) e piegando il polso; prima persona: pose dei colpi in `FP_CUTS` (pugno, lama, taglio) risolte da `armPose` in `engine.js`; le caselle degli oggetti mostrano il modello 3D vero (`thumbs.js`, `ItemPic.jsx`); pagina di prova volti: `lineup.html?faces=hair|beard|female`; `weapons.js` armi e scudi; `items3d.js` oggetti e attrezzi
+  - una mesh unita per parte con colori nei vertici, materiali condivisi, geometrie in cache (circa 3.500 triangoli e 9–10 disegni per PNG)
   - **vegetazione** dal pacchetto natura (pini, alberi a chioma, alberi contorti e morti, cespugli, felci, erba, funghi, rocce, sassi, selciato): originali in `assets/models/natura/` (31 file, 42 MB); `web/tools/optimize-nature.mjs` (`npm run nature`) li semplifica, scurisce le texture e crea un solo `web/public/models/natura.glb` (0,55 MB); `web/src/game3d/nature.js` li fonde in una mesh per materiale per zona di 20 m
   - **edifici** dal kit "Lowpoly Medieval Asset" (FBX): gli originali NON sono nel repository (cartella `assets/sorgenti/`, esclusa da git); `npm run kit` (`convert-kit.mjs` + `build-kit.mjs`) crea `web/public/models/kit.glb`. Valdoro è composta in `engine.js` (ingresso con saracinesca, mura, torri, mastio); case di Roccanera fatte (opzione A: piano terra entrabile nostro a graticcio con texture del kit, sopra la parte alta di una casa del kit tagliata al primo solaio con `kitHouseTop` in `nature.js`, scelta in `KIT_TOPS` in `engine.js`); prossimi passi: case di Valdoro, campo dei banditi, selciato
   - i modelli GLB del pacchetto "Ultimate Modular Men" non sono più usati nel gioco; gli originali restano in `assets/models/personaggi/` (utili per Godot)
+
+## 9. Dove siamo arrivati (per riprendere in una nuova sessione)
+
+- **Gioco giocabile**: `web/` (React + Three.js, Vite). `cd web && npm install && npm run dev`; versione per la pagina
+  pubblicata: `npm run build:artifact` (crea `web/dist`, i modelli come moduli JS). Pagina pubblicata: "Roccanera e Valdoro".
+- **Pagine di prova** (con `npm run dev`): `lineup.html` (personaggi; `?eq=1` equipaggiamenti, `?faces=hair|beard|female`
+  volti, `?mode=…&atk=…&k=…` pose e colpi, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `bodyview.html` (corpo base),
+  `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore) e `window.__atk = { t, combo }` (ferma un colpo).
+- **Fatto di recente**: case di Roccanera col kit; personaggi rifatti sul corpo base (ginocchia, volti, 15 acconciature,
+  9 barbe, armature); 4 colpi, guardia, parata, 4 morti animate; dialoghi in primo piano; bottino a doppio menu, corpi
+  spogliati di ciò che prendi, borseggio da furtivo; immagini vere degli oggetti; comandi touch ad arco con corsa e parata;
+  spade impugnate con il filo verso il taglio (prima persona: braccio che ruota e polso che si piega).
+- **Prossimi passi possibili**: case di Valdoro col kit (house_01, house_08, house_09); gomito nel braccio in prima persona
+  (colpo dall'alto e affondo); resistenza per la corsa / rumore che allerta; campo dei banditi e selciato col kit;
+  scollatura degli abiti femminili (alzarla se serve); direzione dark fantasy (sezione 6).
 
 ## 8. Convenzioni
 

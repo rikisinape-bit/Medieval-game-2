@@ -1,21 +1,11 @@
 import React, { useState } from "react";
-import {
-  X, Coins, Gem, Heart, Pause, RotateCw, Sword, Swords, Axe, Shield, ShieldHalf, Shirt, HardHat, Flame, Hammer, Book, PawPrint, Skull, Link,
-  Croissant, Beef, Apple, Droplet, Wine, Leaf, FlaskConical, FlaskRound, Cookie, Package, Castle, Crown, Home,
-} from "lucide-react";
+import { X, Coins, Gem, Heart, Pause, RotateCw, Sword, Shield, Shirt, Castle, Crown, Home } from "lucide-react";
 import { ITEMS, SWORD_ITEM, dmgReduction } from "@/game3d/items";
 import CharacterPreview from "@/components/CharacterPreview";
+import ItemPic from "@/components/ItemPic";
 import RepFace from "@/components/RepFace";
 
 // ---- Item tiles -------------------------------------------------------------
-const ICON = {
-  pane: Croissant, formaggio: Cookie, carne: Beef, mela: Apple, acqua: Droplet, vino: Wine, erbe: Leaf, pozione: FlaskConical, pozione_grande: FlaskRound,
-  pugnale: Sword, spada_corta: Sword, ascia_guerra: Axe, spada_lunga: Swords, spadone: Swords, spada_roccanera: Swords,
-  cuoio: Shirt, maglia: Shirt, piastre: Shirt, cappuccio: HardHat, elmo_ferro: HardHat, elmo_piastre: HardHat,
-  torcia: Flame, scudo_legno: ShieldHalf, scudo_ferro: Shield,
-  ascia: Axe, martello: Hammer, corda: Link, pelliccia: PawPrint, gemma: Gem, libro: Book, testa_morn: Skull,
-};
-const TINT = { food: "#a8e07a", sword: "#ff8a6a", armor: "#9fb8d8", helm: "#9fb8d8", offhand: "#e8c050", tool: "#c8a878", misc: "#c8a878", quest: "#ff5a4a" };
 const SECTIONS = [
   { id: "food", title: "Consumabili", kinds: ["food"], empty: "Niente da mangiare o bere." },
   { id: "armor", title: "Armature", kinds: ["armor", "helm", "offhand"], empty: "Nessuna protezione." },
@@ -27,12 +17,11 @@ const SLOT_LABEL = { head: "Testa", body: "Corpo", hand: "Mano destra", off: "Ma
 
 function Tile({ id, qty, equipped, selected, onSelect }) {
   const it = ITEMS[id];
-  const Icon = ICON[id] || Package;
   return (
     <button onClick={onSelect} data-ui="" data-testid={`tile-${id}${equipped ? "-eq" : ""}`} title={it.name}
-      className={`relative w-[52px] h-[52px] rounded-sm border flex items-center justify-center transition-colors
+      className={`relative w-[56px] h-[56px] rounded-sm border flex items-center justify-center transition-colors bg-[radial-gradient(circle_at_50%_40%,#3a2c1c,#140e09)]
         ${selected ? "border-[#e8c050] bg-[#3a2c18]" : equipped ? "border-[#c9a24a] bg-[#2a2016]" : "border-[#4a3820] bg-black/30"}`}>
-      <Icon size={24} color={it.color || TINT[it.kind] || "#e8dcc4"} strokeWidth={1.8} />
+      <ItemPic id={id} size={46} />
       {qty > 1 && <span className="absolute bottom-0 right-0.5 font-pixel text-[12px] leading-none text-[#e8dcc4] drop-shadow">{qty}</span>}
       {equipped && <span className="absolute top-0 left-0 font-pixel text-[9px] leading-none bg-[#c9a24a] text-[#1b140e] px-0.5 rounded-br-sm">E</span>}
     </button>
@@ -173,7 +162,7 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset }) {
           {tab === "game" && (
             <div className="space-y-2 font-pixel text-sm" data-testid="menu-game">
               <p className="text-[#b8ab92]">La partita si salva da sola in questo browser ogni 5 secondi e quando chiudi o cambi app.</p>
-              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, E usa, J colpisci, C furtivo, V telecamera, Spazio schiva, I menu.</p>
+              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, I menu.</p>
               <button data-ui="" className="inv-btn inv-btn-danger flex items-center gap-1" onClick={onReset} data-testid="menu-reset"><RotateCw size={12} />Nuova partita…</button>
             </div>
           )}

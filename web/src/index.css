@@ -143,3 +143,10 @@ html, body, #root { overscroll-behavior: none; touch-action: none; -webkit-user-
 @keyframes toast-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 .toast-in { animation: toast-in 200ms ease-out; }
 
+
+/* Conversation close-up: bars slide in, the panel comes from the right */
+@keyframes talk-bar-in { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes talk-panel-in { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+.talk-bar { animation: talk-bar-in 0.35s ease-out both; transform-origin: top; }
+.talk-bar.bottom-0 { transform-origin: bottom; }
+.talk-panel { animation: talk-panel-in 0.35s ease-out both; }

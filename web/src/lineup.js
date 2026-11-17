@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { LOOKS, makeHuman, poseHuman, makeSword, makeShield, makeItem, makeSwordRack, makePlayerModel } from "./game3d/models";
+import { LOOKS, makeHuman, poseHuman, poseDeath, makeSword, makeShield, makeItem, makeSwordRack, makePlayerModel } from "./game3d/models";
 const q = new URLSearchParams(location.search);
 const W = +(q.get("w") || 1400), H = +(q.get("h") || 560);
 const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
@@ -36,10 +36,23 @@ if (q.get("eq")) {
    { hand: "spadone", body: "piastre", head: "elmo_piastre", off: "scudo_ferro" }, { hand: "ascia", body: "maglia", head: "cappuccio" }, { hand: "di Roccanera", body: "cuoio", head: "elmo_piastre", off: "scudo_ferro" }]
     .forEach((eq, i) => list.push(["playerEq", "p" + i, eq]));
 }
-const n = list.length, sp = 0.85;
+// ?faces=hair|beard|female: a row of heads with every hairstyle / beard (close camera on the heads)
+const faces = q.get("faces");
+if (faces) {
+  list.length = 0;
+  const H = ["short", "buzz", "bowl", "long", "ponytail", "receding", "curly", "shaggy", "bald"];
+  const B = ["stubble", "full", "boxed", "pointed", "forked", "long", "goatee", "moustache", "chops"];
+  const FH = ["bun", "braid", "twinbraids", "long", "ponytail", "crown"];
+  if (faces === "hair") H.forEach((h, i) => list.push(["villager2", "fh" + i, { hair: h, beard: "none", hairColor: ["#2e2218", "#93784a", "#6e3418", "#1a1410", "#5a3f26", "#76583a", "#45321f", "#4a2214", "#2e2218"][i] }]));
+  if (faces === "beard") B.forEach((b, i) => list.push(["villager2", "fb" + i, { hair: H[i % H.length], beard: b, old: i === 5, hairColor: i === 5 ? "#8d877c" : ["#2e2218", "#6e3418", "#45321f", "#1a1410", "#93784a", "", "#5a3f26", "#4a2214", "#76583a"][i] }]));
+  if (faces === "female") FH.forEach((h, i) => list.push(["woman", "ff" + i, { hair: h, hairColor: ["#5a3f26", "#93784a", "#6e3418", "#1a1410", "#76583a", "#45321f"][i] }]));
+}
+const n = list.length, sp = faces ? 0.42 : 0.85;
 list.forEach(([look, id, extra], i) => {
   const g = look === "playerEq" ? makePlayerModel(extra) : makeHuman({ ...LOOKS[look], ...(extra || {}) }, ["knight", "soldier", "bandit"].includes(look) ? (look === "knight" || id === "bandit3" ? "long" : "short") : null, id);
-  poseHuman(g, 0, false, q.get("mode") || null, 0.5);
+  g.userData.atk = q.get("atk") || "over";
+  const y = poseHuman(g, 0, !!q.get("walk"), q.get("mode") || null, +(q.get("k") || 0.5)); g.position.y = y;
+  if (q.get("death")) poseDeath(g, +q.get("death"), +(q.get("p") || 1));
   g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = +(q.get("ry") || 0.25);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g);
@@ -51,9 +64,18 @@ const hand = q.get("hand");
 if (q.get("items")) {} else if (hand != null) { const x = (+hand - (n - 1) / 2) * sp; cam.fov = 22; cam.updateProjectionMatrix(); cam.position.set(x + 1.3, 1.2, 1.6); cam.lookAt(x + 0.15, 0.85, 0); }
 else if (q.get("weapons")) { cam.fov = 34; cam.updateProjectionMatrix(); cam.position.set(-0.6, 2.3, 6.2); cam.lookAt(-0.6, 0.55, 0.6); }
 const range = q.get("range");
-if (hand != null || q.get("weapons") || q.get("items")) {} else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
-else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.position.set(x, 1.75, 3.2); cam.lookAt(x, 1.7, 0); }
+if (hand != null || q.get("weapons") || q.get("items")) {} else if (q.get("top")) { const x = ((+q.get("top") - (n - 1) / 2) * sp); cam.fov = 26; cam.updateProjectionMatrix(); cam.position.set(x, 4.2, 0.6); cam.lookAt(x, 1.0, 0.45); } else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
+else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
+else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
-r.render(scene, cam);
+if (faces) {                                         // one close frame per head, side by side
+  r.setScissorTest(true);
+  const cw = W / n, fc = new THREE.PerspectiveCamera(+(q.get("ffov") || 16), cw / H, 0.05, 50);
+  scene.children.filter((o) => o.userData.hipL).forEach((g, i) => {
+    const x = g.position.x, hy = (g.userData.geo?.pivots.head[1] ?? 1.7) * (g.userData.variant?.height || 1);
+    const ca = +(q.get("ca") || 0); fc.position.set(x + Math.sin(ca) * 1.25, hy + 0.08, Math.cos(ca) * 1.25); fc.lookAt(x, hy - 0.01 + +(q.get("fdy") || 0), 0);
+    r.setViewport(i * cw, 0, cw, H); r.setScissor(i * cw, 0, cw, H); r.render(scene, fc);
+  });
+} else r.render(scene, cam);
 let tris = 0, calls = 0; scene.traverse((o) => { if (o.isMesh && o.visible && o.parent.visible) { calls++; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
 window.STATS = { tris: Math.round(tris), calls }; window.DONE = true;

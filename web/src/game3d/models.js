@@ -65,10 +65,26 @@ export const LOOKS = {
 
 // Hand tools of the NPCs' daily routines, in the new item style (items3d.js). Same palm point as weapons.
 const GRIP_TOOLS = new Set(["ascia", "martello", "scopa"]);
-export function makeTool(id) {
+// Puts an object authored with its grip at the origin, the blade/haft along +Z and the edges along ±X (weapons.js)
+// into the right fist of a body (bodyGeometries): at the centre of the fist, along the fist's axis, with the edge
+// in line with the knuckles, as a sword is really held: the edge leads when the arm swings (front/back), the flat
+// of the blade faces the sides. left: the left fist.
+const _X = new THREE.Vector3(1, 0, 0), _basis = new THREE.Matrix4();
+export function inFist(o, geo, left = false) {
+  const g = new THREE.Vector3(...(left ? geo.gripAxisL : geo.gripAxis)).normalize();
+  const e = _X.clone().cross(g).normalize();                 // edge: in the swing plane of the arm, at right angles to the grip
+  o.position.set(...(left ? geo.gripL : geo.grip));
+  o.quaternion.setFromRotationMatrix(_basis.makeBasis(e, g.clone().cross(e), g));
+  return o;
+}
+// The sword never turns in the fist: for the horizontal cut the forearm turns (a quarter turn, palm down) so the
+// edge faces where the blade goes; the overhead chop and the lunge use the edge as held, the rising backhand the back
+// edge (a false-edge cut). Turn of the sword arm on itself for each blow:
+const ARM_TWIST = { over: 0, thrust: 0, side: Math.PI / 2, rise: 0 };
+export function makeTool(id, geo) {
   const t = toolModel(id);
-  if (GRIP_TOOLS.has(id)) { at(t, 0, -0.635, 0.015); t.rotation.x = 0.62; }
-  else at(t, 0, -0.64, 0.02);
+  if (GRIP_TOOLS.has(id)) inFist(t, geo);
+  else t.position.set(geo.grip[0], geo.grip[1] - 0.01, geo.grip[2] + 0.01);
   return t;
 }
 // World representation of an inventory item lying on the ground.
@@ -101,21 +117,23 @@ export function makeHuman(look, weapon, seed) {
   body.scale.setScalar(v.height);
   g.add(body);
   const part = (geometry) => { const m = new THREE.Mesh(geometry, BODY_MAT); m.castShadow = true; m.receiveShadow = true; return m; };
-  const pivot = (x, y, geometry) => { const p = at(new THREE.Group(), x, y, 0); p.add(part(geometry)); body.add(p); return p; };
+  const pivot = (p, geometry) => { const o = at(new THREE.Group(), p[0], p[1], p[2]); o.add(part(geometry)); body.add(o); return o; };
+  const P = geo.pivots;
   body.add(part(geo.torso));
-  const hipL = pivot(-geo.hipX, 0.82, geo.legL);
-  const hipR = pivot(geo.hipX, 0.82, geo.legR);
-  const armL = pivot(-geo.shoulderX, 1.52, geo.armL);
-  const armR = pivot(geo.shoulderX, 1.52, geo.armR);
-  const head = pivot(0, 1.8, geo.head);
+  const hipL = pivot(P.legL, geo.legL), hipR = pivot(P.legR, geo.legR);
+  const knee = (hip, h, k, geometry) => { const o = at(new THREE.Group(), k[0] - h[0], k[1] - h[1], k[2] - h[2]); o.add(part(geometry)); hip.add(o); return o; };
+  const kneeL = knee(hipL, P.legL, P.shinL, geo.shinL), kneeR = knee(hipR, P.legR, P.shinR, geo.shinR);
+  const armL = pivot(P.armL, geo.armL), armR = pivot(P.armR, geo.armR);
+  armL.rotation.order = armR.rotation.order = "XZY";                // y = the arm turning on itself (forearm), applied first
+  const head = pivot(P.head, geo.head);
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
-  // weapon: "short" | "long" (NPCs) or any sword key (player)
-  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); at(sword, 0, -0.635, 0.015); sword.rotation.x = 0.62; armR.add(sword); }   // grip through the fist, blade forward and down
-  if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, -0.07, -0.45, 0.08, -Math.PI / 2)); }
+  // weapon: "short" | "long" (NPCs) or any sword key (player); the grip goes through the fist, along its axis
+  if (weapon) { sword = makeSword(0, weapon === true ? "lunga" : weapon); const hold = inFist(new THREE.Group(), geo); hold.add(sword); armR.add(hold); }
+  if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, ...geo.shieldAt, -Math.PI / 2)); }
   const tools = {};
-  ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id); t.visible = false; armR.add(t); tools[id] = t; });
-  g.userData = { hipL, hipR, armL, armR, sword, head, prop, tools, tool: null, variant: v };
+  ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.visible = false; armR.add(t); tools[id] = t; });
+  g.userData = { hipL, hipR, kneeL, kneeR, armL, armR, sword, head, prop, tools, tool: null, variant: v, geo, body };
   return g;
 }
 export const showTool = (g, id) => {
@@ -127,39 +145,108 @@ export const showTool = (g, id) => {
   u.tool = id || null;
 };
 
+// Pose for this frame. mode: what the character is doing (null = stand / walk); k: progress of timed moves (0..1).
+// Attacks: "windup" then "swing", in the style g.userData.atk ("over" overhead chop, "side" horizontal cut,
+// "thrust" lunge, "rise" rising backhand). Also "guard", "block", "stagger". The whole body (userData.body) leans,
+// turns and steps with the blows. Returns the height offset of the character (sitting, crouching).
+const ease = (x) => x * x * (3 - 2 * x);
 export function poseHuman(g, t, moving, mode, k = 0) {
-  const { hipL, hipR, armL, armR, head } = g.userData;
-  const s = moving ? Math.sin(t * 9) * 0.6 : 0;
-  hipL.rotation.x = s; hipR.rotation.x = -s;
-  armL.rotation.x = -s * 0.6; armR.rotation.x = s * 0.6; armL.rotation.z = 0; armR.rotation.z = 0; head.rotation.y = 0; head.rotation.x = 0;
+  const { hipL, hipR, kneeL, kneeR, armL, armR, head, body } = g.userData;
+  const amp = mode === "run" ? 0.95 : 0.6, s = moving ? Math.sin(t * 9) * amp : 0, c = moving ? Math.cos(t * 9) : 0;
+  hipL.rotation.set(s, 0, 0); hipR.rotation.set(-s, 0, 0);
+  // knees: the leg that swings back bends (and lifts the foot), a little bend all the time while walking
+  kneeL.rotation.set(moving ? 0.12 + Math.max(0, s) * 1.1 + Math.max(0, -c) * 0.25 : 0, 0, 0);
+  kneeR.rotation.set(moving ? 0.12 + Math.max(0, -s) * 1.1 + Math.max(0, c) * 0.25 : 0, 0, 0);
+  armL.rotation.set(-s * 0.6, 0, 0); armR.rotation.set(s * 0.6, 0, 0); head.rotation.set(0, 0, 0);
+  body.rotation.set(0, 0, 0); body.position.set(0, 0, 0);
   const w = Math.sin(t * 5);
   let y = 0;
+  const legs = (l, r, kl, kr) => { hipL.rotation.x = l; hipR.rotation.x = r; kneeL.rotation.x = kl; kneeR.rotation.x = kr; };
+  const atk = g.userData.atk || "over", K = Math.min(1, k), Ks = Math.min(1, k * 1.6);
   switch (mode) {
     case "eat": armR.rotation.x = -2.3 + 0.25 * Math.sin(t * 4); armR.rotation.z = -0.55; head.rotation.x = 0.15; break;
     case "drink": armR.rotation.x = -2.7; armR.rotation.z = -0.6; head.rotation.x = -0.35; break;
-    case "windup": armR.rotation.x = -2.6 * k; break;
-    case "swing": armR.rotation.x = -2.6 + 3.4 * Math.min(1, k * 1.6); break;
-    case "slash": armR.rotation.x = -1.5; armR.rotation.z = 1.3 - 2.6 * Math.min(1, k * 1.6); break;
-    case "stagger": armL.rotation.x = -0.4; armR.rotation.x = -0.4; armL.rotation.z = 0.7; armR.rotation.z = -0.7; head.rotation.y = 0.4; break;
-    case "dead": hipL.rotation.x = 0; hipR.rotation.x = 0; armL.rotation.x = -2.8; armR.rotation.x = -2.6; break;
-    case "sleep": hipL.rotation.x = 0; hipR.rotation.x = 0; armL.rotation.x = 0.3; armR.rotation.x = 0.3; break;
-    case "hammer": armR.rotation.x = -1.2 - 0.9 * Math.abs(w); armL.rotation.x = -0.6; break;
-    case "chop": armL.rotation.x = armR.rotation.x = -1.2 - 1.2 * Math.sin(t * 4); break;
+    case "guard":                                                     // fighting stance: knees bent, blade forward, shield up
+      armR.rotation.x = -0.95 + Math.sin(t * 3) * 0.06; armR.rotation.z = 0.15; armL.rotation.x = -0.9; armL.rotation.z = -0.25;
+      if (!moving) { legs(-0.25, 0.2, 0.35, 0.3); y = -0.05; } body.rotation.y = -0.15; body.rotation.x = 0.06; break;
+    case "block": armR.rotation.x = -1.75; armR.rotation.z = 0.95; armL.rotation.x = -1.35; armL.rotation.z = -0.35; legs(-0.2, 0.3, 0.3, 0.35); y = -0.05; body.rotation.x = -0.08; head.rotation.x = 0.1; break;
+    case "windup": {
+      const e = ease(K);
+      if (atk === "side") { armR.rotation.x = -1.4 * e; armR.rotation.z = 1.3 * e; body.rotation.y = -0.55 * e; legs(-0.2 * e, 0.25 * e, 0.25 * e, 0.3 * e); }
+      else if (atk === "thrust") { armR.rotation.x = -0.6 * e; armR.rotation.z = 0.25 * e; body.rotation.y = -0.45 * e; body.rotation.x = -0.1 * e; legs(-0.15 * e, 0.3 * e, 0.3 * e, 0.4 * e); y = -0.05 * e; }
+      else if (atk === "rise") { armR.rotation.x = 0.7 * e; armR.rotation.z = -0.5 * e; body.rotation.y = 0.45 * e; body.rotation.x = 0.12 * e; legs(-0.3 * e, 0.2 * e, 0.45 * e, 0.3 * e); y = -0.06 * e; }
+      else { armR.rotation.x = -2.9 * e; armL.rotation.x = -1.2 * e; body.rotation.x = -0.14 * e; legs(-0.15 * e, 0.2 * e, 0.2 * e, 0.25 * e); }
+      armL.rotation.x = Math.min(armL.rotation.x, -0.6 * e); break;
+    }
+    case "swing": {
+      const e = ease(Ks), back = 1 - Math.max(0, (K - 0.7) / 0.3);   // recover in the last 30%
+      if (atk === "side") { armR.rotation.x = -1.4 * back; armR.rotation.z = (1.3 - 2.5 * e) * back; body.rotation.y = (-0.55 + 1.05 * e) * back; legs(-0.35 * back, 0.3 * back, 0.3 * back, 0.4 * back); body.position.z = 0.08 * e * back; }
+      else if (atk === "thrust") { armR.rotation.x = (-0.6 - 1.05 * e) * back; armR.rotation.z = 0.25 * (1 - e); body.rotation.y = (-0.45 + 0.55 * e) * back; body.rotation.x = (-0.1 + 0.32 * e) * back; legs(-0.7 * e * back, 0.45 * e * back, 0.6 * e * back, 0.5 * back); body.position.z = 0.28 * e * back; y = -0.1 * e * back; }
+      else if (atk === "rise") { armR.rotation.x = (0.7 - 3.1 * e) * back; armR.rotation.z = (-0.5 + 1.1 * e) * back; body.rotation.y = (0.45 - 0.9 * e) * back; body.rotation.x = (0.12 - 0.2 * e) * back; legs(-0.3 * back, 0.2 * back, 0.3 * back, 0.3 * back); body.position.z = 0.06 * e * back; }
+      else { armR.rotation.x = (-2.9 + 3.4 * e) * back; armL.rotation.x = -0.8 * back; body.rotation.x = (-0.14 + 0.42 * e) * back; legs(-0.55 * e * back, 0.35 * back, 0.55 * e * back, 0.45 * back); body.position.z = 0.15 * e * back; y = -0.08 * e * back; }
+      break;
+    }
+    case "run":                                                       // longer strides, leaning forward, arms bent and pumping
+      if (moving) { body.rotation.x = 0.16; kneeL.rotation.x += 0.35; kneeR.rotation.x += 0.35; armL.rotation.x = -s * 0.9 - 0.25; armR.rotation.x = s * 0.9 - 0.25; y = Math.abs(Math.sin(t * 9)) * 0.04; }
+      break;
+    case "slash": armR.rotation.x = -1.5; armR.rotation.z = 1.3 - 2.6 * Ks; break;
+    case "stagger": armL.rotation.x = -0.4; armR.rotation.x = -0.4; armL.rotation.z = -0.7; armR.rotation.z = 0.7; head.rotation.set(-0.3, 0.4, 0); body.rotation.x = -0.22; body.position.z = -0.1; legs(0.25, -0.3, 0.2, 0.5); break;
+    case "dead": legs(0.1, -0.15, 0.3, 0.1); armL.rotation.set(-2.8, 0, -0.3); armR.rotation.set(-2.6, 0, 0.3); break;
+    case "sleep": legs(0, 0, 0.15, 0.25); armL.rotation.x = 0.3; armR.rotation.x = 0.3; break;
+    case "hammer": armR.rotation.x = -1.2 - 0.9 * Math.abs(w); armL.rotation.x = -0.6; legs(-0.15, 0.15, 0.2, 0.2); break;
+    case "chop": armL.rotation.x = armR.rotation.x = -1.2 - 1.2 * Math.sin(t * 4); body.rotation.x = 0.12 + 0.1 * Math.sin(t * 4); legs(-0.2, 0.2, 0.3, 0.3); y = -0.03; break;
     case "pump": armL.rotation.x = armR.rotation.x = -0.8 - 0.4 * Math.abs(Math.sin(t * 4)); break;
-    case "water": armL.rotation.x = armR.rotation.x = -1.0 + 0.4 * Math.sin(t * 3); break;
-    case "sweep": armL.rotation.x = -0.9; armR.rotation.x = -0.7; armL.rotation.z = armR.rotation.z = 0.4 * Math.sin(t * 4); break;
+    case "water": armL.rotation.x = armR.rotation.x = -1.0 + 0.4 * Math.sin(t * 3); body.rotation.x = 0.15; break;
+    case "sweep": armL.rotation.x = -0.9; armR.rotation.x = -0.7; armL.rotation.z = armR.rotation.z = 0.4 * Math.sin(t * 4); body.rotation.x = 0.12; break;
     case "sell": armR.rotation.x = -2.6; armR.rotation.z = 0.3 * Math.sin(t * 6); break;
     case "read": case "carry": armL.rotation.x = armR.rotation.x = -1.1; break;
-    case "talk": armR.rotation.x = -0.6 + 0.3 * Math.sin(t * 3); armR.rotation.z = 0.2; head.rotation.y = 0.2 * Math.sin(t * 1.5); break;
+    case "talk": armR.rotation.x = -0.6 + 0.3 * Math.sin(t * 3); armR.rotation.z = 0.2; armL.rotation.x = -0.2 + 0.15 * Math.sin(t * 2.3); head.rotation.y = 0.2 * Math.sin(t * 1.5); head.rotation.x = 0.06 * Math.sin(t * 2.1); break;
     case "cheer": armL.rotation.x = armR.rotation.x = -2.8 + 0.3 * Math.sin(t * 8); break;
     case "panic": armL.rotation.x = armR.rotation.x = -2.9; armL.rotation.z = 0.3; armR.rotation.z = -0.3; break;
     case "look": head.rotation.y = 0.7 * Math.sin(t * 1.2); break;
-    case "sneak": hipL.rotation.x = -0.7 + s * 0.4; hipR.rotation.x = -0.7 - s * 0.4; armL.rotation.x = armR.rotation.x = -0.6; head.rotation.x = 0.25; y = -0.3; break;
-    case "sit": hipL.rotation.x = hipR.rotation.x = -1.5; armL.rotation.x = armR.rotation.x = -0.4; y = -0.42; break;
-    case "train": { const c = (t * 1.2) % 1; armR.rotation.x = c < 0.6 ? -2.6 * (c / 0.6) : -2.6 + 3.4 * Math.min(1, ((c - 0.6) / 0.4) * 1.6); break; }
+    case "sneak": legs(-0.8 + s * 0.4, -0.8 - s * 0.4, 1.2 + Math.max(0, s) * 0.4, 1.2 + Math.max(0, -s) * 0.4); armL.rotation.x = armR.rotation.x = -0.6; body.rotation.x = 0.3; head.rotation.x = -0.15; y = -0.28; break;
+    case "sit": legs(-1.5, -1.5, 1.45, 1.45); armL.rotation.x = armR.rotation.x = -0.4; y = 0.45 - (g.userData.geo?.pivots.legR[1] ?? 0.82); break;   // hips at the bench / saddle
+    case "train": { const cc = (t * 1.2) % 1; armR.rotation.x = cc < 0.6 ? -2.6 * (cc / 0.6) : -2.6 + 3.4 * Math.min(1, ((cc - 0.6) / 0.4) * 1.6); legs(-0.2, 0.2, 0.3, 0.3); break; }
     default: break;
   }
+  if (mode === "windup" || mode === "swing") armR.rotation.y = (ARM_TWIST[atk] ?? 0) * (mode === "windup" ? ease(K) : 1 - Math.max(0, (K - 0.7) / 0.3));   // forearm turns with the sword
   return y;
+}
+
+// Height of a seated character's origin so that its hips are at hipsAt (saddle 1.87, carriage seat 1.17).
+export const saddleY = (g, hipsAt) => hipsAt - (g.userData.geo?.pivots.legR[1] ?? 0.82) * (g.userData.variant?.height ?? 1);
+
+// Death: the character falls over p = 0..1 (DEATH_TIME seconds). kind 0 backwards, 1 face down, 2 to the knees
+// then on the side, 3 spinning onto the other side. The fall turns the inner body around the feet.
+export const DEATH_TIME = [1.1, 1.0, 2.0, 1.3];
+export function poseDeath(g, kind, p) {
+  poseHuman(g, 0, false, null);
+  const { hipL, hipR, kneeL, kneeR, armL, armR, head, body } = g.userData;
+  const fall = (x) => x * x;                                        // falls accelerate
+  const legs = (l, r, kl, kr) => { hipL.rotation.x = l; hipR.rotation.x = r; kneeL.rotation.x = kl; kneeR.rotation.x = kr; };
+  if (kind === 0) {                                                 // backwards: stagger, arms up, on the back
+    const a = Math.min(1, p / 0.25), f = fall(Math.max(0, (p - 0.2) / 0.8));
+    body.rotation.x = -0.25 * a - (Math.PI / 2 - 0.25) * f; body.position.y = 0.16 * f; body.position.z = -0.15 * a;
+    armL.rotation.set(-2.2 * a - 0.5 * f, 0, -0.5 * f); armR.rotation.set(-2.0 * a - 0.6 * f, 0, 0.6 * f); head.rotation.x = -0.4 * a + 0.2 * f;
+    legs(0.3 * a - 0.1 * f, -0.2 * a, 0.5 * a * (1 - f) + 0.2 * f, 0.1 + 0.5 * f);
+  } else if (kind === 1) {                                          // face down, arms forward to break the fall
+    const a = Math.min(1, p / 0.2), f = fall(Math.max(0, (p - 0.15) / 0.85));
+    body.rotation.x = 0.2 * a + (Math.PI / 2 - 0.2) * f; body.position.y = 0.12 * f; body.position.z = 0.1 * a;
+    armL.rotation.set(-1.2 * a - 1.5 * f, 0, -0.4 * f); armR.rotation.set(-0.9 * a - 1.9 * f, 0, 0.3 * f); head.rotation.set(-0.3 * f, 0.9 * f, 0);
+    legs(-0.1 * a + 0.12 * f, 0.2 * a - 0.05 * f, 0.3 * a * (1 - f) + 0.12 * f, 0.4 * a * (1 - f));
+  } else if (kind === 2) {                                          // to the knees, then on the side
+    const kn = ease(Math.min(1, p / 0.35)), f = fall(Math.max(0, (p - 0.55) / 0.45));
+    const kneelDrop = 0.5 * kn;                                        // the shins fold back on the ground
+    legs(0.05 * kn - 1.0 * f, 0.05 * kn - 0.8 * f, 1.55 * kn + 0.4 * f, 1.55 * kn + 0.2 * f);
+    body.position.y = -kneelDrop * (1 - f) + 0.2 * f; body.rotation.x = 0.25 * kn * (1 - f);
+    body.rotation.z = (Math.PI / 2) * f; head.rotation.x = 0.5 * kn;
+    armL.rotation.set(-0.3 * kn - 1.2 * f, 0, 0); armR.rotation.set(-0.6 * kn - 0.6 * f, 0, 0.2);
+  } else {                                                          // spinning onto the side
+    const f = fall(Math.min(1, p / 0.9));
+    body.rotation.y = 1.4 * ease(Math.min(1, p)); body.rotation.z = -(Math.PI / 2) * f; body.position.y = 0.2 * f;
+    armL.rotation.set(-1.2 * f, 0, 0.55 * f); armR.rotation.set(-0.8 * f, 0, -0.2 * f); head.rotation.set(0.2 * f, -0.4 * f, 0.3 * f);   // the upper arm drapes over the chest
+    legs(-0.4 * f, 0.15 * f, 0.6 * f, 0.2 * f);
+  }
 }
 
 export function makeDummy() {
@@ -433,18 +520,22 @@ export function makeLantern() {
 // First-person arms, attached to the camera.
 // First-person arms: the player's own arm geometry (sleeves, armour, gloves) from body.js, attached to the camera.
 // rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
-export const VM_REST = { R: { pos: [0.17, -0.1, 0.06], rx: 1.4 }, L: { pos: [-0.24, -0.14, 0.06], rx: 1.3 } };
+export const VM_REST = { R: { pos: [0.3, -0.12, 0.1], rx: 1.45 }, L: { pos: [-0.36, -0.14, 0.08], rx: 1.3 } };
 export function makeViewmodel(look) {
   const geo = bodyGeometries(look, variantOf(look, "player"));
   const g = new THREE.Group();
-  const arm = (geometry, rest) => {
+  // Each arm is turned half a turn on itself (thumb up): what the fist holds (fistR / fistL, oriented like the
+  // fist, objects along +Z) points up and forwards. hand: the fist's position with the arm's plain orientation.
+  const arm = (geometry, rest, left) => {
     const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
-    const m = new THREE.Mesh(geometry, BODY_MAT); p.add(m);
-    const hand = at(new THREE.Group(), 0, -0.635, 0.015); p.add(hand);
-    g.add(p); return [p, hand];
+    const tw = new THREE.Group(); tw.rotation.y = Math.PI; p.add(tw);
+    tw.add(new THREE.Mesh(geometry, BODY_MAT));
+    const fist = inFist(new THREE.Group(), geo, left); tw.add(fist);
+    const gp = left ? geo.gripL : geo.grip, hand = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(hand);
+    g.add(p); return [p, hand, fist];
   };
-  const [armR, handR] = arm(geo.armR, VM_REST.R), [armL, handL] = arm(geo.armL, VM_REST.L);
-  return { g, armR, armL, handR, handL };
+  const [armR, handR, fistR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL] = arm(geo.armL, VM_REST.L, true);
+  return { g, armR, armL, handR, handL, fistR, fistL };
 }
 
 // The player's 3D body with the current equipment (used in third person and in the menu preview).
@@ -474,6 +565,6 @@ export function playerLook(eq) {
 }
 export function makePlayerModel(eq) {
   const g = makeHuman(playerLook(eq), eq.hand || "corta", "player");
-  if (eq.off === "torcia") { const t = makeTorch(false); t.rotation.x = Math.PI / 2 - 0.3; g.userData.armL.add(at(t, 0, -0.66, 0.06)); }
+  if (eq.off === "torcia") { const t = makeTorch(false), geo = g.userData.geo; t.position.set(...geo.gripL); t.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(geo.gripAxisL[0], 0.9, geo.gripAxisL[2]).normalize()); g.userData.armL.add(t); }
   return g;
 }
