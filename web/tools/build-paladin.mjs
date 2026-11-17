@@ -64,7 +64,8 @@ function ourBody(k) {
       toe: new THREE.Vector3(ankle.x, 0.03, toes.z - 0.02),
       // the arm part also holds a bit of chest and back around the shoulder: measure the arm on its own (t = 0 shoulder .. 1 wrist)
       armPts: pts(arm), armTris: B.parts[arm].i, torsoTop: pts("torso").map((a) => a.p),
-      pts: { leg: pts(leg).map((a) => a.p), shin: S.map((a) => a.p) } };
+      pts: { leg: pts(leg).map((a) => a.p), shin: S.map((a) => a.p) },
+      legV: pts(leg).map((a) => a.p).concat(S.map((a) => a.p)), legTris: B.parts[leg].i.concat(B.parts[shin].i.map((i) => i + B.parts[leg].p.length / 3)) };
   };
   const torso = pts("torso").map((a) => a.p), head = pts("head").map((a) => a.p);
   return { B, R, PV, side, torso, head, pelvis: new THREE.Vector3(0, PV.legR[1], PV.legR[2]), neck: new THREE.Vector3(0, R.neck, PV.head[2] - 0.015) };
@@ -76,6 +77,8 @@ const frame = (A, B, s) => {
   const y = B.clone().sub(A).normalize(), x = new THREE.Vector3(s, 0, 0); x.sub(y.clone().multiplyScalar(x.dot(y))).normalize();
   return { A, L: B.distanceTo(A), x, y, z: new THREE.Vector3().crossVectors(x, y) };
 };
+// same, with its own scale across (x: side to side) and through (z: front to back)
+const segMap2 = (from, to, kx, kz) => (p) => { const d = p.clone().sub(from.A), u = d.dot(from.y) / from.L; return to.A.clone().addScaledVector(to.y, u * to.L).addScaledVector(to.x, d.dot(from.x) * kx).addScaledVector(to.z, d.dot(from.z) * kz); };
 const segMap = (from, to, k) => (p) => {
   const d = p.clone().sub(from.A), u = d.dot(from.y) / from.L, rx = d.dot(from.x), rz = d.dot(from.z);
   return to.A.clone().addScaledVector(to.y, u * to.L).addScaledVector(to.x, rx * k).addScaledVector(to.z, rz * k);
@@ -136,20 +139,40 @@ function build(k) {
         t: (p) => { const ax = S.wrist.clone().sub(S.elbow); return 0.52 + 0.48 * p.clone().sub(S.elbow).dot(ax) / ax.lengthSq(); } };
     };
     armSeg("upper", "shoulder", "elbow"); armSeg("fore", "elbow", "wrist");
+
+    // Legs: both legs' axes re-centred on their cross-sections; each plate scaled across the leg by the ratio of the
+    // two legs' real width (side to side) and depth (front to back), a little roomier so our leg never shows through.
+    const ringBox = (V, I, A, B, u0) => {
+      const ax = B.clone().sub(A); ax.normalize(); const c0 = A.clone().lerp(B, u0), d = (p) => p.clone().sub(c0).dot(ax), bb = new THREE.Box3();
+      for (let t = 0; t < I.length; t += 3) for (let e = 0; e < 3; e++) { const a = V[I[t + e]], b = V[I[t + (e + 1) % 3]], da = d(a), db = d(b); if (da * db > 0 || da === db) continue; const q = a.clone().lerp(b, da / (da - db)); if (q.distanceTo(c0) < 0.12) bb.expandByPoint(q); }
+      return bb.getSize(new THREE.Vector3());
+    };
+    const legTris = (kinds) => { const out = []; for (let t = 0; t < C.body.i.length; t += 3) { const tri = [C.body.i[t], C.body.i[t + 1], C.body.i[t + 2]]; if (tri.every((j) => kinds.includes(sbVerts[j].k) && sbVerts[j].p.x * s > 0)) out.push(...tri); } return out; };
+    const sThighI = legTris(["thigh"]), sShinI = legTris(["shin"]);
+    const legSeg = (name, a, b, sI, u1, u2, part, room) => {
+      const [sA, sB] = recentre(srcV, sI, S[a], S[b], u1, u2), [oA, oB] = recentre(Q.legV, Q.legTris, Q[a], Q[b], u1, u2);
+      const ss = ringBox(srcV, sI, sA, sB, 0.5), os = ringBox(Q.legV, Q.legTris, oA, oB, 0.5);
+      const kx = Math.min(1.35, Math.max(0.8, os.x / ss.x)) * room, kz = Math.min(1.35, Math.max(0.8, os.z / ss.z)) * room;
+      if (process.env.DBG) console.log("leg", name, s, "src", ss.toArray().map((x) => x.toFixed(3)).join(","), "ours", os.toArray().map((x) => x.toFixed(3)).join(","), "k", kx.toFixed(2), kz.toFixed(2));
+      const fS = frame(sA, sB, s), fO = frame(oA, oB, s);
+      maps[`${name}${s}`] = { f: segMap2(fS, fO, kx, kz), part: Q[part], k: (kx + kz) / 2, fS, fO, kx, kz };
+    };
+    legSeg("thigh", "hip", "knee", sThighI, 0.35, 0.8, "leg", 1.06);
+    legSeg("shin", "knee", "ankle", sShinI, 0.2, 0.7, "shin", 1.08);
+    // knee: the poleyn is one rigid piece that goes with the shin (it would be torn between thigh and shin otherwise)
+    const sh = maps[`shin${s}`], kk = ((sh.kx + sh.kz) / 2) * 0.94;
+    maps[`knee${s}`] = { f: segMap2(sh.fS, sh.fO, kk, kk), part: Q.shin, kneeY: S.knee.y };
+
+
     const AP = Q.armPts, kAt = { 0.3: maps[`upper${s}`].k };
-    seg("thigh", "hip", "knee", "leg", kindPts("thigh"), Q.pts.leg);
-    seg("shin", "knee", "ankle", "shin", kindPts("shin"), Q.pts.shin);
-    seg("foot", "ankle", "toe", "shin", kindPts("foot").concat(kindPts("shin")), Q.pts.shin);
-    // greaves at the model's own width (our shin is thinner at the ankle: wider greaves flare out); the sabatons go
-    // with the greaves (same transform: no gap at the ankle), only the foot's length is fitted to ours
-    maps[`shin${s}`].f = segMap(frame(S.knee, S.ankle, s), frame(Q.knee, Q.ankle, s), 0.98);
-    // sabatons: from heel to toe on our foot (heel and toe of the bare feet of both bodies, at the sole)
-    const shinF = maps[`shin${s}`].f;
-    const sole = (pts) => { const f = pts.filter((p) => p.y < 0.05 && p.x * s > 0); return [Math.min(...f.map((p) => p.z)), Math.max(...f.map((p) => p.z))]; };
-    const [sh, st] = sole(sbVerts.filter((v) => v.k === "foot" || v.k === "shin").map((v) => v.p)), [oh, ot] = sole(Q.pts.shin);
-    maps[`foot${s}`].f = (p) => { const q = shinF(p); q.z = oh + ((p.z - sh) / (st - sh)) * (ot - oh); return q; };
-    // the greave's bottom edge goes with the foot too (both in front-back: the ankle is where both bodies have it)
-    if (process.env.DBG) console.log("foot", s, "src heel/toe", sh.toFixed(3), st.toFixed(3), "ours", oh.toFixed(3), ot.toFixed(3), "src ankle", S.ankle.toArray().map((x) => x.toFixed(3)).join(","), "ours", Q.ankle.toArray().map((x) => x.toFixed(3)).join(","));
+    // sabatons: they go with the greaves (same transform, no gap at the ankle); lengthwise from heel to toe on our
+    // foot, across as wide as our foot (soles of the bare feet of both bodies)
+    const shinF = (p) => maps[`shin${s}`].f(p);
+    const sole = (pts) => { const f = pts.filter((p) => p.y < 0.05 && p.x * s > 0); return { h: Math.min(...f.map((p) => p.z)), t: Math.max(...f.map((p) => p.z)), w: Math.max(...f.map((p) => p.x * s)) - Math.min(...f.map((p) => p.x * s)), c: (Math.max(...f.map((p) => p.x)) + Math.min(...f.map((p) => p.x))) / 2 }; };
+    const sF = sole(sbVerts.filter((v) => v.k === "foot" || v.k === "shin").map((v) => v.p)), oF = sole(Q.pts.shin);
+    const footK = Math.min(1.2, Math.max(0.85, oF.w / sF.w)) * 1.0;
+    maps[`foot${s}`] = { part: Q.shin, f: (p) => { const q = shinF(p), a = shinF(new THREE.Vector3(sF.c, p.y, p.z)); q.x = oF.c + (q.x - a.x) * footK / (maps[`shin${s}`].kx || 1); q.z = oF.h - 0.01 + ((p.z - sF.h) / (sF.t - sF.h)) * (oF.t - oF.h + 0.012); return q; } };
+    if (process.env.DBG) console.log("foot", s, "src", sF.h.toFixed(3), sF.t.toFixed(3), sF.w.toFixed(3), "ours", oF.h.toFixed(3), oF.t.toFixed(3), oF.w.toFixed(3));
     // pauldron: around the top of the shoulder (highest point of the body above the shoulder, both bodies)
     const top = (pts, x0) => pts.filter((p) => Math.abs(p.x - x0) < 0.05).sort((a, b) => b.y - a.y)[0];
     const sTop = top(sbVerts.filter((v) => v.k === "pad" || v.k === "upper" || v.k === "trunk").map((v) => v.p), S.shoulder.x);
@@ -186,9 +209,101 @@ function build(k) {
   const hk = new THREE.Vector3(osz.x / hsz.x, osz.y / hsz.y, osz.z / hsz.z).multiplyScalar(1.06);
   const head = (p) => new THREE.Vector3(oc.x + (p.x - hc.x) * hk.x, oc.y + (p.y - hc.y) * hk.y, oc.z + (p.z - hc.z) * hk.z);
 
+  // our limbs' surfaces (the plates must stay outside them); the knee filler sphere of body.js counts too
+  const surf = {};
+  [1, -1].forEach((s) => {
+    const Q = sides[s].o, kr = O.R.knee.r * 1.1;
+    surf[Q.arm] = surface(Q.armPts.map((a) => a.p), Q.armTris);
+    // under the plates our legs are slimmer by PAL_SLIM (body.js) and the knee filler smaller (0.8)
+    const legS = radialLimb(Q.legV, Q.legTris, 0.0, Q.hip.y - 0.05, [[Q.knee.clone(), O.R.knee.r * 1.1 * 0.8]], 0.012);
+    surf[Q.leg] = legS; surf[Q.shin] = legS;
+    // the poleyn stays rigid: the smallest uniform scale (around the knee) that keeps it clear of the leg
+    const km = maps[`knee${s}`], sh = maps[`shin${s}`], kv = [];
+    const A = C.meshes["model_armour"];
+    for (let i = 0; i < A.b.length; i++) { const p = V(A.p.slice(i * 3, i * 3 + 3)); if (p.x * s <= 0) continue; const kd = A.b[i] >= 0 ? kindOf(C.names[A.b[i]]) : ""; if (kd === "thigh" || (kd === "shin" && p.y > km.kneeY - 0.075)) kv.push(p); }
+    // scale (k) and a shift forward (dz) of the whole piece: the smallest change that leaves at most 4% of it inside
+    const fwd = new THREE.Vector3(0, 0, 1); let best = { cost: 1e9, k: 1, dz: 0, bad: 1 };
+    for (let k = 0.92; k <= 1.15; k += 0.02) for (let dz = 0; dz <= 0.04; dz += 0.004) {
+      const f = segMap2(sh.fS, sh.fO, k, k), bad = kv.filter((p) => legS.clearance(f(p).addScaledVector(fwd, dz)) < -0.008).length / kv.length;   // the plate's own inner face may touch the cloth
+      const cost = (bad > 0.06 ? 10 + bad : 0) + Math.abs(k - 1) * 2 + dz * 10;
+      if (cost < best.cost) best = { cost, k, dz, bad };
+    }
+    km.best = best; km.fwd = fwd; km.sh = sh;
+    if (process.env.DBG) { const f1 = segMap2(sh.fS, sh.fO, 1, 1), m = kv.map((p) => f1(p)), bb = new THREE.Box3().setFromPoints(m); const cl = m.map((q) => legS.clearance(q)).sort((a, b) => a - b); console.log("poleyn dbg", s, "box", bb.min.toArray().map((x) => x.toFixed(3)).join(","), bb.max.toArray().map((x) => x.toFixed(3)).join(","), "clear p10/50/90", cl[Math.floor(cl.length * 0.1)].toFixed(3), cl[Math.floor(cl.length * 0.5)].toFixed(3), cl[Math.floor(cl.length * 0.9)].toFixed(3), "knee", Q.knee.toArray().map((x) => x.toFixed(3)).join(","), "fO.A", sh.fO.A.toArray().map((x) => x.toFixed(3)).join(","), "fS.A", sh.fS.A.toArray().map((x) => x.toFixed(3)).join(",")); }
+    if (process.env.DBG) console.log("poleyn", s, kv.length, "verts, scale", best.k.toFixed(3), "forward", best.dz.toFixed(3), "inside", (best.bad * 100).toFixed(1) + "%");
+  });
+  // the two poleyns the same size: the larger of the two fits
+  { const b1 = maps["knee1"].best, b2 = maps["knee-1"].best, k = Math.max(b1.k, b2.k), dz = Math.max(b1.dz, b2.dz);
+    [1, -1].forEach((s) => { const km = maps[`knee${s}`], fk = segMap2(km.sh.fS, km.sh.fO, k, k); km.f = (p) => fk(p).addScaledVector(km.fwd, dz); }); }
   const PV = O.PV, pivotOf = { torso: [0, 0, 0], head: PV.head, armR: PV.armR, armL: PV.armL, legR: PV.legR, legL: PV.legL, shinR: PV.shinR, shinL: PV.shinL, padR: PV.armR, padL: PV.armL };
   const parts = Object.fromEntries(Object.keys(pivotOf).map((n) => [n, { p: [], i: [], c: [], uv: [], map: new Map() }]));
-  return { maps, trunk, head, parts, pivotOf, kinfo: Object.fromEntries(Object.entries(maps).map(([n, m]) => [n, m.k && +m.k.toFixed(2)])) };
+  return { maps, trunk, head, parts, pivotOf, surf, kinfo: Object.fromEntries(Object.entries(maps).map(([n, m]) => [n, m.k && +m.k.toFixed(2)])) };
+}
+
+// ---- keeping the plates outside the body ------------------------------------------------------------------------
+// Closest point on triangle abc to p (Ericson, Real-Time Collision Detection 5.1.5).
+function closestOnTri(p, a, b, c, out) {
+  const ab = b.clone().sub(a), ac = c.clone().sub(a), ap = p.clone().sub(a), d1 = ab.dot(ap), d2 = ac.dot(ap);
+  if (d1 <= 0 && d2 <= 0) return out.copy(a);
+  const bp = p.clone().sub(b), d3 = ab.dot(bp), d4 = ac.dot(bp); if (d3 >= 0 && d4 <= d3) return out.copy(b);
+  const vc = d1 * d4 - d3 * d2; if (vc <= 0 && d1 >= 0 && d3 <= 0) return out.copy(a).addScaledVector(ab, d1 / (d1 - d3));
+  const cp = p.clone().sub(c), d5 = ab.dot(cp), d6 = ac.dot(cp); if (d6 >= 0 && d5 <= d6) return out.copy(c);
+  const vb = d5 * d2 - d1 * d6; if (vb <= 0 && d2 >= 0 && d6 <= 0) return out.copy(a).addScaledVector(ac, d2 / (d2 - d6));
+  const va = d3 * d6 - d5 * d4; if (va <= 0 && d4 - d3 >= 0 && d5 - d6 >= 0) return out.copy(b).addScaledVector(c.clone().sub(b), (d4 - d3) / ((d4 - d3) + (d5 - d6)));
+  const den = 1 / (va + vb + vc); return out.copy(a).addScaledVector(ab, vb * den).addScaledVector(ac, vc * den);
+}
+// A body surface (vertices, triangles, outward face normals): pushOut moves a point that is inside it, or closer than
+// `gap`, out along the normal of the nearest face.
+function surface(V, I, extraSpheres = []) {
+  const tris = []; for (let t = 0; t < I.length; t += 3) { const a = V[I[t]], b = V[I[t + 1]], c = V[I[t + 2]], n = b.clone().sub(a).cross(c.clone().sub(a)); if (n.lengthSq() > 1e-12) tris.push([a, b, c, n.normalize()]); }
+  const q = new THREE.Vector3();
+  const fn = (p, gap) => {
+    let best = null, bd = 1e9;
+    for (const [a, b, c, n] of tris) { closestOnTri(p, a, b, c, q); const d = q.distanceToSquared(p); if (d < bd) { bd = d; best = [q.clone(), n]; } }
+    if (best) { const [cq, n] = best, h = p.clone().sub(cq).dot(n); if (h < gap) p.copy(cq).addScaledVector(n, gap); }
+    for (const [c, r] of extraSpheres) { const d = p.clone().sub(c), l = d.length(); if (l < r + gap) p.copy(c).addScaledVector(d.normalize(), r + gap); }
+    return p;
+  };
+  fn.clearance = (p) => {                                     // signed distance outside the surface (and the spheres)
+    let best = null, bd = 1e9;
+    for (const [a, b, c, n] of tris) { closestOnTri(p, a, b, c, q); const d = q.distanceToSquared(p); if (d < bd) { bd = d; best = [q.clone(), n]; } }
+    let h = best ? p.clone().sub(best[0]).dot(best[1]) : 1;
+    for (const [c, r] of extraSpheres) h = Math.min(h, p.distanceTo(c) - r);
+    return h;
+  };
+  return fn;
+}
+
+// A (nearly vertical) limb as a radial profile: for each height (1 cm) and direction around its centre (24 sectors),
+// how far its surface is. clearance(p) = distance outside it; push(p, gap) moves p out radially. No reliance on the
+// triangles' winding. Spheres (the knee filler of body.js) count too.
+function radialLimb(V, I, y0, y1, spheres = [], shrink = 0) {
+  const N = 24, rows = [];
+  for (let y = y0; y <= y1 + 1e-6; y += 0.01) {
+    const pts = [];
+    for (let t = 0; t < I.length; t += 3) for (let e = 0; e < 3; e++) { const a = V[I[t + e]], b = V[I[t + (e + 1) % 3]]; if ((a.y - y) * (b.y - y) <= 0 && a.y !== b.y) { const k = (y - a.y) / (b.y - a.y); pts.push([a.x + (b.x - a.x) * k, a.z + (b.z - a.z) * k]); } }
+    if (pts.length < 3) { rows.push(null); continue; }
+    const cx = (Math.min(...pts.map((p) => p[0])) + Math.max(...pts.map((p) => p[0]))) / 2, cz = (Math.min(...pts.map((p) => p[1])) + Math.max(...pts.map((p) => p[1]))) / 2, R = new Array(N).fill(0);
+    pts.forEach(([x, z]) => { const a = Math.atan2(z - cz, x - cx), i = ((Math.round((a / (2 * Math.PI)) * N) % N) + N) % N, r = Math.hypot(x - cx, z - cz); R[i] = Math.max(R[i], r); R[(i + 1) % N] = Math.max(R[(i + 1) % N], r * 0.97); R[(i + N - 1) % N] = Math.max(R[(i + N - 1) % N], r * 0.97); });
+    for (let pass = 0; pass < 3; pass++) for (let i = 0; i < N; i++) if (!R[i]) R[i] = Math.max(R[(i + 1) % N], R[(i + N - 1) % N]) * 0.98;
+    rows.push({ cx, cz, R });
+  }
+  const at = (p) => { const i = Math.round((p.y - y0) / 0.01); return i >= 0 && i < rows.length ? rows[i] : null; };
+  const sec = (p, r) => { const a = Math.atan2(p.z - r.cz, p.x - r.cx), f = ((a / (2 * Math.PI)) * N + N) % N, i = Math.floor(f), w = f - i; return r.R[i % N] * (1 - w) + r.R[(i + 1) % N] * w - shrink; };
+  const clearance = (p) => {
+    let h = 1; const r = at(p);
+    if (r) h = Math.hypot(p.x - r.cx, p.z - r.cz) - sec(p, r);
+    for (const [c, rr] of spheres) h = Math.min(h, p.distanceTo(c) - rr);
+    return h;
+  };
+  const push = (p, gap) => {
+    const r = at(p);
+    if (r) { const d = Math.hypot(p.x - r.cx, p.z - r.cz), R = sec(p, r) + gap; if (d < R && d > 1e-6) { p.x = r.cx + ((p.x - r.cx) / d) * R; p.z = r.cz + ((p.z - r.cz) / d) * R; } }
+    for (const [c, rr] of spheres) { const d = p.clone().sub(c), l = d.length(); if (l < rr + gap && l > 1e-6) p.copy(c).addScaledVector(d.normalize(), rr + gap); }
+    return p;
+  };
+  push.clearance = clearance;
+  return push;
 }
 
 // ---- colours -----------------------------------------------------------------------------------------------------
@@ -210,20 +325,23 @@ for (const k of ["m"]) {
       const ids = [t, t + 1, t + 2], P = ids.map((i) => V(M.p.slice(i * 3, i * 3 + 3))), kinds = ids.map((i) => (M.b[i] >= 0 ? kindOf(C.names[M.b[i]]) : "trunk"));
       const cx = (P[0].x + P[1].x + P[2].x) / 3, s = cx >= 0 ? 1 : -1;
       // which part the triangle belongs to, and how each corner is moved
-      let part, mapOf;
+      let part, mapOf, rigid = false;
       if (TRUNK.has(name)) { part = "torso"; mapOf = () => F.trunk; }
       else if (HEAD.has(name)) { part = "head"; mapOf = () => F.head; }
       else {
         const vote = {}; kinds.forEach((kd) => { vote[kd] = (vote[kd] || 0) + 1; });
-        const main = Object.entries(vote).sort((a, b) => b[1] - a[1])[0][0];
-        const limb = (kd) => (kd === "upper" || kd === "fore" || kd === "thigh" || kd === "shin" || kd === "foot" || kd === "pad" ? F.maps[`${kd}${s}`] : null);
+        let main = Object.entries(vote).sort((a, b) => b[1] - a[1])[0][0];
+        const kyy = (P[0].y + P[1].y + P[2].y) / 3, knee = F.maps[`knee${s}`];
+        if (name === "model_armour" && (main === "thigh" || (main === "shin" && kyy > knee.kneeY - 0.075))) main = "knee";   // the poleyn (the whole piece)
+        const limb = (kd) => (kd === "upper" || kd === "fore" || kd === "thigh" || kd === "shin" || kd === "foot" || kd === "pad" || kd === "knee" ? F.maps[`${kd}${s}`] : null);
         const m = limb(main);
         part = m ? m.part : main === "head" ? "head" : "torso";
-        mapOf = (kd) => { const mm = limb(kd); if (main === "pad") return F.maps[`pad${s}`].f; return mm && mm.part === part ? mm.f : m ? m.f : kd === "head" ? F.head : F.trunk; };
+        mapOf = (kd) => { const mm = limb(kd); if (main === "pad") return F.maps[`pad${s}`].f; if (main === "knee") { rigid = true; return F.maps[`knee${s}`].f; } return mm && mm.part === part ? mm.f : m ? m.f : kd === "head" ? F.head : F.trunk; };
       }
       // the gauntlets' finger plates are for an open hand: they are left out (the fist itself is painted steel)
       if (part === "armR" || part === "armL") { const tm = F.maps[`fore${s}`].t; if (Math.min(...P.map(tm)) > 1.06) continue; }
       const Q = P.map((p, j) => mapOf(kinds[j])(p));
+      if (F.surf[part] && !rigid) Q.forEach((q) => F.surf[part](q, part.startsWith("arm") ? 0.01 : 0.013));   // never inside our arm / leg
       const prt = F.parts[part], piv = F.pivotOf[part];
       Q.forEach((q, j) => {
         const u = M.uv[ids[j] * 2], w = M.uv[ids[j] * 2 + 1];
