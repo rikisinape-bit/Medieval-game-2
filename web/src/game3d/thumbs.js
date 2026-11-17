@@ -2,6 +2,7 @@
 // the ground in the game) is rendered once by a small off-screen renderer and kept as an image (data URL).
 import * as THREE from "three";
 import { makeItem } from "./models";
+import { setupPaladinEnv } from "./body";
 
 const SIZE = 128;
 const cache = new Map();
@@ -10,7 +11,7 @@ const _box = new THREE.Box3(), _c = new THREE.Vector3(), _s = new THREE.Sphere()
 
 function setup() {
   r = new THREE.WebGLRenderer({ canvas: document.createElement("canvas"), alpha: true, antialias: true, preserveDrawingBuffer: true });
-  r.setPixelRatio(1); r.setSize(SIZE, SIZE, false); r.setClearColor(0x000000, 0);
+  r.setPixelRatio(1); r.setSize(SIZE, SIZE, false); r.setClearColor(0x000000, 0); setupPaladinEnv(r);
   scene = new THREE.Scene();
   scene.add(new THREE.HemisphereLight("#fff4e0", "#3a3026", 1.5));
   const d = new THREE.DirectionalLight("#fff0d8", 2.2); d.position.set(2, 4, 3); scene.add(d);
@@ -30,8 +31,9 @@ export function itemThumb(id) {
     _box.setFromObject(o); _box.getBoundingSphere(_s); _box.getCenter(_c);
     // long flat things (swords, torches, tools lying on the ground) are seen from above, so they fill the picture
     const size = _box.getSize(new THREE.Vector3()), flat = size.y < 0.35 * Math.max(size.x, size.z);
-    const dir = (flat ? new THREE.Vector3(0.12, 1, 0.3) : new THREE.Vector3(0.55, 0.85, 1)).normalize();
-    const reach = flat ? Math.hypot(size.x, size.z) / 2 : _s.radius;
+    const tall = size.y > 1.2 * Math.max(size.x, size.z);                 // standing things (the plate armour): from the front
+    const dir = (flat ? new THREE.Vector3(0.12, 1, 0.3) : tall ? new THREE.Vector3(0.35, 0.25, 1) : new THREE.Vector3(0.55, 0.85, 1)).normalize();
+    const reach = flat ? Math.hypot(size.x, size.z) / 2 : tall ? size.y * 0.55 : _s.radius;
     const dist = (reach / Math.sin(THREE.MathUtils.degToRad(cam.fov / 2))) * (flat ? 0.95 : 1.02);
     cam.position.copy(_c).addScaledVector(dir, dist); cam.lookAt(_c); cam.near = dist / 20; cam.far = dist * 4; cam.updateProjectionMatrix();
     r.render(scene, cam);

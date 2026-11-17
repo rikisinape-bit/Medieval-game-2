@@ -8,6 +8,31 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import BODIES from "./bodydata.json";
+import PALADIN from "./paladin.json";
+import PALADIN_TEX from "./paladin_albedo.jpg?inline";
+
+// The paladin armour has its own material: its painted texture (UVs of the original model) and a metallic, fairly
+// glossy surface so the steel catches the light. Vertex colours carry the dirt towards the ground.
+let palReady; export const PALADIN_READY = new Promise((res) => { palReady = res; });   // the texture is decoded (one-shot renders wait for it)
+const palTex = new THREE.TextureLoader().load(PALADIN_TEX, () => palReady(), undefined, () => palReady());
+palTex.colorSpace = THREE.SRGBColorSpace; palTex.anisotropy = 4;
+export const PALADIN_MAT = new THREE.MeshStandardMaterial({ map: palTex, vertexColors: true, roughness: 0.38, metalness: 0.45, flatShading: true });
+// Reflections for the steel: a small "studio" around it (bright soft top, light band at the horizon, dark floor),
+// made on the CPU so it works with every renderer of the page (game, menu preview, item pictures).
+const studio = (() => {
+  const W = 64, H = 32, d = new Uint8Array(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const v = 1 - y / (H - 1), lat = (v - 0.5) * Math.PI;                       // -pi/2 bottom .. pi/2 top
+    const sky = 0.55 + 0.45 * Math.sin(Math.max(0, lat)), band = Math.exp(-(((lat - 0.12) / 0.12) ** 2)) * 0.5, floor = 0.16 + 0.1 * (1 + Math.sin(lat));
+    const softbox = Math.exp(-(((x / W - 0.3) / 0.07) ** 2) - ((lat - 0.7) / 0.25) ** 2) * 0.6;   // one bright window
+    const l = lat > 0 ? sky + band + softbox : floor + band * 0.6, i = (y * W + x) * 4;
+    d[i] = Math.min(255, l * 225); d[i + 1] = Math.min(255, l * 225); d[i + 2] = Math.min(255, l * 245); d[i + 3] = 255;
+  }
+  const t = new THREE.DataTexture(d, W, H); t.mapping = THREE.EquirectangularReflectionMapping; t.colorSpace = THREE.SRGBColorSpace; t.magFilter = THREE.LinearFilter; t.needsUpdate = true;
+  return t;
+})();
+PALADIN_MAT.envMap = studio; PALADIN_MAT.envMapIntensity = 1.0;
+export function setupPaladinEnv() {}                                            // (kept for callers: nothing to do any more)
 
 export const BODY_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.92, metalness: 0 });
 
@@ -189,10 +214,16 @@ export function bodyGeometries(look, v) {
   const F = v.female, BK = v.bulk, Bd = baseBody(F), R = Bd.rig, PV = R.pivots;
   const hipY = PV.legR[1], shY = PV.armR[1], neck = R.neck, crotch = R.crotch;
   const waistY = hipY + (F ? 0.07 : 0.045);                       // belt line
-  const cloth = tone(look.body, v.shift), legs = tone(look.legs, v.shift * 0.5);
+  // the paladin armour is worn over dark purple padded cloth, with brown leather gloves (as in its painted texture)
+  const PAL_CLOTH = "#3b2f48", PAL_GLOVE = "#4e3020", PAL_STEEL = "#9496a8";
+  const palArmor = look.armor === "paladin" && !v.female && !!PALADIN.m;
+  const cloth = palArmor ? tone(PAL_CLOTH, v.shift) : tone(look.body, v.shift), legs = palArmor ? tone(PAL_CLOTH, v.shift * 0.5) : tone(look.legs, v.shift * 0.5);
   const boots = look.boots || "#2b2119", belt = look.belt || "#2a1c12", skin = v.skin;
   const dirt = look.dirt ?? 0.32, metal = look.metal || "#7c7f84", trim = look.trim;
-  const plate = look.armor === "plate", gamb = look.armor === "gambeson", leather = look.armor === "leather", mail = look.armor === "mail";
+  // "paladin": the paladin knight's plate armour (paladin.json, fitted on the male body; on a woman: the old plate),
+  // worn over a mail shirt.
+  const paladin = look.armor === "paladin" && !F && !!PALADIN.m, palHelm = look.head === "paladin" && !F && !!PALADIN.m;
+  const plate = look.armor === "plate" || (look.armor === "paladin" && !paladin), gamb = look.armor === "gambeson", leather = look.armor === "leather", mail = look.armor === "mail";
   const torsoCol = plate || mail ? metal : cloth;
   const long = F || look.dress || look.coat === "robe";           // long skirt / robe down to the feet
   const prof = (y, off = 0) => { const p = profileAt(R, y); return { w: p[1] * BK + off, z0: p[2] * BK - off, z1: p[3] * BK + off }; };
@@ -202,13 +233,29 @@ export function bodyGeometries(look, v) {
     Pt.tube(a.w, b.w, y1, y2, hex, 0, (a.z0 + a.z1) / 2, seg, dz);
   };
   const opt = { bulk: BK, rand: r, dirt };
-  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [] };
+  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [], padL: [], padR: [] };
+  // A piece of the paladin armour (paladin.json): triangles in the part's space with the texture's UVs; the vertex
+  // colour is only the dirt towards the ground (drawn with PALADIN_MAT, separately from the body's mesh).
+  const palPieces = {};
+  const palPiece = (name) => {
+    const P = PALADIN.m.parts[name]; if (!P) return;
+    const sx = name === "head" ? 1 : BK, pos = [], uv = [], col = [], y0 = (name === "head" ? PV.head : name.startsWith("pad") ? PV[name === "padR" ? "armR" : "armL"] : PV[name] || [0, 0, 0])[1];
+    for (let t = 0; t < P.i.length; t += 3) {
+      const k = (1 - (dirt * 0.45) * (1 - Math.min(1, Math.max(0, (y0 + P.p[P.i[t] * 3 + 1]) / 1.1)))) * (0.97 + r() * 0.06);
+      for (let j = 0; j < 3; j++) { const v = P.i[t + j]; pos.push(P.p[v * 3] * sx, P.p[v * 3 + 1], P.p[v * 3 + 2] * sx); uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); col.push(k, k, k); }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals(); g.computeBoundingSphere();
+    palPieces[name] = g;
+  };
   const shell = (part, d, colorOf, o = {}) => pieces[part].push(bodyMesh(Bd, part, colorOf, { ...opt, ...o, d }));
 
   // ---------- TORSO ----------
   const neckR = F ? 0.055 : 0.065, neckZ = PV.head[2] - 0.015, nk = { w: neckR, z0: neckZ - neckR, z1: neckZ + neckR };   // the neck (the profile there already has the shoulders)
   const isNeck = (y, x = 0) => y > neck - 0.05 && Math.abs(x) < neckR + 0.01;
   shell("torso", 0, (x, y, z) => {
+    if (palHelm && isNeck(y, x)) return tone(PAL_CLOTH, -0.1);           // padded coif under the great helm
     if (isNeck(y, x)) return (look.collar || look.cowl) && y < neck - 0.02 ? torsoCol : skin;
     if (y > crotch + 0.04 || long) return y < waistY - 0.03 && !long && !look.coat && !(F || look.dress) ? (plate ? tone(metal, -0.1) : cloth) : torsoCol;
     return legs;
@@ -253,6 +300,7 @@ export function bodyGeometries(look, v) {
   if (F || look.dress) band(T, hemTop, 0.06, 0.02, 0.2, cloth, 10);
   else if (look.coat === "robe") band(T, hemTop, 0.07, 0.03, 0.15, look.coatColor || cloth, 10);
   else if (look.coat) band(T, hemTop, 0.42, 0.03, 0.1, look.coatColor || cloth, 10);
+  else if (paladin) {}                                              // the paladin armour has its own skirt and tassets
   else if (mail) { band(T, hemTop, crotch - 0.22, 0.02, 0.06, metal, 10); band(T, crotch - 0.21, crotch - 0.23, 0.065, 0.066, tone(metal, -0.3), 10); }
   else band(T, hemTop, crotch - 0.14, 0.012, 0.05, plate ? tone(metal, -0.1) : cloth, 9);
   if ((look.coat || look.dress || F) && trim) { const lo = look.coat === "robe" ? 0.07 : look.coat ? 0.42 : 0.06, off = look.coat === "robe" ? 0.15 : look.coat ? 0.1 : 0.2; band(T, lo + 0.05, lo, off - 0.005, off + 0.004, trim, 10); }
@@ -279,6 +327,7 @@ export function bodyGeometries(look, v) {
     T.box(0.045, 0.66, 0.02, look.straps, 0, 1.2, c.z0 + 0.005, 0, 0, -0.62);
   }
   const dzN = (nk.z1 - nk.z0) / 2 / nk.w;
+  if (palHelm) { T.tube(neckR + 0.012, neckR + 0.05, neck + 0.06, neck - 0.07, tone(PAL_CLOTH, -0.05), 0, neckZ, 9, 1.08); }   // padded coif under the great helm
   if (look.collar) T.tube(neckR + 0.02, neckR + 0.11, neck - 0.01, neck - 0.13, look.collar, 0, neckZ - 0.005, 9, Math.max(1, dzN));   // fur / cloth collar
   if (look.cowl) T.tube(neckR + 0.03, neckR + 0.07, neck + 0.03, neck - 0.09, look.cowl, 0, neckZ - 0.01, 9, 1.05);   // hood down, around the neck
   if (look.cape) {
@@ -295,7 +344,7 @@ export function bodyGeometries(look, v) {
   const hm = R.head, kx = (hm.halfW / 0.108) * 1.12, kyT = (hm.top / 0.128) * 1.06, kyB = -hm.chin / 0.135, kz = ((hm.front - hm.back) / 2 / 0.12) * 1.08, cz = (hm.front + hm.back) / 2;
   const fit = (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * kx, y * (y > 0 ? kyT : kyB), p.getZ(i) * kz + cz); } g.computeVertexNormals(); return g; };
   const hc = v.hairCol, hd = look.head, hs = v.hair;
-  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood"].includes(hd);
+  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood", "paladin"].includes(hd);
   // Regions of the head mesh (head space: hx across, hy up from the head's centre, f = in front of the head's middle).
   // Landmarks found on the face itself: the tip of the nose is the most forward point of the middle of the face,
   // eyes and mouth are placed from it (the two heads have different proportions).
@@ -343,6 +392,7 @@ export function bodyGeometries(look, v) {
   const stub = mixHex(skin, hc, 0.38);
   shell("head", 0, (x, y, z) => {
     const [hx, hy, f] = loc(x, y, z);
+    if (palHelm && hy < hm.chin + 0.05) return tone(PAL_CLOTH, -0.1);                                              // coif below the great helm
     if (hy < hm.chin + 0.006 && f < 0.0) return tone(skin, -0.06);                                                    // under the jaw
     if (beard === "stubble" && (jaw(x, y, z) || lip(x, y, z))) return tone(stub, -0.1);
     if (f > 0.02 && Math.abs(hx) > 0.012 && Math.abs(hx) < hm.halfW * 0.72 && hy > ey - 0.012 && hy < ey + 0.022) return tone(skin, -0.06);   // eye sockets
@@ -415,10 +465,11 @@ export function bodyGeometries(look, v) {
     if (look.plume) H.box(0.03, 0.12, 0.2, look.plume, 0, 0.22, -0.03);
   }
   if (hd === "crown") { H.tube(0.128, 0.122, 0.07, 0.125, "#7a6028", 0, 0, 8); for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; H.cone(0.02, 0.055, "#8a6e30", Math.sin(a) * 0.123, 0.15, Math.cos(a) * 0.123, 0, 0, 4); } H.box(0.025, 0.025, 0.012, "#5a1a20", 0, 0.098, 0.126); }
-  if (covered && (hs === "long" || hs === "braid" || hs === "ponytail")) H.box(0.18, 0.12, 0.04, hc, 0, -0.12, -0.11);
+  if (covered && !palHelm && (hs === "long" || hs === "braid" || hs === "ponytail")) H.box(0.18, 0.12, 0.04, hc, 0, -0.12, -0.11);
   { const g = H.done(); if (g) pieces.head.push(fit(g)); }
   // Face details laid on the face (hidden by full helmets and masks): eyes, lids, brows, nostrils, mouth, ears.
-  const faceHidden = (hd === "helm" && look.greatHelm) || look.mask;
+  if (palHelm) palPiece("head");                                       // the paladin's great helm
+  const faceHidden = (hd === "helm" && look.greatHelm) || look.mask || palHelm;
   if (!faceHidden) {
     const Fc = Part(PV.head[1], r, 0.05), fz = (x, y) => faceZ(Bd, x, y);
     const ex = hm.halfW * 0.4, iris = ["#3a2818", "#2c3a48", "#38402a", "#4a3220"][v.seed % 4];
@@ -472,7 +523,7 @@ export function bodyGeometries(look, v) {
   const arm = (side) => {
     const name = side > 0 ? "armR" : "armL";
     const sleeve = look.sleeves === "rolled" ? skin : cloth;
-    const hand = plate ? tone(metal, -0.12) : look.gloves || skin;
+    const hand = paladin ? PAL_GLOVE : plate ? tone(metal, -0.12) : look.gloves || skin;
     shell(name, 0, (x, y, z, t) => (t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
     const A = Part(PV.armR[1], r, 0.2), at = (t) => { const p = Bd.armAt(t); return [p[0] * side * BK, p[1], p[2] * BK]; };
     const ring = (t1, t2, r1, r2, hex) => { const a1 = at(t1), a2 = at(t2); A.tube(r1, r2, a1[1], a2[1], hex, (a1[0] + a2[0]) / 2, (a1[2] + a2[2]) / 2, 8); };
@@ -493,7 +544,8 @@ export function bodyGeometries(look, v) {
       const lc = tone(look.vest || "#3e2c1e", -0.1);
       A.cap(1, lc, side * 0.014, 0.01, 0, 1.7, 0.1, 0.078, 0.1); ring(0.12, 0.22, 0.08, 0.082, tone(lc, 0.08));                   // spaulder
     }
-    if (look.bracers && !plate) { shell(name, 0.013, (x, y, z, t) => (t > 0.64 && t < 0.97 ? look.bracers : null)); [0.7, 0.8, 0.9].forEach((t) => shell(name, 0.016, (x, y, z, tt) => (Math.abs(tt - t) < 0.015 ? tone(look.bracers, -0.3) : null))); }
+    if (paladin) shell(name, 0.007, (x, y, z, t) => (t > 1.02 ? hand : null));          // steel gauntlet over the fist
+    if (look.bracers && !plate && !paladin) { shell(name, 0.013, (x, y, z, t) => (t > 0.64 && t < 0.97 ? look.bracers : null)); [0.7, 0.8, 0.9].forEach((t) => shell(name, 0.016, (x, y, z, tt) => (Math.abs(tt - t) < 0.015 ? tone(look.bracers, -0.3) : null))); }
     if (look.sleeves === "rolled") shell(name, 0.01, (x, y, z, t) => (t > 0.42 && t < 0.5 ? cloth : null));
     if (look.coat && look.sleeves !== "rolled") shell(name, look.coat === "robe" ? 0.03 : 0.024, (x, y, z, t) => (t > 0.78 && t < 0.98 ? look.coatColor || cloth : null));   // wide cuff
     if (look.coat) shell(name, 0.016, (x, y, z, t) => (t < 0.8 ? look.coatColor || cloth : null));
@@ -505,7 +557,7 @@ export function bodyGeometries(look, v) {
   // ---------- LEGS ----------
   // ---------- LEGS: thigh + shin (the shin hangs from the knee) ----------
   const kneeY = Bd.kneeY, bootTop = look.tallBoots ? kneeY + 0.06 : 0.3;
-  const legCol = (x, y) => (plate ? (y < 0.12 ? tone(metal, -0.1) : tone(metal, -0.08)) : y < bootTop ? boots : legs);
+  const legCol = (x, y) => (plate ? (y < 0.12 ? tone(metal, -0.1) : tone(metal, -0.08)) : paladin ? (y < 0.1 ? PAL_STEEL : legs) : y < bootTop ? boots : legs);   // paladin: mail chausses under the plates
   const shoe = (name, hex, sole) => {                               // shoe over the bare toes of the model (shin space)
     const L = Part(kneeY, r, dirt), f = Bd.foot, sd = name === "shinR" ? 1 : -1;
     L.box(f.w + 0.012, f.h * 0.75, f.d + 0.012, hex, f.x * sd, f.y - f.h * 0.1, f.z + 0.004);
@@ -517,6 +569,7 @@ export function bodyGeometries(look, v) {
     [th, sh].forEach((name) => shell(name, 0, legCol));
     // knee joint filler (thigh space): covers the gap behind the knee when it bends
     const Kf = Part(hp[1], r, dirt); Kf.blob(R.knee.r * 0.95, R.knee.r * 1.1, R.knee.r * 0.95, legCol(0, kneeY), (kp[0] - hp[0]) * sd * sd, kp[1] - hp[1], kp[2] - hp[2], 7, 5); pieces[th].push(Kf.done());
+    if (paladin) return;                                            // the paladin's greaves and sabatons (added below) cover the legs
     if (plate) {                                                    // cuisse with tassets, poleyn with its wing, greave, sabaton
       shell(th, 0.018, (x, y) => (y > kneeY + 0.03 ? metal : null)); shell(sh, 0.018, (x, y) => (y < kneeY - 0.04 && y > 0.1 ? steel : null));
       const Tt = Part(hp[1], r, 0.2), top = prof(crotch + 0.02);
@@ -534,14 +587,15 @@ export function bodyGeometries(look, v) {
     if (look.wraps) for (let y0 = bootTop + 0.04; y0 < kneeY - 0.02; y0 += 0.05) shell(sh, 0.008, (x, y) => (Math.abs(y - y0) < 0.015 ? look.wraps : null));
   };
   leg(1); leg(-1);
+  if (paladin) ["torso", "armR", "armL", "legR", "legL", "shinR", "shinL", "padR", "padL"].forEach(palPiece);
 
-  const merge = (all) => { const list = all.filter((x) => x && x.attributes.position.count); const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; };
+  const merge = (all) => { const list = all.filter((x) => x && x.attributes.position.count); if (!list.length) return null; const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; };
   const geo = Object.fromEntries(Object.entries(pieces).map(([k, l]) => [k, merge(l)]));
   // The parts are built around the pivots of the unwidened body: shoulders and hips move out with the bulk.
   const wide = (p) => [p[0] * BK, p[1], p[2]];
   const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL) };
   const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
-  const out = { ...geo, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
+  const out = { ...geo, pal: palPieces, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
   cache.set(key, out);
   return out;
 }

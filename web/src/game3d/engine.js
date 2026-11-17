@@ -5,7 +5,7 @@ import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
-import { rng, hashStr } from "./body";
+import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
@@ -20,6 +20,7 @@ const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z,
 
 export function createGame(canvas, hooks, saved) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  setupPaladinEnv(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -325,21 +326,21 @@ export function createGame(canvas, hooks, saved) {
 
   // What an NPC carries (and keeps on the body when it dies): the armour and weapons it wears, a few goods of its
   // trade, some random things and its purse. Stable for each NPC (seeded with its id).
-  const WEAR = { plate: "piastre", mail: "maglia", leather: "cuoio" };
+  const WEAR = { plate: "piastre", paladin: "piastre", mail: "maglia", leather: "cuoio" };
   const belongings = (d) => {
     const r = rng(hashStr(d.id) + 3), inv = {}, add = (id) => { inv[id] = (inv[id] || 0) + 1; };
     (LOOT_OF[d.role] || LOOT_OF.villager).forEach(([id, c]) => { if (r() < c) add(id); });
     if (d.weapon) add(d.weapon === "long" ? "spada_lunga" : "spada_corta");
     const L = LOOKS[d.look] || {};
     if (WEAR[L.armor]) add(WEAR[L.armor]);
-    if (L.head === "helm") add(L.greatHelm ? "elmo_piastre" : "elmo_ferro"); else if (L.head === "nasal") add("elmo_ferro"); else if (L.head === "leatherhood") add("cappuccio");
+    if (L.head === "paladin" || (L.head === "helm" && L.greatHelm)) add("elmo_piastre"); else if (L.head === "helm" || L.head === "nasal") add("elmo_ferro"); else if (L.head === "leatherhood") add("cappuccio");
     if (L.shield) add(L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro");
     if (SHOPS[d.id]) { const st = SHOPS[d.id].sells; for (let i = 0; i < 3; i++) add(st[Math.floor(r() * st.length)]); }
     if (d.boss) add("testa_morn");
     return inv;
   };
   // A body shows only what is still on it: armour, helmet, shield and sword taken by the player disappear from it.
-  const helmOf = (L) => (L.head === "helm" ? (L.greatHelm ? "elmo_piastre" : "elmo_ferro") : L.head === "nasal" ? "elmo_ferro" : L.head === "leatherhood" ? "cappuccio" : null);
+  const helmOf = (L) => (L.head === "paladin" ? "elmo_piastre" : L.head === "helm" ? (L.greatHelm ? "elmo_piastre" : "elmo_ferro") : L.head === "nasal" ? "elmo_ferro" : L.head === "leatherhood" ? "cappuccio" : null);
   const lookOf = (d, inv) => {
     const L = { ...LOOKS[d.look], ...(d.female ? { female: true } : {}), ...(d.old ? { old: true } : {}) };
     if (!inv) return L;
@@ -439,6 +440,7 @@ export function createGame(canvas, hooks, saved) {
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
     scene.fog.near += (near - scene.fog.near) * k; scene.fog.far += (far - scene.fog.far) * k;
     sun.intensity += (si - sun.intensity) * k; hemi.intensity += (hi - hemi.intensity) * k;
+    PALADIN_MAT.envMapIntensity = 0.2 + 0.85 * Math.min(1, hemi.intensity / 0.9);   // the steel's reflections follow the daylight
     const az = S.dayT * Math.PI * 2;
     sun.position.set(P.x + Math.sin(az) * 30, Math.max(4, el * 40), P.z + 12); sun.target.position.set(P.x, 0, P.z);
     const lan = S.night ? 7 : 0;

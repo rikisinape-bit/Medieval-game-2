@@ -97,7 +97,7 @@ function build(raw, J) {
   for (const side of [1, -1]) {
     const S = [side * J.shoulder[0], J.shoulder[1], zAt(J.shoulder[1], J.shoulder[0])];
     const far = V.filter((v) => v[0] * side > J.shoulder[0] + 0.1 && v[1] > 0.75);
-    let a = pca(far).axes[0]; if (dot(a, [side, -1, 0]) < 0) a = mul(a, -1);
+    const farP = pca(far); let a = farP.axes[0]; if (dot(a, [side, -1, 0]) < 0) a = mul(a, -1);
     const T = V.map((v) => dot(sub(v, S), a));
     const R = V.map((v, i) => len(sub(sub(v, S), mul(a, T[i]))));
     const tips = Math.max(...V.map((v, i) => (v[0] * side > J.shoulder[0] && R[i] < 0.2 ? T[i] : 0)));
@@ -118,6 +118,10 @@ function build(raw, J) {
     const hp = pca(handPts); let palm = hp.axes[2];
     if (dot(palm, [-side, 0, 0]) < 0) palm = mul(palm, -1);        // the palm faces the body
     arms[side] = { S, a, T, W, wrist, tips, palm };
+    // Probes on the arm's real axis (through the middle of the arm, not through the shoulder point S): posed with the
+    // arm like any vertex, they give the axis of the posed arm (for fitting armour onto it).
+    const off = sub(sub(S, farP.c), mul(a, dot(sub(S, farP.c), a)));
+    arms[side].probe = [0.05, 0.52, 1.0].map((u) => { const T0 = u * wrist; V.push(add(sub(S, off), mul(a, T0))); T.push(T0); W.push(1); return V.length - 1; });
   }
 
   // Pose, distal first (everything uses the original arm coordinates T): finger tips, knuckles, elbow, shoulder.
@@ -162,6 +166,7 @@ function build(raw, J) {
     A.gripAxis = want;
     // Cock the wrist: the fist tilts so the grip axis points forward and down (a sword held at rest).
     const W0 = add(A.elbow, mul(fa, len(sub(A.grip, A.elbow)) * 0.62)), dev = norm(cross(A.gripAxis, [0, -1, 0]));
+    A.wristPt = W0;
     P.forEach((p, i) => { if (A.W[i] > 0.5) { const k = smooth(A.wrist * 0.97, A.wrist * 1.05, A.T[i]); if (k > 0) P[i] = add(W0, rotate(sub(p, W0), dev, POSE.wrist * k)); } });
     A.grip = add(W0, rotate(sub(A.grip, W0), dev, POSE.wrist));
     A.gripAxis = norm(rotate(A.gripAxis, dev, POSE.wrist));
@@ -237,6 +242,10 @@ function build(raw, J) {
       pivots: Object.fromEntries(Object.entries(pivots).map(([k, v]) => [k, r3(v)])),
       grip: r3(gripLocal), gripAxis: r3(R.gripAxis), knee: rigKnee,
       gripL: r3(sub(sc(arms[-1].grip), pivots.armL)), gripAxisL: r3(arms[-1].gripAxis),
+      elbow: r3(sub(sc(R.elbow), shoulder)), wrist: r3(sub(sc(R.wristPt), shoulder)),                 // joints of the posed right arm (arm space)
+      elbowL: r3(sub(sc(arms[-1].elbow), pivots.armL)), wristL: r3(sub(sc(arms[-1].wristPt), pivots.armL)),
+      // the posed arm's real axis: shoulder, elbow and wrist centres (arm space)
+      axis: arms[1].probe.map((i) => r3(sub(Ps[i], shoulder))), axisL: arms[-1].probe.map((i) => r3(sub(Ps[i], pivots.armL))),
       height: +headTop.toFixed(3), neck: +neck.toFixed(3), crotch: +crotch.toFixed(3),
       head: { top: +(headTop - headPivot[1]).toFixed(3), chin: +(neck - headPivot[1]).toFixed(3), halfW: +Math.max(...headPts.map((p) => Math.abs(p[0]))).toFixed(3),
         front: +(Math.max(...face.map((p) => p[2])) - headPivot[2]).toFixed(3), back: +(Math.min(...headPts.map((p) => p[2])) - headPivot[2]).toFixed(3), eye: +(eyeY - headPivot[1]).toFixed(3) },

@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { PALADIN_READY, setupPaladinEnv } from "./game3d/body";
 import { LOOKS, makeHuman, poseHuman, poseDeath, makeSword, makeShield, makeItem, makeSwordRack, makePlayerModel } from "./game3d/models";
 const q = new URLSearchParams(location.search);
 const W = +(q.get("w") || 1400), H = +(q.get("h") || 560);
-const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
+const r = new THREE.WebGLRenderer({ antialias: true }); r.setSize(W, H); setupPaladinEnv(r); r.shadowMap.enabled = true; document.body.appendChild(r.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color("#5d6870");
 scene.add(new THREE.HemisphereLight("#d8dce8", "#3a3026", 0.9));
 const d = new THREE.DirectionalLight("#fff0d8", 1.8); d.position.set(4, 7, 6); d.castShadow = true; Object.assign(d.shadow.camera, { left: -10, right: 10, top: 5, bottom: -2 }); scene.add(d);
@@ -47,13 +48,20 @@ if (faces) {
   if (faces === "beard") B.forEach((b, i) => list.push(["villager2", "fb" + i, { hair: H[i % H.length], beard: b, old: i === 5, hairColor: i === 5 ? "#8d877c" : ["#2e2218", "#6e3418", "#45321f", "#1a1410", "#93784a", "", "#5a3f26", "#4a2214", "#76583a"][i] }]));
   if (faces === "female") FH.forEach((h, i) => list.push(["woman", "ff" + i, { hair: h, hairColor: ["#5a3f26", "#93784a", "#6e3418", "#1a1410", "#76583a", "#45321f"][i] }]));
 }
+// ?pal=1: the paladin armour on a knight without shield and cape, from the front, the side and the back
+if (q.get("pal")) {
+  list.length = 0;
+  if (q.get("pal") === "4") list.push(["knight", "alaric", { shield: null, cape: null, _ry: +(q.get("ry") || 0) }]);
+  else [0, Math.PI / 2, Math.PI].forEach((ry, i) => list.push(["knight", "alaric", { shield: null, cape: null, _ry: ry }]));
+  if (q.get("pal") === "2") list.push(["playerEq", "pp", { hand: "spadone", body: "piastre", head: "elmo_piastre" }], ["playerEq", "pq", { hand: "spadone", body: "piastre", head: null }]);
+}
 const n = list.length, sp = faces ? 0.42 : 0.85;
 list.forEach(([look, id, extra], i) => {
   const g = look === "playerEq" ? makePlayerModel(extra) : makeHuman({ ...LOOKS[look], ...(extra || {}) }, ["knight", "soldier", "bandit"].includes(look) ? (look === "knight" || id === "bandit3" ? "long" : "short") : null, id);
   g.userData.atk = q.get("atk") || "over";
   const y = poseHuman(g, 0, !!q.get("walk"), q.get("mode") || null, +(q.get("k") || 0.5)); g.position.y = y;
   if (q.get("death")) poseDeath(g, +q.get("death"), +(q.get("p") || 1));
-  g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = +(q.get("ry") || 0.25);
+  g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = extra?._ry ?? +(q.get("ry") || 0.25);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   scene.add(g);
 });
@@ -68,6 +76,8 @@ if (hand != null || q.get("weapons") || q.get("items")) {} else if (q.get("top")
 else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
+await PALADIN_READY;
+if (q.get("cpos")) { cam.fov = +(q.get("fov") || 30); cam.updateProjectionMatrix(); cam.position.set(...q.get("cpos").split(",").map(Number)); cam.lookAt(...q.get("clook").split(",").map(Number)); }
 if (faces) {                                         // one close frame per head, side by side
   r.setScissorTest(true);
   const cw = W / n, fc = new THREE.PerspectiveCamera(+(q.get("ffov") || 16), cw / H, 0.05, 50);
