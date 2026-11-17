@@ -50,7 +50,8 @@ if (faces) {
 // ?pal=1: the paladin armour on a knight without shield and cape, from the front, the side and the back
 if (q.get("pal")) {
   list.length = 0;
-  [0, Math.PI / 2, Math.PI].forEach((ry, i) => list.push(["knight", "alaric", { shield: null, cape: null, _ry: ry }]));
+  if (q.get("pal") === "4") list.push(["knight", "alaric", { shield: null, cape: null, _ry: +(q.get("ry") || 0) }]);
+  else [0, Math.PI / 2, Math.PI].forEach((ry, i) => list.push(["knight", "alaric", { shield: null, cape: null, _ry: ry }]));
   if (q.get("pal") === "2") list.push(["playerEq", "pp", { hand: "spadone", body: "piastre", head: "elmo_piastre" }], ["playerEq", "pq", { hand: "spadone", body: "piastre", head: null }]);
 }
 const n = list.length, sp = faces ? 0.42 : 0.85;
@@ -74,6 +75,7 @@ if (hand != null || q.get("weapons") || q.get("items")) {} else if (q.get("top")
 else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
+if (q.get("cpos")) { cam.fov = +(q.get("fov") || 30); cam.updateProjectionMatrix(); cam.position.set(...q.get("cpos").split(",").map(Number)); cam.lookAt(...q.get("clook").split(",").map(Number)); }
 if (faces) {                                         // one close frame per head, side by side
   r.setScissorTest(true);
   const cw = W / n, fc = new THREE.PerspectiveCamera(+(q.get("ffov") || 16), cw / H, 0.05, 50);

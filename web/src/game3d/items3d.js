@@ -71,7 +71,7 @@ const paladinGeo = (id) => {
   const pos = [], col = [];
   PALADIN_ITEMS[id].forEach((n) => {
     const P = M.parts[n], o = piv[n];
-    for (let t = 0; t < P.i.length; t += 3) for (let j = 0; j < 3; j++) { const v = P.i[t + j] * 3; pos.push(P.p[v] + o[0], P.p[v + 1] + o[1], P.p[v + 2] + o[2]); col.push(...[0, 1, 2].map((c) => (P.c[t + c] / 255) ** 2.2)); }
+    for (let t = 0; t < P.i.length; t += 3) for (let j = 0; j < 3; j++) { const v = P.i[t + j] * 3; pos.push(P.p[v] + o[0], P.p[v + 1] + o[1], P.p[v + 2] + o[2]); col.push(...[0, 1, 2].map((c) => (P.c[(t + j) * 3 + c] / 255) ** 2.2)); }
   });
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));

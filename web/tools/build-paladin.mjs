@@ -53,7 +53,9 @@ function ourBody(k) {
   const pts = (part) => { const P = B.parts[part], out = []; for (let i = 0; i < P.p.length / 3; i++) out.push({ p: new THREE.Vector3(P.p[i * 3] + PV[part][0], P.p[i * 3 + 1] + PV[part][1], P.p[i * 3 + 2] + PV[part][2]), t: P.t ? P.t[i] : 0 }); return out; };
   const side = (s) => {
     const arm = s > 0 ? "armR" : "armL", leg = s > 0 ? "legR" : "legL", shin = s > 0 ? "shinR" : "shinL", S = pts(shin);
-    const low = S.filter((a) => a.p.y > 0.06 && a.p.y < 0.13), ankle = low.reduce((m, a) => m.add(a.p), new THREE.Vector3()).multiplyScalar(1 / low.length);
+    // ankle: the middle of the leg just above the foot (not of the whole foot at that height)
+    const yb = Math.min(...S.filter((a) => a.p.y > 0.12).map((a) => a.p.y)), low = S.filter((a) => a.p.y >= yb - 0.005 && a.p.y < yb + 0.05);
+    const ankle = new THREE.Box3().setFromPoints(low.map((a) => a.p)).getCenter(new THREE.Vector3()); ankle.y = 0.095;
     const toes = S.filter((a) => a.p.y < 0.1).sort((a, b) => b.p.z - a.p.z)[0].p;
     const joint = (n) => V(PV[arm]).add(V(R[s > 0 ? n : `${n}L`]));            // elbow / wrist of the posed arm (build-bodies)
     return { arm, leg, shin, shoulder: V(PV[arm]), elbow: joint("elbow"), wrist: joint("wrist"), hip: V(PV[leg]), knee: V(PV[shin]), ankle,
@@ -100,35 +102,33 @@ function build(k) {
       if (process.env.DBG) console.log(name, s, "ours", ro.toFixed(3), "src", rs.toFixed(3), "Q", Q[a].toArray().map((x) => x.toFixed(3)).join(","), Q[b].toArray().map((x) => x.toFixed(3)).join(","));
       maps[`${name}${s}`] = { f: segMap(frame(S[a], S[b], s), frame(Q[a], Q[b], s), kk * 1.03), part: Q[part], k: kk };
     };
-    // Arms: our arm's real centre line, ring by ring (t = 0 shoulder .. 0.52 elbow .. 1 wrist .. hand), from the
-    // vertices of our arm; the model's arm: its bones (shoulder -> elbow -> wrist).
-    const AP = Q.armPts, kern = (t, bw = 0.07) => AP.map((a) => Math.exp(-(((a.t - t) / bw) ** 2)));
-    const line = (t) => { const w = kern(t), c = new THREE.Vector3(); let sw = 0; AP.forEach((a, i) => { c.addScaledVector(a.p, w[i]); sw += w[i]; }); return c.multiplyScalar(1 / sw); };
-    const ringR = (t, c, y) => { const w = kern(t, 0.05), d = []; AP.forEach((a, i) => { if (w[i] > 0.5) { const v = a.p.clone().sub(c); d.push(v.sub(y.clone().multiplyScalar(v.dot(y))).length()); } }); d.sort((a, b) => a - b); return d[Math.floor(d.length / 2)]; };
-    const srcT = (p) => {                                            // position of a point along the model's arm (same t)
-      const u1 = p.clone().sub(S.shoulder).dot(S.elbow.clone().sub(S.shoulder)) / S.elbow.distanceToSquared(S.shoulder);
-      if (u1 < 1) return { t: 0.52 * u1, A: S.shoulder, B: S.elbow, u: u1 };
-      const u2 = p.clone().sub(S.elbow).dot(S.wrist.clone().sub(S.elbow)) / S.wrist.distanceToSquared(S.elbow);
-      return { t: 0.52 + 0.48 * u2, A: S.elbow, B: S.wrist, u: u2 };
+    // Arms: each plate follows the bone that moves it, rigidly (no stretching): the model's upper arm
+    // (shoulder -> elbow) onto ours, the forearm and hand (elbow -> wrist, and on past the wrist) onto ours,
+    // scaled along the bone by the length and around it by the arm's real thickness (vertices near the axis).
+    const near = (pts, A, B) => { const ax = B.clone().sub(A), L = ax.length(); ax.normalize(); return pts.filter((p) => { const v = p.clone().sub(A), u = v.dot(ax) / L; return u > 0.25 && u < 0.85 && v.sub(ax.clone().multiplyScalar(v.dot(ax))).length() < 0.09; }); };
+    const ourArm = Q.armPts.map((a) => a.p), srcArm = kindPts("upper").concat(kindPts("fore")).filter(sx);
+    const armSeg = (name, a, b) => {
+      const ro = radius(near(ourArm, Q[a], Q[b]), Q[a], Q[b], 0.25, 0.85), rs = radius(near(srcArm, S[a], S[b]), S[a], S[b], 0.25, 0.85);
+      const kk = Math.min(1.25, Math.max(0.85, ro / rs));
+      if (process.env.DBG) console.log("arm", name, s, "ours", ro.toFixed(3), "src", rs.toFixed(3));
+      maps[`${name}${s}`] = { f: segMap(frame(S[a], S[b], s), frame(Q[a], Q[b], s), kk * 1.04), part: Q.arm, k: kk,
+        t: (p) => { const ax = S.wrist.clone().sub(S.elbow); return 0.52 + 0.48 * p.clone().sub(S.elbow).dot(ax) / ax.lengthSq(); } };
     };
-    const srcArm = kindPts("upper").concat(kindPts("fore")).filter(sx);
-    const srcR = (t) => {                                            // the model's bare arm thickness around t
-      const d = srcArm.map((p) => { const q = srcT(p); if (Math.abs(q.t - t) > 0.06) return null; const y = q.B.clone().sub(q.A).normalize(), v = p.clone().sub(q.A); return v.sub(y.multiplyScalar(v.dot(y))).length(); }).filter((x) => x != null).sort((a, b) => a - b);
-      return d[Math.floor(d.length / 2)] || 0.05;
-    };
-    const kAt = {}; [0.3, 0.75, 0.95].forEach((t) => { const c = line(t), y = line(t + 0.05).sub(line(t - 0.05)).normalize(); kAt[t] = Math.min(1.35, Math.max(0.8, ringR(t, c, y) / srcR(t))); });
-    const kArm = (t) => (t < 0.3 ? kAt[0.3] : t < 0.75 ? kAt[0.3] + (kAt[0.75] - kAt[0.3]) * (t - 0.3) / 0.45 : t < 0.95 ? kAt[0.75] + (kAt[0.95] - kAt[0.75]) * (t - 0.75) / 0.2 : kAt[0.95]);
-    const armMap = (p) => {
-      const q = srcT(p), ys = q.B.clone().sub(q.A).normalize(), base = q.A.clone().lerp(q.B, q.u), fs = frame(base, base.clone().add(ys), s);
-      const d = p.clone().sub(base), rx = d.dot(fs.x), rz = d.dot(fs.z);
-      const t = Math.max(0.12, q.t), c = line(t), yd = line(t + 0.05).sub(line(t - 0.05)).normalize(), fd = frame(c, c.clone().add(yd), s), k = kArm(t) * 1.03;
-      return c.clone().addScaledVector(fd.y, (q.t - t) * 0.6).addScaledVector(fd.x, rx * k).addScaledVector(fd.z, rz * k);
-    };
-    maps[`upper${s}`] = maps[`fore${s}`] = { f: armMap, part: Q.arm, k: kAt[0.3], t: (p) => srcT(p).t };
+    armSeg("upper", "shoulder", "elbow"); armSeg("fore", "elbow", "wrist");
+    const AP = Q.armPts, kAt = { 0.3: maps[`upper${s}`].k };
     seg("thigh", "hip", "knee", "leg", kindPts("thigh"), Q.pts.leg);
     seg("shin", "knee", "ankle", "shin", kindPts("shin"), Q.pts.shin);
     seg("foot", "ankle", "toe", "shin", kindPts("foot").concat(kindPts("shin")), Q.pts.shin);
-    maps[`foot${s}`].f = segMap(frame(S.ankle, S.toe, s), frame(Q.ankle, Q.toe, s), 1.0);   // sabatons: not wider than the model's
+    // greaves at the model's own width (our shin is thinner at the ankle: wider greaves flare out); the sabatons go
+    // with the greaves (same transform: no gap at the ankle), only the foot's length is fitted to ours
+    maps[`shin${s}`].f = segMap(frame(S.knee, S.ankle, s), frame(Q.knee, Q.ankle, s), 0.98);
+    // sabatons: from heel to toe on our foot (heel and toe of the bare feet of both bodies, at the sole)
+    const shinF = maps[`shin${s}`].f;
+    const sole = (pts) => { const f = pts.filter((p) => p.y < 0.05 && p.x * s > 0); return [Math.min(...f.map((p) => p.z)), Math.max(...f.map((p) => p.z))]; };
+    const [sh, st] = sole(sbVerts.filter((v) => v.k === "foot" || v.k === "shin").map((v) => v.p)), [oh, ot] = sole(Q.pts.shin);
+    maps[`foot${s}`].f = (p) => { const q = shinF(p); q.z = oh + ((p.z - sh) / (st - sh)) * (ot - oh); return q; };
+    // the greave's bottom edge goes with the foot too (both in front-back: the ankle is where both bodies have it)
+    if (process.env.DBG) console.log("foot", s, "src heel/toe", sh.toFixed(3), st.toFixed(3), "ours", oh.toFixed(3), ot.toFixed(3), "src ankle", S.ankle.toArray().map((x) => x.toFixed(3)).join(","), "ours", Q.ankle.toArray().map((x) => x.toFixed(3)).join(","));
     // pauldron: around the top of the shoulder (highest point of the body above the shoulder, both bodies)
     const top = (pts, x0) => pts.filter((p) => Math.abs(p.x - x0) < 0.05).sort((a, b) => b.y - a.y)[0];
     const sTop = top(sbVerts.filter((v) => v.k === "pad" || v.k === "upper" || v.k === "trunk").map((v) => v.p), S.shoulder.x);
@@ -177,7 +177,7 @@ if (fs.existsSync(TEX)) {
   tex = (u, v) => { const x = Math.min(info.width - 1, Math.max(0, Math.floor((u - Math.floor(u)) * info.width))), y = Math.min(info.height - 1, Math.max(0, Math.floor((1 - (v - Math.floor(v))) * info.height))), i = (y * info.width + x) * info.channels; return [data[i], data[i + 1], data[i + 2]]; };
 }
 const hexRGB = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-const grade = ([r, g, b]) => { const l = (r + g + b) / 3; return [r, g, b].map((c) => Math.round(Math.min(255, (l + (c - l) * 0.85) * 0.86))); };   // dark fantasy: less saturated, darker
+const grade = ([r, g, b]) => { const l = (r + g + b) / 3; return [r, g, b].map((c) => Math.round(Math.min(255, (l + (c - l) * 0.95) * 0.95))); };   // nearly the painted colours
 
 // ---- fitting -----------------------------------------------------------------------------------------------------
 const out = {};
@@ -209,10 +209,12 @@ for (const k of ["m"]) {
         if (!prt.map.has(key)) { prt.map.set(key, prt.p.length / 3); prt.p.push(+(q.x - piv[0]).toFixed(4), +(q.y - piv[1]).toFixed(4), +(q.z - piv[2]).toFixed(4)); }
         prt.i.push(prt.map.get(key));
       });
-      let rgb;
-      if (tex) { const sm = ids.map((i) => tex(M.uv[i * 2], M.uv[i * 2 + 1])), u = (M.uv[t * 2] + M.uv[t * 2 + 2] + M.uv[t * 2 + 4]) / 3, v = (M.uv[t * 2 + 1] + M.uv[t * 2 + 3] + M.uv[t * 2 + 5]) / 3; sm.push(tex(u, v), tex(u, v)); rgb = [0, 1, 2].map((c) => sm.reduce((a, x) => a + x[c], 0) / sm.length); }
-      else rgb = hexRGB(FALLBACK[name] || "#888888");
-      prt.c.push(...grade(rgb));
+      // colours per corner, from the painted texture (a little towards the face's middle: no bleeding at the seams)
+      const uc = (M.uv[t * 2] + M.uv[t * 2 + 2] + M.uv[t * 2 + 4]) / 3, vc = (M.uv[t * 2 + 1] + M.uv[t * 2 + 3] + M.uv[t * 2 + 5]) / 3;
+      ids.forEach((i) => {
+        const rgb = tex ? tex(M.uv[i * 2] * 0.95 + uc * 0.05, M.uv[i * 2 + 1] * 0.95 + vc * 0.05) : hexRGB(FALLBACK[name] || "#888888");
+        prt.c.push(...grade(rgb));
+      });
     }
   }
   out[k] = { parts: Object.fromEntries(Object.entries(F.parts).filter(([, p]) => p.i.length).map(([n, p]) => [n, { p: p.p, i: p.i, c: p.c }])), textured: !!tex };
