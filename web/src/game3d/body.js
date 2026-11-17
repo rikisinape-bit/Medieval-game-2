@@ -16,7 +16,7 @@ import PALADIN_TEX from "./paladin_albedo.jpg";   // inlined in the code (vite.c
 let palReady; export const PALADIN_READY = new Promise((res) => { palReady = res; });   // the texture is decoded (one-shot renders wait for it)
 const palTex = new THREE.TextureLoader().load(PALADIN_TEX, () => palReady(), undefined, () => palReady());
 palTex.colorSpace = THREE.SRGBColorSpace; palTex.anisotropy = 4;
-export const PALADIN_MAT = new THREE.MeshStandardMaterial({ map: palTex, vertexColors: true, roughness: 0.38, metalness: 0.45, flatShading: true });
+export const PALADIN_MAT = new THREE.MeshStandardMaterial({ map: palTex, vertexColors: true, roughness: 0.38, metalness: 0.45, flatShading: true, side: THREE.DoubleSide });   // both sides: the inside of a plate is never a hole
 // Reflections for the steel: a small "studio" around it (bright soft top, light band at the horizon, dark floor),
 // made on the CPU so it works with every renderer of the page (game, menu preview, item pictures).
 const studio = (() => {
@@ -215,6 +215,7 @@ export function bodyGeometries(look, v) {
   const hipY = PV.legR[1], shY = PV.armR[1], neck = R.neck, crotch = R.crotch;
   const waistY = hipY + (F ? 0.07 : 0.045);                       // belt line
   // the paladin armour is worn over dark purple padded cloth, with brown leather gloves (as in its painted texture)
+  const PAL_SLIM = 0.012;                                   // how much slimmer the legs are under the paladin plates (build-paladin.mjs uses the same)
   const PAL_CLOTH = "#3b2f48", PAL_GLOVE = "#4e3020", PAL_STEEL = "#9496a8";
   const palArmor = look.armor === "paladin" && !v.female && !!PALADIN.m;
   const cloth = palArmor ? tone(PAL_CLOTH, v.shift) : tone(look.body, v.shift), legs = palArmor ? tone(PAL_CLOTH, v.shift * 0.5) : tone(look.legs, v.shift * 0.5);
@@ -566,9 +567,9 @@ export function bodyGeometries(look, v) {
   };
   const leg = (sd) => {
     const th = sd > 0 ? "legR" : "legL", sh = sd > 0 ? "shinR" : "shinL", hp = PV[th], kp = PV[sh];
-    [th, sh].forEach((name) => shell(name, 0, legCol));
+    [th, sh].forEach((name) => shell(name, paladin ? -PAL_SLIM : 0, legCol));   // under the paladin plates: slim cloth hose
     // knee joint filler (thigh space): covers the gap behind the knee when it bends
-    const Kf = Part(hp[1], r, dirt); Kf.blob(R.knee.r * 0.95, R.knee.r * 1.1, R.knee.r * 0.95, legCol(0, kneeY), (kp[0] - hp[0]) * sd * sd, kp[1] - hp[1], kp[2] - hp[2], 7, 5); pieces[th].push(Kf.done());
+    const kf = paladin ? 0.8 : 1, Kf = Part(hp[1], r, dirt); Kf.blob(R.knee.r * 0.95 * kf, R.knee.r * 1.1 * kf, R.knee.r * 0.95 * kf, legCol(0, kneeY), (kp[0] - hp[0]) * sd * sd, kp[1] - hp[1], kp[2] - hp[2], 7, 5); pieces[th].push(Kf.done());
     if (paladin) return;                                            // the paladin's greaves and sabatons (added below) cover the legs
     if (plate) {                                                    // cuisse with tassets, poleyn with its wing, greave, sabaton
       shell(th, 0.018, (x, y) => (y > kneeY + 0.03 ? metal : null)); shell(sh, 0.018, (x, y) => (y < kneeY - 0.04 && y > 0.1 ? steel : null));

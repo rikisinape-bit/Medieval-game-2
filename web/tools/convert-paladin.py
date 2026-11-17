@@ -10,7 +10,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(ROOT, "../../assets/sorgenti/paladino/paintpoly_humanoid_paladin_knight.blend")
 OUT = os.path.join(ROOT, ".paladin-cache.json")
 # armour pieces and how much of their triangles to keep
-KEEP = {"model_armour": 0.3, "model_armour.001": 0.5, "model_armour.002": 0.9, "model_armour.003": 0.4,
+KEEP = {"model_armour": 0.55, "model_armour.001": 0.5, "model_armour.002": 0.9, "model_armour.003": 0.4,
         "model_belts": 0.4, "model_helmet": 0.5, "model_straps": 0.35, "model_straps.001": 0.5}
 
 bpy.ops.wm.open_mainfile(filepath=SRC)
