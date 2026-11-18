@@ -34,14 +34,105 @@ const studio = (() => {
 PALADIN_MAT.envMap = studio; PALADIN_MAT.envMapIntensity = 1.0;
 export function setupPaladinEnv() {}                                            // (kept for callers: nothing to do any more)
 
-export const BODY_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.92, metalness: 0 });
+// The characters' material. Each vertex says what it is (attribute "surf": 0 cloth, leather, metal..., 1 skin, 2 hair,
+// 3 the eyes). Cloth keeps its flat faces (flat normals); skin is smooth, a little glossy, and lets some warm light
+// through at the edge of the shadow (red goes further under real skin); hair is drawn as strands: darker and lighter
+// threads along the hair, the light broken by them, and the shiny band that runs across a head of hair.
+export const BODY_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
+const BODY_VS = `attribute float surf;
+varying float vSurf;
+varying vec3 vLoc;
+varying vec3 vAcross;
+`;
+const BODY_FS = `varying float vSurf;
+varying vec3 vLoc;
+varying vec3 vAcross;
+float bHairK = 0.0;
+vec3 bAcross = vec3( 1.0, 0.0, 0.0 );
+float bHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.1031 ); p3 += dot( p3, p3.yzx + 33.33 ); return fract( ( p3.x + p3.y ) * p3.z ); }
+// value noise, periodic along x (per = cells around the head, so the strands close up behind it)
+float bNoise( vec2 p, float per ) {
+	vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 - 2.0 * f );
+	float x0 = mod( i.x, per ), x1 = mod( i.x + 1.0, per );
+	return mix( mix( bHash( vec2( x0, i.y ) ), bHash( vec2( x1, i.y ) ), f.x ), mix( bHash( vec2( x0, i.y + 1.0 ) ), bHash( vec2( x1, i.y + 1.0 ) ), f.x ), f.y );
+}
+`;
+const BODY_HAIR = `
+	if ( vSurf > 1.5 && vSurf < 2.5 ) {
+		// strands run down from the crown: across them = around the head's vertical axis (head space, pivot = centre)
+		float az = atan( vLoc.x, vLoc.z ) / 6.2832 + 0.5, el = vLoc.y;
+		float rr = max( length( vLoc.xz ), 0.004 ), pix = length( fwidth( vLoc ) );
+		float wav = bNoise( vec2( az * 7.0, el * 9.0 ), 7.0 ) - 0.5;                     // the strands wave a little
+		float u1 = az * 230.0 + wav * 5.0, u2 = az * 60.0 + wav * 1.6;
+		float s1 = bNoise( vec2( u1, el * 7.0 ), 230.0 ), s2 = bNoise( vec2( u2, el * 3.5 + 7.0 ), 60.0 );
+		// fade a level out where its strands get thinner than a pixel (no shimmer from far away)
+		float f1 = 1.0 - smoothstep( 0.3, 0.8, pix / ( rr * 6.2832 / 230.0 ) ), f2 = 1.0 - smoothstep( 0.3, 0.8, pix / ( rr * 6.2832 / 60.0 ) );
+		bHairK = ( s1 - 0.5 ) * f1 * 0.75 + ( s2 - 0.5 ) * f2 * 0.6;
+		diffuseColor.rgb *= 1.0 + bHairK * 1.05;
+	}
+`;
+const BODY_ROUGH = `
+	if ( vSurf > 0.5 ) roughnessFactor = vSurf < 1.5 ? 0.6 : vSurf < 2.5 ? 0.62 : 0.2;
+`;
+const BODY_NORMAL = `
+	if ( vSurf > 1.5 && vSurf < 2.5 ) {
+		bAcross = normalize( vAcross - normal * dot( normal, vAcross ) + 1e-5 );
+		normal = normalize( normal + bAcross * bHairK * 0.9 );                           // ridges of the strands
+	}
+`;
+// skin: diffuse light wrapped past the terminator, more in red; hair: Kajiya-Kay highlights along the strands
+const BODY_DIRECT = `
+	vec3 bIrr = irradiance;
+	if ( vSurf > 0.5 && vSurf < 1.5 ) {
+		float bNL = dot( geometryNormal, directLight.direction );
+		bIrr = directLight.color * saturate( ( vec3( bNL ) + vec3( 0.38, 0.19, 0.14 ) ) / vec3( 1.38, 1.19, 1.14 ) );
+	} else if ( vSurf > 1.5 && vSurf < 2.5 ) {
+		vec3 bT = normalize( cross( geometryNormal, bAcross ) );
+		vec3 bH = normalize( directLight.direction + geometryViewDir );
+		float t1 = dot( bT, bH ), t2 = dot( bT, normalize( bH - geometryNormal * 0.3 ) );
+		float k1 = pow( max( 0.0, 1.0 - t1 * t1 ), 60.0 ), k2 = pow( max( 0.0, 1.0 - t2 * t2 ), 10.0 );
+		float vis = saturate( dot( geometryNormal, directLight.direction ) + 0.15 );
+		reflectedLight.directSpecular += directLight.color * vis * ( k1 * 0.07 + k2 * 0.32 * material.diffuseColor ) * ( 1.0 + bHairK );
+	}
+	reflectedLight.directDiffuse += bIrr * BRDF_Lambert( material.diffuseColor );
+`;
+const DIFFUSE_LINE = "reflectedLight.directDiffuse += irradiance * BRDF_Lambert( material.diffuseColor );";
+BODY_MAT.onBeforeCompile = (sh) => {
+  // The sun's shadow map is coarse (several cm a texel): on a smooth face its own shadow would come out as stripes and
+  // steps. Skin and hair look it up a few cm out along the normal: shadows of hats, houses, trees stay, the face's
+  // own terminator is left to the (wrapped) light.
+  const SHADOW_N = "shadowWorldNormal * directionalLightShadows[ i ].shadowNormalBias";
+  if (!THREE.ShaderChunk.shadowmap_vertex.includes(SHADOW_N)) console.warn("BODY_MAT: three.js shadows changed");
+  sh.vertexShader = BODY_VS + sh.vertexShader.replace("#include <begin_vertex>", `#include <begin_vertex>
+	vSurf = surf; vLoc = position;
+	vAcross = normalize( ( modelViewMatrix * vec4( position.z + 1e-4, 0.0, - position.x, 0.0 ) ).xyz );`)
+    .replace("#include <shadowmap_vertex>", THREE.ShaderChunk.shadowmap_vertex.replace(SHADOW_N, "shadowWorldNormal * ( directionalLightShadows[ i ].shadowNormalBias + ( surf > 0.5 && surf < 2.5 ? 0.05 : 0.0 ) )"));
+  const lights = THREE.ShaderChunk.lights_physical_pars_fragment;
+  if (!lights.includes(DIFFUSE_LINE)) console.warn("BODY_MAT: three.js lighting changed, skin and hair lighting off");
+  sh.fragmentShader = BODY_FS + sh.fragmentShader
+    .replace("#include <color_fragment>", "#include <color_fragment>" + BODY_HAIR)
+    .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>" + BODY_ROUGH)
+    .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>" + BODY_NORMAL)
+    .replace("#include <lights_physical_pars_fragment>", lights.replace(DIFFUSE_LINE, BODY_DIRECT));
+};
+BODY_MAT.customProgramCacheKey = () => "body-skin-hair-3";
+
+// Smooth 3D value noise (0..1) for colours that vary across the body (the same at a vertex shared by two triangles).
+const vhash = (x, y, z) => { let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1274126177); h = Math.imul(h ^ (h >>> 13), 1103515245); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
+export function vnoise3(x, y, z) {
+  const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z), s = (t) => t * t * (3 - 2 * t);
+  const fx = s(x - xi), fy = s(y - yi), fz = s(z - zi), L = (a, b, k) => a + (b - a) * k;
+  const c = (dx, dy, dz) => vhash(xi + dx, yi + dy, zi + dz);
+  return L(L(L(c(0, 0, 0), c(1, 0, 0), fx), L(c(0, 1, 0), c(1, 1, 0), fx), fy), L(L(c(0, 0, 1), c(1, 0, 1), fx), L(c(0, 1, 1), c(1, 1, 1), fx), fy), fz);
+}
 
 // ---- small deterministic RNG (variation is stable for each NPC id) ----
 export const hashStr = (s) => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
 export const rng = (seed) => { let t = seed >>> 0; return () => { t = (t + 0x6d2b79f5) >>> 0; let r = Math.imul(t ^ (t >>> 15), 1 | t); r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r; return ((r ^ (r >>> 14)) >>> 0) / 4294967296; }; };
 
 // ---- palettes (dark, desaturated) ----
-export const SKINS = ["#c4a184", "#b08a6b", "#9a7556", "#7c5a40", "#d2b296", "#a88466"];
+// warm, natural skin tones (the old ones were greyish beige: the faces looked like cardboard)
+export const SKINS = ["#e3ae8e", "#d29a78", "#c08362", "#a56a4b", "#7f4c33", "#eebd9e", "#b8795a"];
 // hair: black, dark brown, brown, chestnut, light brown, dark blond, red, auburn; greys for the old
 export const HAIRS = ["#1a1410", "#2e2218", "#45321f", "#5a3f26", "#76583a", "#93784a", "#6e3418", "#4a2214"];
 export const GREYS = ["#6f6a62", "#8d877c", "#a8a298", "#5e5850"];
@@ -53,9 +144,12 @@ const BEARDS = ["none", "none", "stubble", "stubble", "full", "boxed", "pointed"
 // ---- geometry helpers: each piece is converted to non-indexed position+normal+color ----
 const _c = new THREE.Color();
 // Bake a colour into a geometry. y0 = absolute height of the geometry's origin (for the "dirt towards the ground" tint).
-function paint(geo, hex, y0, rand, noise = 0.07, dirt = 0.32) {
+function paint(geo, hex, y0, rand, noise = 0.07, dirt = 0.32, surf = 0) {
   const g = geo.index ? geo.toNonIndexed() : geo;
   g.deleteAttribute("uv");
+  // cloth, wood, metal keep their flat faces; skin and hair pieces their smooth normals (spheres, tubes, cones)
+  if (!surf || !g.attributes.normal) { g.deleteAttribute("normal"); g.computeVertexNormals(); }
+  g.setAttribute("surf", new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count).fill(surf), 1));
   const pos = g.attributes.position, n = pos.count;
   const col = new Float32Array(n * 3);
   _c.set(hex);
@@ -66,7 +160,6 @@ function paint(geo, hex, y0, rand, noise = 0.07, dirt = 0.32) {
     for (let j = 0; j < 3; j++) { col[(i + j) * 3] = _c.r * k; col[(i + j) * 3 + 1] = _c.g * k; col[(i + j) * 3 + 2] = _c.b * k; }
   }
   g.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  if (!g.attributes.normal) g.computeVertexNormals();
   return g;
 }
 const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), E = new THREE.Euler(), S = new THREE.Vector3(), P = new THREE.Vector3();
@@ -74,10 +167,12 @@ const place = (geo, x = 0, y = 0, z = 0, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1,
   geo.applyMatrix4(M.compose(P.set(x, y, z), Q.setFromEuler(E.set(rx, ry, rz)), S.set(sx, sy, sz)));
 
 // A part = list of painted pieces, merged at the end.
-export function Part(y0, rand, dirt) {
-  const list = [];
-  const push = (geo, hex, noise) => { list.push(paint(geo, hex, y0, rand, noise, dirt)); return api; };
+// surf: what the next pieces are (BODY_MAT: 0 cloth and the rest, 1 skin, 2 hair, 3 eyes); api.as(n) changes it.
+export function Part(y0, rand, dirt, surf0 = 0) {
+  const list = []; let surf = surf0;
+  const push = (geo, hex, noise) => { list.push(paint(geo, hex, y0, rand, surf ? Math.min(noise ?? 0.07, 0.02) : noise, dirt, surf)); return api; };
   const api = {
+    as: (s) => { surf = s; return api; },
     // box w,h,d centred at x,y,z
     box: (w, h, d, hex, x, y, z, rx, ry, rz) => push(place(new THREE.BoxGeometry(w, h, d), x, y, z, rx, ry, rz), hex),
     // tapered cylinder from y1 (radius r1) to y2 (radius r2); depth ratio dz flattens it (torso, limbs)
@@ -168,11 +263,51 @@ function faceZ(B, x, y) {
  * the character's space (feet on y = 0), t = position along the arm (0 shoulder, 1 wrist, > 1 hand).
  * d > 0 inflates the triangles along the normals: a shell that follows the body (clothes, armour).
  * bulk widens torso and limbs (x/z). The result is in the part's local space, like the pieces of Part().
+ * Cloth keeps flat faces with a little random shade each. skin = { hex, tint }: the triangles of that colour on the
+ * body itself are skin, smooth (the model's own normals) with the colour of each vertex from tint(x, y, z, t) (factors
+ * r, g, b): cheeks, nose, shadows blend into each other. hair = tint: a smooth shell of hair (BODY_MAT draws strands).
  */
-function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004 }) {
+function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004, skin = null, hair = null }) {
   const P = B.parts[part], pv = P.piv, sx = part === "head" ? 1 : bulk;
-  const out = [], col = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
+  const out = [], col = [], nrm = [], srf = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
   const vtx = (j, dd = d) => [P.pos[j * 3] * sx + P.nrm[j * 3] * dd, P.pos[j * 3 + 1] + P.nrm[j * 3 + 1] * dd, P.pos[j * 3 + 2] * sx + P.nrm[j * 3 + 2] * dd];
+  const nAt = (j) => { const n = [P.nrm[j * 3] / sx, P.nrm[j * 3 + 1], P.nrm[j * 3 + 2] / sx], l = Math.hypot(...n) || 1; return [n[0] / l, n[1] / l, n[2] / l]; };
+  const faceN = (a, b, c) => {                                    // as computeVertexNormals: (c - b) x (a - b)
+    const cb = [c[0] - b[0], c[1] - b[1], c[2] - b[2]], ab = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+    const n = [cb[1] * ab[2] - cb[2] * ab[1], cb[2] * ab[0] - cb[0] * ab[2], cb[0] * ab[1] - cb[1] * ab[0]], l = Math.hypot(...n) || 1;
+    return [n[0] / l, n[1] / l, n[2] / l];
+  };
+  const grimeAt = (y) => 1 - dirt * (1 - Math.min(1, Math.max(0, y / 1.1)));   // darker near the ground (mud, wear)
+  // Skin normals smoothed only across gentle folds (as "auto smooth"): round cheeks and forehead, but the nose, the
+  // brow, the jaw keep their edge (fully smooth they melt away and the face looks blank).
+  if (skin && !P.vf) {
+    const fn = new Float32Array(P.idx.length), vf = Array.from({ length: P.pos.length / 3 }, () => []), q = (j, k) => P.pos[j * 3 + k];
+    for (let i = 0; i < P.idx.length; i += 3) {
+      const a = P.idx[i], b = P.idx[i + 1], c = P.idx[i + 2];
+      const cb = [q(c, 0) - q(b, 0), q(c, 1) - q(b, 1), q(c, 2) - q(b, 2)], ab = [q(a, 0) - q(b, 0), q(a, 1) - q(b, 1), q(a, 2) - q(b, 2)];
+      fn[i] = cb[1] * ab[2] - cb[2] * ab[1]; fn[i + 1] = cb[2] * ab[0] - cb[0] * ab[2]; fn[i + 2] = cb[0] * ab[1] - cb[1] * ab[0];
+      vf[a].push(i); vf[b].push(i); vf[c].push(i);
+    }
+    P.fn = fn; P.vf = vf;
+    // how hollow the surface is at each vertex (+ in a fold, - on a bump), per edge length: the skin is a little
+    // darker in folds (eye corners, sides of the nose, under the lip) and lighter on bumps (nose, chin, cheekbones)
+    const nb = Array.from({ length: vf.length }, () => new Set());
+    for (let i = 0; i < P.idx.length; i += 3) for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) if (a !== b) nb[P.idx[i + a]].add(P.idx[i + b]);
+    P.curv = new Float32Array(vf.length);
+    nb.forEach((set, j) => {
+      let ax = 0, ay = 0, az = 0, e = 0;
+      set.forEach((m) => { ax += q(m, 0); ay += q(m, 1); az += q(m, 2); e += Math.hypot(q(m, 0) - q(j, 0), q(m, 1) - q(j, 1), q(m, 2) - q(j, 2)); });
+      const c = set.size || 1; ax = ax / c - q(j, 0); ay = ay / c - q(j, 1); az = az / c - q(j, 2);
+      P.curv[j] = (P.nrm[j * 3] * ax + P.nrm[j * 3 + 1] * ay + P.nrm[j * 3 + 2] * az) / ((e / c) || 1);
+    });
+  }
+  const crease = part === "head" ? 0.86 : 0.45;                  // the coarse trunk and limbs: smoother
+  const cornerN = (i, j) => {
+    const F = P.fn, fl = Math.hypot(F[i], F[i + 1], F[i + 2]) || 1; let x = 0, y = 0, z = 0;
+    for (const f of P.vf[j]) { const gl = Math.hypot(F[f], F[f + 1], F[f + 2]) || 1; if ((F[i] * F[f] + F[i + 1] * F[f + 1] + F[i + 2] * F[f + 2]) / (fl * gl) > crease) { x += F[f]; y += F[f + 1]; z += F[f + 2]; } }
+    x /= sx; z /= sx; const l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l];
+  };
+  const kind = hair ? 2 : 0;
   for (let i = 0; i < P.idx.length; i += 3) {
     const tri = [P.idx[i], P.idx[i + 1], P.idx[i + 2]], v = tri.map((j) => vtx(j));
     const cx = (v[0][0] + v[1][0] + v[2][0]) / 3 + pv[0], cy = (v[0][1] + v[1][1] + v[2][1]) / 3 + pv[1], cz = (v[0][2] + v[1][2] + v[2][2]) / 3 + pv[2];
@@ -180,11 +315,22 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
     const hex = colorOf(cx, cy, cz, t, Math.min(v[0][1], v[1][1], v[2][1]) + pv[1]);   // last: lowest corner (world)
     if (!hex) continue;
     _c.set(hex);
-    const grime = 1 - dirt * (1 - Math.min(1, Math.max(0, cy / 1.1))), k = grime * (1 - noise / 2 + rand() * noise);
-    v.forEach((p) => { out.push(...p); col.push(_c.r * k, _c.g * k, _c.b * k); });
+    const isSkin = !!skin && d < 1e-4 && hex === skin.hex, tint = isSkin ? skin.tint : hair;
+    let er = _c.r, eg = _c.g, eb = _c.b;                           // colour of the wall along an open border
+    if (tint) {                                                    // smooth: normals of the model, colour per vertex
+      tri.forEach((j, e) => {
+        const p = v[e], wx = p[0] + pv[0], wy = p[1] + pv[1], wz = p[2] + pv[2], m = tint(wx, wy, wz, P.t ? P.t[j] : 0, part === "head", P.curv ? P.curv[j] : 0), g = grimeAt(wy);
+        out.push(...p); nrm.push(...(isSkin ? cornerN(i, j) : nAt(j))); col.push(_c.r * m[0] * g, _c.g * m[1] * g, _c.b * m[2] * g); srf.push(isSkin ? 1 : kind);
+      });
+      const g = grimeAt(cy); er *= g; eg *= g; eb *= g;
+    } else {
+      const k = grimeAt(cy) * (1 - noise / 2 + rand() * noise), n = faceN(v[0], v[1], v[2]);   // per-face variation = worn, dirty cloth
+      v.forEach((p) => { out.push(...p); nrm.push(...n); col.push(_c.r * k, _c.g * k, _c.b * k); srf.push(kind); });
+      er *= k; eg *= k; eb *= k;
+    }
     if (edge) for (let e = 0; e < 3; e++) {
       const a = tri[e], b = tri[(e + 1) % 3], key = a < b ? `${a}_${b}` : `${b}_${a}`;
-      if (picked.has(key)) picked.set(key, null); else picked.set(key, [a, b, _c.r * k * 0.72, _c.g * k * 0.72, _c.b * k * 0.72]);
+      if (picked.has(key)) picked.set(key, null); else picked.set(key, [a, b, er * 0.72, eg * 0.72, eb * 0.72]);
     }
   }
   // A shell (hair, beard, armour) gets a wall along its open border, down to the body: it reads as something with a
@@ -192,11 +338,11 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
   if (edge) picked.forEach((e) => {
     if (!e) return;
     const [a, b, r, g, bl] = e, A1 = vtx(a), B1 = vtx(b), A0 = vtx(a, -0.002), B0 = vtx(b, -0.002);
-    [A1, B1, B0, A1, B0, A0, A1, B0, B1, A1, A0, B0].forEach((p) => { out.push(...p); col.push(r, g, bl); });
+    [[A1, B1, B0], [A1, B0, A0], [A1, B0, B1], [A1, A0, B0]].forEach((f) => { const n = faceN(...f); f.forEach((p) => { out.push(...p); nrm.push(...n); col.push(r, g, bl); srf.push(kind); }); });
   });
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-  g.computeVertexNormals();
+  g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3)); g.setAttribute("surf", new THREE.Float32BufferAttribute(srf, 1));
   return g;
 }
 
@@ -234,6 +380,7 @@ export function bodyGeometries(look, v) {
     Pt.tube(a.w, b.w, y1, y2, hex, 0, (a.z0 + a.z1) / 2, seg, dz);
   };
   const opt = { bulk: BK, rand: r, dirt };
+  const sstep = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [], padL: [], padR: [] };
   // A piece of the paladin armour (paladin.json): triangles in the part's space with the texture's UVs; the vertex
   // colour is only the dirt towards the ground (drawn with PALADIN_MAT, separately from the body's mesh).
@@ -242,7 +389,6 @@ export function bodyGeometries(look, v) {
   // them: skin weights on the body (0) and on four helpers at the hips (models.js), the front one of each leg follows
   // it only forwards, the back one only backwards (1 front right, 2 back right, 3 front left, 4 back left).
   const SKIRT_TOP = PV.legR[1], SKIRT_LOW = PV.legR[1] - 0.12;
-  const sstep = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
   const skirtWeights = (x, y, z) => {
     const w = Math.sqrt(sstep(SKIRT_TOP, SKIRT_LOW, y)), f = sstep(PV.legR[2] - 0.04, PV.legR[2] + 0.04, z), rt = sstep(-0.03, 0.03, x);
     const ws = [[0, 1 - w], [1, w * f * rt], [2, w * (1 - f) * rt], [3, w * f * (1 - rt)], [4, w * (1 - f) * (1 - rt)]].sort((a, b) => b[1] - a[1]).slice(0, 4);
@@ -273,6 +419,60 @@ export function bodyGeometries(look, v) {
     });
   };
   const shell = (part, d, colorOf, o = {}) => pieces[part].push(bodyMesh(Bd, part, colorOf, { ...opt, ...o, d }));
+
+  // ---------- HEAD MEASURES (also used by the skin's colours) ----------
+  // Hair, hats and helmets are authored around the old reference skull (radii 0.108 x 0.128 x 0.12, chin -0.135) and
+  // fitted to this head; eyes, brows and mouth are laid on the face mesh.
+  // (the model's head is boxier than the old ellipsoid: what wraps it is made a little roomier)
+  const hm = R.head, kx = (hm.halfW / 0.108) * 1.12, kyT = (hm.top / 0.128) * 1.06, kyB = -hm.chin / 0.135, kz = ((hm.front - hm.back) / 2 / 0.12) * 1.08, cz = (hm.front + hm.back) / 2;
+  const fit = (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * kx, y * (y > 0 ? kyT : kyB), p.getZ(i) * kz + cz); } g.computeVertexNormals(); return g; };
+  const hc = v.hairCol, hd = look.head, hs = v.hair;
+  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood", "paladin"].includes(hd);
+  // Regions of the head mesh (head space: hx across, hy up from the head's centre, f = in front of the head's middle).
+  // Landmarks found on the face itself: the tip of the nose is the most forward point of the middle of the face,
+  // eyes and mouth are placed from it (the two heads have different proportions).
+  if (!Bd.marks) {
+    let best = -1, nose = 0;
+    for (let y = hm.top - 0.06; y > hm.chin - 0.04; y -= 0.002) { const z = faceZ(Bd, 0, y); if (z > best) { best = z; nose = y; } }
+    Bd.marks = { nose, eye: nose + 0.04, mouth: nose - 0.038 };
+  }
+  const ey = Bd.marks.eye, my = Bd.marks.mouth, noseY = Bd.marks.nose + 0.004, back = hm.back - cz;
+  const loc = (x, y, z) => [x, y - PV.head[1], z - PV.head[2] - cz];
+  const beard = v.beard;
+  // beard line: from the corners of the mouth it rises across the cheek to the sideburn in front of the ear
+  const jaw = (x, y, z, t, ymin) => { const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx); return f > -0.012 && ax < hm.halfW * 0.95 && (ymin === undefined || ymin - PV.head[1] > hm.chin - 0.01) && (hy < my - 0.009 || (ax > 0.03 && hy < Math.min(ey - 0.022, my + 0.012 + (ax - 0.03) * 1.1))); };
+  const lip = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.02 && Math.abs(hx) < 0.034 && hy > my + 0.004 && hy < noseY - 0.004; };
+
+  // ---------- SKIN AND HAIR COLOURS (per vertex, see bodyMesh) ----------
+  // A living face: cheeks, nose and mouth a little flushed, eye sockets and the shadow under the jaw darker, the
+  // forehead catching the light, knuckles redder, faint blotches everywhere; stubble as a shadow of beard.
+  const skinC = new THREE.Color(skin), stubC = new THREE.Color(mixHex(tone(skin, -0.12), hc, 0.42));
+  const gs = (dx, dy, rad) => Math.exp(-(dx * dx + dy * dy) / (rad * rad));
+  const skinTint = (x, y, z, t, dense, curv = 0) => {
+    const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx), front = sstep(-0.01, 0.035, f);
+    let red = 0, light = 0;
+    red += front * gs(ax - 0.045, hy - (ey - 0.032), 0.024) * (F ? 0.22 : 0.15);                  // cheeks
+    red += sstep(0.045, 0.07, f) * gs(hx, hy - noseY, 0.018) * 0.22;                              // nose
+    red += front * gs(hx, hy - my, 0.022) * 0.12;                                                 // around the mouth
+    red += sstep(1.0, 1.12, t) * 0.14;                                                            // knuckles, fingers
+    light -= front * gs(ax - hm.halfW * 0.4, hy - (ey + 0.003), 0.021) * 0.14;                     // eye sockets
+    light -= gs(0, hy - hm.chin, 0.045) * sstep(0.045, -0.01, f) * 0.12;                           // under the jaw
+    light += sstep(ey + 0.025, ey + 0.05, hy) * sstep(0.02, 0.05, f) * 0.05;                       // forehead
+    if (look.old) light -= front * sstep(ey + 0.03, ey + 0.04, hy) * sstep(ey + 0.078, ey + 0.066, hy) * 0.08;   // furrowed brow
+    light += (vnoise3(x * 12, y * 12, z * 12) - 0.5) * 0.08 + (dense ? (vnoise3(x * 32, y * 32, z * 32) - 0.5) * 0.06 : 0);   // blotches (fine ones
+    red += (vnoise3(x * 15 + 9, y * 15, z * 15) - 0.5) * (dense ? 0.12 : 0.06);                                          // only on the dense head)
+    const cr = curv + 0.1;                                                                        // 0 = an ordinary round bit of head
+    const ck = dense ? 1 : 0.3;                                                                   // (the coarse trunk: barely)
+    light -= Math.max(0, cr) * 0.75 * ck; light += Math.min(0.07, Math.max(0, -cr) * 0.25) * ck;   // folds darker, bumps lighter
+    red = Math.min(0.5, Math.max(-0.1, red));
+    const k = 1 + light, m = [k, k * (1 - 0.55 * red), k * (1 - 0.6 * red)];                    // flushed = less green and blue
+    if (beard === "stubble") { const s0 = (jaw(x, y, z) ? 0.5 : 0) + (lip(x, y, z) ? 0.5 : 0), sb = Math.min(0.6, s0);
+      if (sb) { m[0] = m[0] * (1 - sb) + sb * stubC.r / skinC.r; m[1] = m[1] * (1 - sb) + sb * stubC.g / skinC.g; m[2] = m[2] * (1 - sb) + sb * stubC.b / skinC.b; } }
+    return m;
+  };
+  // hair: lighter and darker locks, sun on the top of the head (the strands are drawn by BODY_MAT)
+  const hairTint = (x, y, z) => { const k = 1 + (vnoise3(x * 40, y * 18, z * 40) - 0.5) * 0.24 + (vnoise3(x * 90 + 4, y * 30, z * 90) - 0.5) * 0.12 + sstep(PV.head[1] + 0.03, PV.head[1] + 0.13, y) * 0.08; return [k, k, k]; };
+  opt.skin = { hex: skin, tint: skinTint };
 
   // ---------- TORSO ----------
   const neckR = F ? 0.055 : 0.065, neckZ = PV.head[2] - 0.015, nk = { w: neckR, z0: neckZ - neckR, z1: neckZ + neckR };   // the neck (the profile there already has the shoulders)
@@ -361,23 +561,6 @@ export function bodyGeometries(look, v) {
   pieces.torso.push(T.done());
 
   // ---------- HEAD (pivot = centre of the head) ----------
-  // Hair, hats and helmets are authored around the old reference skull (radii 0.108 x 0.128 x 0.12, chin -0.135) and
-  // fitted to this head; eyes, brows and mouth are laid on the face mesh.
-  // (the model's head is boxier than the old ellipsoid: what wraps it is made a little roomier)
-  const hm = R.head, kx = (hm.halfW / 0.108) * 1.12, kyT = (hm.top / 0.128) * 1.06, kyB = -hm.chin / 0.135, kz = ((hm.front - hm.back) / 2 / 0.12) * 1.08, cz = (hm.front + hm.back) / 2;
-  const fit = (g) => { const p = g.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setXYZ(i, p.getX(i) * kx, y * (y > 0 ? kyT : kyB), p.getZ(i) * kz + cz); } g.computeVertexNormals(); return g; };
-  const hc = v.hairCol, hd = look.head, hs = v.hair;
-  const covered = ["hood", "helm", "minerhelm", "hat", "cap", "kerchief", "coif", "nasal", "leatherhood", "paladin"].includes(hd);
-  // Regions of the head mesh (head space: hx across, hy up from the head's centre, f = in front of the head's middle).
-  // Landmarks found on the face itself: the tip of the nose is the most forward point of the middle of the face,
-  // eyes and mouth are placed from it (the two heads have different proportions).
-  if (!Bd.marks) {
-    let best = -1, nose = 0;
-    for (let y = hm.top - 0.06; y > hm.chin - 0.04; y -= 0.002) { const z = faceZ(Bd, 0, y); if (z > best) { best = z; nose = y; } }
-    Bd.marks = { nose, eye: nose + 0.04, mouth: nose - 0.038 };
-  }
-  const ey = Bd.marks.eye, my = Bd.marks.mouth, noseY = Bd.marks.nose + 0.004, back = hm.back - cz;
-  const loc = (x, y, z) => [x, y - PV.head[1], z - PV.head[2] - cz];
   const fringe = F ? 0.046 : 0.052;
   // Where each hairstyle grows: forehead hairline, temples (above or over the ears), nape.
   const HAIRLINE = {
@@ -395,10 +578,6 @@ export function bodyGeometries(look, v) {
   };
   const [lineName, thick, darken = 0] = STYLE[hs] || STYLE.short, hairline = HAIRLINE[lineName];
   const isHair = (x, y, z, t, ymin) => hairline(...loc(x, y, z)) && ymin - PV.head[1] > hm.chin + 0.03;   // no slivers hanging from the neck cut
-  const beard = v.beard;
-  // beard line: from the corners of the mouth it rises across the cheek to the sideburn in front of the ear
-  const jaw = (x, y, z, t, ymin) => { const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx); return f > -0.012 && ax < hm.halfW * 0.95 && (ymin === undefined || ymin - PV.head[1] > hm.chin - 0.01) && (hy < my - 0.009 || (ax > 0.03 && hy < Math.min(ey - 0.022, my + 0.012 + (ax - 0.03) * 1.1))); };
-  const lip = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.02 && Math.abs(hx) < 0.034 && hy > my + 0.004 && hy < noseY - 0.004; };
   const chin = (x, y, z) => { const [hx, hy, f] = loc(x, y, z); return f > 0.0 && hy < my - 0.009 && Math.abs(hx) < 0.045; };
   const cheeks = (x, y, z) => { const [hx, hy, f] = loc(x, y, z), ax = Math.abs(hx); return f > -0.012 && ax > 0.04 && hy < Math.min(ey - 0.022, my + 0.012 + (ax - 0.03) * 1.1) && hy > hm.chin + 0.005; };
   // What each beard covers (shells over the face) and how thick: [region, thickness, chin thickness]
@@ -410,37 +589,24 @@ export function bodyGeometries(look, v) {
     chops: [(x, y, z, t, m) => { const [hx, hy, f] = loc(x, y, z); return lip(x, y, z) || (Math.abs(hx) > hm.halfW * 0.55 && f > -0.03 && hy < ey - 0.012 && hy > my - 0.02 && m - PV.head[1] > hm.chin); }, 0.011, 0],
   };
   const bd = BEARD[beard];
-  // The skin of the head with soft shading: lighter forehead, eye sockets, nose tip and cheeks a little red,
-  // shadow under the jaw, stubble.
-  const stub = mixHex(skin, hc, 0.38);
-  shell("head", 0, (x, y, z) => {
-    const [hx, hy, f] = loc(x, y, z);
-    if (palHelm && hy < hm.chin + 0.05) return tone(PAL_CLOTH, -0.1);                                              // coif below the great helm
-    if (hy < hm.chin + 0.006 && f < 0.0) return tone(skin, -0.06);                                                    // under the jaw
-    if (beard === "stubble" && (jaw(x, y, z) || lip(x, y, z))) return tone(stub, -0.1);
-    if (f > 0.02 && Math.abs(hx) > 0.012 && Math.abs(hx) < hm.halfW * 0.72 && hy > ey - 0.012 && hy < ey + 0.022) return tone(skin, -0.06);   // eye sockets
-    if (f > 0.06 && Math.abs(hx) < 0.014 && hy > noseY - 0.012 && hy < noseY + 0.01) return mixHex(skin, "#b05a48", 0.12);   // nose tip
-    if (f > 0.0 && Math.abs(hx) > 0.03 && hy < ey - 0.012 && hy > my) return mixHex(skin, "#b05a48", 0.05);          // cheeks
-    if (look.old && f > 0.02 && hy > ey + 0.035 && hy < ey + 0.07) return tone(skin, -0.08);                          // furrowed brow
-    if (f > 0.04 && hy > ey + 0.03) return tone(skin, 0.04);                                                          // forehead catches the light
-    return skin;
-  });
+  // The skin of the head (its shades come from skinTint, vertex by vertex).
+  shell("head", 0, (x, y, z) => (palHelm && loc(x, y, z)[1] < hm.chin + 0.05 ? tone(PAL_CLOTH, -0.1) : skin));   // the coif below the great helm
   const hairHex = darken ? mixHex(hc, skin, 0.35) : hc;
-  if (!covered || hs === "long") shell("head", thick, (x, y, z, t, ymin) => (isHair(x, y, z, t, ymin) ? hairHex : null), { noise: 0.16 });   // the hair: the head's own shape, thicker
+  if (!covered || hs === "long") shell("head", thick, (x, y, z, t, ymin) => (isHair(x, y, z, t, ymin) ? hairHex : null), { hair: hairTint });   // the hair: the head's own shape, thicker
   if (bd) {
-    shell("head", bd[1], (x, y, z, t, m) => (bd[0](x, y, z, t, m) ? hc : null), { noise: 0.16 });
-    if (bd[2]) shell("head", bd[2], (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { noise: 0.16 });
+    shell("head", bd[1], (x, y, z, t, m) => (bd[0](x, y, z, t, m) ? hc : null), { hair: hairTint });
+    if (bd[2]) shell("head", bd[2], (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { hair: hairTint });
   }
   // Hair and beard volumes, in head space: tails, braids, buns, curls, the end of the beard.
-  const Hx = Part(PV.head[1], r, 0.08), fz0 = (x, y) => faceZ(Bd, x, y);
+  const Hx = Part(PV.head[1], r, 0.08, 2), fz0 = (x, y) => faceZ(Bd, x, y);
   const braidChain = (pts, w) => pts.forEach(([x, y, z], i) => Hx.blob(w * (1 - i * 0.04), w * 1.5, w * 0.8, tone(hc, i % 2 ? -0.1 : 0.05), x + (i % 2 ? 0.003 : -0.003), y, z, 5, 4, i % 2 ? 0.35 : -0.35));
   if (!covered) {
     if (hs === "long") {                                                                                          // falling to the shoulders
       Hx.tube(hm.halfW * 0.95, hm.halfW * 1.1, ey + 0.02, hm.chin - 0.14, hc, 0, back * 0.55 + cz, 8, 0.62);
       [-1, 1].forEach((sd) => Hx.box(0.02, 0.17, 0.05, tone(hc, -0.05), sd * (hm.halfW + 0.004), ey - 0.07, cz - 0.03, 0, 0, sd * 0.06));
     }
-    if (hs === "ponytail") { const zb = back + cz - 0.008; Hx.box(0.03, 0.016, 0.03, "#2a1e14", 0, ey + (F ? 0.04 : 0.0), zb - 0.01); Hx.tube(0.026, 0.012, ey + (F ? 0.035 : -0.005), ey - (F ? 0.2 : 0.17), hc, 0, zb - 0.025, 6, 1, -0.25); }
-    if (hs === "bun") { Hx.blob(0.045, 0.04, 0.042, tone(hc, 0.05), 0, ey + 0.055, back + cz - 0.012, 7, 5); Hx.tube(0.03, 0.03, ey + 0.035, ey + 0.045, "#3a2a1c", 0, back + cz - 0.02, 7); }
+    if (hs === "ponytail") { const zb = back + cz - 0.008; Hx.as(0).box(0.03, 0.016, 0.03, "#2a1e14", 0, ey + (F ? 0.04 : 0.0), zb - 0.01); Hx.as(2).tube(0.026, 0.012, ey + (F ? 0.035 : -0.005), ey - (F ? 0.2 : 0.17), hc, 0, zb - 0.025, 6, 1, -0.25); }
+    if (hs === "bun") { Hx.blob(0.045, 0.04, 0.042, tone(hc, 0.05), 0, ey + 0.055, back + cz - 0.012, 7, 5); Hx.as(0).tube(0.03, 0.03, ey + 0.035, ey + 0.045, "#3a2a1c", 0, back + cz - 0.02, 7); Hx.as(2); }
     if (hs === "braid") braidChain(Array.from({ length: 11 }, (_, i) => [0, ey - 0.02 - i * 0.024, back + cz - 0.012 - i * 0.003]), 0.015);
     if (hs === "twinbraids") [-1, 1].forEach((sd) => braidChain(Array.from({ length: 10 }, (_, i) => [sd * (hm.halfW * 0.86 - i * 0.002), ey - 0.04 - i * 0.022, cz - 0.02 + i * 0.012]), 0.011));
     if (hs === "crown") for (let i = 0; i < 18; i++) { const a = (i / 18) * Math.PI * 2; Hx.blob(0.014, 0.012, 0.016, tone(hc, i % 2 ? -0.1 : 0.05), Math.sin(a) * hm.halfW * 0.98, ey + 0.05, cz + Math.cos(a) * (hm.front - hm.back) * 0.5 * 0.96 - 0.004, 5, 4); }
@@ -453,7 +619,7 @@ export function bodyGeometries(look, v) {
     if (beard === "full") Hx.blob(0.04, 0.022, 0.026, tone(hc, 0.02), 0, cy - 0.004, czf - 0.016, 7, 4);
     if (beard === "pointed") Hx.cone(0.035, 0.075, hc, 0, cy - 0.035, czf - 0.008, Math.PI, 0, 6, 1, 0.8);
     if (beard === "forked") [-1, 1].forEach((sd) => Hx.cone(0.022, 0.07, hc, sd * 0.02, cy - 0.032, czf - 0.008, Math.PI, sd * -0.18, 5, 1, 0.8));
-    if (beard === "long") { Hx.cone(0.05, 0.17, hc, 0, cy - 0.075, czf - 0.016, Math.PI, 0, 7, 1.05, 0.7); Hx.box(0.03, 0.012, 0.03, "#3a2a1c", 0, cy - 0.11, czf - 0.012); }
+    if (beard === "long") { Hx.cone(0.05, 0.17, hc, 0, cy - 0.075, czf - 0.016, Math.PI, 0, 7, 1.05, 0.7); Hx.as(0).box(0.03, 0.012, 0.03, "#3a2a1c", 0, cy - 0.11, czf - 0.012); Hx.as(2); }
     if (beard === "goatee") Hx.cone(0.022, 0.035, hc, 0, cy - 0.012, czf - 0.004, Math.PI, 0, 5, 1, 0.8);
   }
   { const g = Hx.done(); if (g) pieces.head.push(g); }
@@ -488,7 +654,7 @@ export function bodyGeometries(look, v) {
     if (look.plume) H.box(0.03, 0.12, 0.2, look.plume, 0, 0.22, -0.03);
   }
   if (hd === "crown") { H.tube(0.128, 0.122, 0.07, 0.125, "#7a6028", 0, 0, 8); for (let i = 0; i < 6; i++) { const a = (i / 6) * Math.PI * 2; H.cone(0.02, 0.055, "#8a6e30", Math.sin(a) * 0.123, 0.15, Math.cos(a) * 0.123, 0, 0, 4); } H.box(0.025, 0.025, 0.012, "#5a1a20", 0, 0.098, 0.126); }
-  if (covered && !palHelm && (hs === "long" || hs === "braid" || hs === "ponytail")) H.box(0.18, 0.12, 0.04, hc, 0, -0.12, -0.11);
+  if (covered && !palHelm && (hs === "long" || hs === "braid" || hs === "ponytail")) H.as(2).box(0.18, 0.12, 0.04, hc, 0, -0.12, -0.11).as(0);
   { const g = H.done(); if (g) pieces.head.push(fit(g)); }
   // Face details laid on the face (hidden by full helmets and masks): eyes, lids, brows, nostrils, mouth, ears.
   if (palHelm) palPiece("head");                                       // the paladin's great helm
@@ -498,20 +664,20 @@ export function bodyGeometries(look, v) {
     const ex = hm.halfW * 0.4, iris = ["#3a2818", "#2c3a48", "#38402a", "#4a3220"][v.seed % 4];
     const earsHidden = hs === "long" || (F && (hs === "twinbraids"));
     if ((!covered || hd === "cap" || hd === "hat" || hd === "crown" || hd === "kerchief") && !earsHidden) [-1, 1].forEach((s) => {
-      Fc.blob(0.008, 0.02, 0.014, mixHex(skin, "#b05a48", 0.1), s * (hm.halfW - 0.001), ey - 0.03, cz - 0.012, 6, 4);   // ear
-      Fc.box(0.004, 0.014, 0.008, tone(skin, -0.32), s * (hm.halfW + 0.005), ey - 0.03, cz - 0.01);                   // ear hole
+      Fc.as(1).blob(0.008, 0.02, 0.014, mixHex(skin, "#b05a48", 0.12), s * (hm.halfW - 0.001), ey - 0.03, cz - 0.012, 6, 4);   // ear
+      Fc.as(0).box(0.004, 0.014, 0.008, tone(skin, -0.32), s * (hm.halfW + 0.005), ey - 0.03, cz - 0.01);                   // ear hole
     });
     [-1, 1].forEach((s) => {
       const z = fz(s * ex, ey);
-      Fc.box(0.026, 0.013, 0.008, "#c8bea8", s * ex, ey, z + 0.001);                                       // white of the eye
+      Fc.as(3).box(0.026, 0.013, 0.008, "#c8bea8", s * ex, ey, z + 0.001);                                 // white of the eye (wet: glossy)
       Fc.box(0.012, 0.013, 0.006, iris, s * (ex - 0.002), ey - 0.001, z + 0.004);                         // iris
       Fc.box(0.005, 0.006, 0.004, "#0c0907", s * (ex - 0.002), ey - 0.001, z + 0.007);                     // pupil
-      Fc.box(0.03, 0.006, 0.01, tone(skin, -0.4), s * ex, ey + 0.009, z + 0.004, look.angry ? 0.2 : 0);    // upper lid
+      Fc.as(0).box(0.03, 0.006, 0.01, tone(skin, -0.4), s * ex, ey + 0.009, z + 0.004, look.angry ? 0.2 : 0);    // upper lid
       Fc.box(0.024, 0.003, 0.006, tone(skin, -0.18), s * ex, ey - 0.009, z + 0.002);                       // lower lid
       // brow in two pieces: thicker near the nose, thinner and lower at the end
       const brow = F ? tone(hc, 0.12) : tone(hc, 0.02), by = ey + (F ? 0.027 : 0.025), tilt = look.angry ? 0.35 : F ? -0.1 : -0.03;
-      Fc.box(0.022, F ? 0.007 : 0.01, 0.012, brow, s * (ex - 0.008), by + (look.angry ? -0.003 : 0), fz(s * (ex - 0.008), by) + 0.004, 0, 0, s * tilt);
-      Fc.box(0.022, F ? 0.005 : 0.007, 0.01, brow, s * (ex + 0.013), by - 0.003, fz(s * (ex + 0.013), by - 0.003) + 0.003, 0, 0, s * (tilt - 0.25));
+      Fc.as(2).box(0.022, F ? 0.007 : 0.01, 0.012, brow, s * (ex - 0.008), by + (look.angry ? -0.003 : 0), fz(s * (ex - 0.008), by) + 0.004, 0, 0, s * tilt);
+      Fc.box(0.022, F ? 0.005 : 0.007, 0.01, brow, s * (ex + 0.013), by - 0.003, fz(s * (ex + 0.013), by - 0.003) + 0.003, 0, 0, s * (tilt - 0.25)).as(0);
       if (look.old) Fc.box(0.012, 0.003, 0.004, tone(skin, -0.3), s * (ex + 0.022), ey - 0.008, fz(s * (ex + 0.02), ey - 0.008) + 0.002, 0, 0, s * 0.5);   // crow's feet
     });
     if (look.old) [0.05, 0.062].forEach((dy) => Fc.box(0.05, 0.003, 0.004, tone(skin, -0.25), 0, ey + dy, fz(0, ey + dy) + 0.002));    // forehead lines
@@ -528,12 +694,14 @@ export function bodyGeometries(look, v) {
       const ang = Math.atan2(zc - ze, LW / 2), len = Math.hypot(LW / 2, zc - ze);
       Fc.box(len, h, depth, hex, x1 / 2, y, (zc + ze) / 2 + zOff + depth / 2 - 0.0008 + lift, 0, sd * ang, 0);
     };
+    Fc.as(1);                                                                                            // lips: skin, a little glossy
     [-1, 1].forEach((sd) => {
       lipHalf(my + 0.004, F ? 0.0055 : 0.0045, 0.004, lipCol, sd);                    // upper lip
       lipHalf(my, 0.0025, 0.004, lipDark, sd, 0.0006);                                // line of the mouth
       lipHalf(my - 0.0046, F ? 0.0068 : 0.0055, 0.0045, tone(lipCol, 0.1), sd);       // lower lip
     });
     Fc.box(0.005, 0.003, 0.003, tone(lipCol, -0.15), 0, my + 0.0075, Math.max(fz(0, my + 0.009), fz(0.003, my + 0.009)) + zOff + 0.0012);   // the bow in the middle of the upper lip
+    Fc.as(2);
     if (lipOver) [-1, 1].forEach((sd) => {                                                                // moustache: two halves, the ends droop
       const droop = beard === "moustache" || beard === "chops";
       Fc.box(0.034, 0.012, 0.014, hc, sd * 0.017, my + 0.015, lipZ(my + 0.015) + lipOver + 0.002, 0, 0, sd * -0.12);
