@@ -370,7 +370,7 @@ export function createGame(canvas, hooks, saved) {
     const d = NPC_DEFS.find((x) => x.id === n.id), dead = !n.alive;
     if (n.mesh) scene.remove(n.mesh);
     n.mesh = makeHuman(lookOf(d, dead ? n.inv : null), weaponOf(d, dead ? n.inv : null), d.id);
-    if (dead && d.boss && !n.inv.testa_morn) n.mesh.userData.head.visible = false;                       // the head went to Ser Alaric
+    if (dead && d.boss && !n.inv.testa_morn) n.mesh.userData.headGone = true;                       // the head went to Ser Alaric
     scene.add(n.mesh); n.poseP = null;
   };
   const npcs = NPC_DEFS.map((d) => {
