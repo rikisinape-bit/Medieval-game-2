@@ -234,7 +234,7 @@ function baseBody(female) {
   for (const [name, p] of Object.entries(src.parts)) {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(p.p, 3)); g.setIndex(p.i); g.computeVertexNormals();   // smooth normals: used to inflate clothes
-    parts[name] = { pos: g.attributes.position.array, nrm: g.attributes.normal.array, idx: p.i, t: p.t, piv: src.rig.pivots[name] };
+    parts[name] = { pos: g.attributes.position.array, nrm: g.attributes.normal.array, idx: p.i, t: p.t, piv: src.rig.pivots[name], j: p.j, w: p.w };
   }
   const R = src.rig;
   // A few landmarks measured on the parts themselves.
@@ -279,7 +279,8 @@ function faceZ(B, x, y) {
  */
 function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004, skin = null, hair = null, hairKind = 2 }) {
   const P = B.parts[part], pv = P.piv, sx = part === "head" ? 1 : bulk;
-  const out = [], col = [], nrm = [], srf = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
+  const out = [], col = [], nrm = [], srf = [], sj = [], sw = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
+  const skinV = (j) => { for (let c = 0; c < 4; c++) { sj.push(P.j[j * 4 + c]); sw.push(P.w[j * 4 + c]); } };   // the bones of a base vertex
   const vtx = (j, dd = d) => [P.pos[j * 3] * sx + P.nrm[j * 3] * dd, P.pos[j * 3 + 1] + P.nrm[j * 3 + 1] * dd, P.pos[j * 3 + 2] * sx + P.nrm[j * 3 + 2] * dd];
   const nAt = (j) => { const n = [P.nrm[j * 3] / sx, P.nrm[j * 3 + 1], P.nrm[j * 3 + 2] / sx], l = Math.hypot(...n) || 1; return [n[0] / l, n[1] / l, n[2] / l]; };
   const faceN = (a, b, c) => {                                    // as computeVertexNormals: (c - b) x (a - b)
@@ -330,12 +331,12 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
     if (tint) {                                                    // smooth: normals of the model, colour per vertex
       tri.forEach((j, e) => {
         const p = v[e], wx = p[0] + pv[0], wy = p[1] + pv[1], wz = p[2] + pv[2], m = tint(wx, wy, wz, P.t ? P.t[j] : 0, part === "head", P.curv ? P.curv[j] : 0), g = grimeAt(wy);
-        out.push(...p); nrm.push(...(isSkin ? cornerN(i, j) : nAt(j))); col.push(_c.r * m[0] * g, _c.g * m[1] * g, _c.b * m[2] * g); srf.push(isSkin ? 1 : kind);
+        out.push(...p); nrm.push(...(isSkin ? cornerN(i, j) : nAt(j))); col.push(_c.r * m[0] * g, _c.g * m[1] * g, _c.b * m[2] * g); srf.push(isSkin ? 1 : kind); skinV(j);
       });
       const g = grimeAt(cy); er *= g; eg *= g; eb *= g;
     } else {
       const k = grimeAt(cy) * (1 - noise / 2 + rand() * noise), n = faceN(v[0], v[1], v[2]);   // per-face variation = worn, dirty cloth
-      v.forEach((p) => { out.push(...p); nrm.push(...n); col.push(_c.r * k, _c.g * k, _c.b * k); srf.push(kind); });
+      v.forEach((p, e) => { out.push(...p); nrm.push(...n); col.push(_c.r * k, _c.g * k, _c.b * k); srf.push(kind); skinV(tri[e]); });
       er *= k; eg *= k; eb *= k;
     }
     if (edge) for (let e = 0; e < 3; e++) {
@@ -348,11 +349,12 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
   if (edge) picked.forEach((e) => {
     if (!e) return;
     const [a, b, r, g, bl] = e, A1 = vtx(a), B1 = vtx(b), A0 = vtx(a, -0.002), B0 = vtx(b, -0.002);
-    [[A1, B1, B0], [A1, B0, A0], [A1, B0, B1], [A1, A0, B0]].forEach((f) => { const n = faceN(...f); f.forEach((p) => { out.push(...p); nrm.push(...n); col.push(r, g, bl); srf.push(kind); }); });
+    [[A1, B1, B0, a, b, b], [A1, B0, A0, a, b, a], [A1, B0, B1, a, b, b], [A1, A0, B0, a, a, b]].forEach((f) => { const n = faceN(f[0], f[1], f[2]); f.slice(0, 3).forEach((p, e) => { out.push(...p); nrm.push(...n); col.push(r, g, bl); srf.push(kind); skinV(f[3 + e]); }); });
   });
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3)); g.setAttribute("surf", new THREE.Float32BufferAttribute(srf, 1));
+  g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(sj, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(sw, 4));
   return g;
 }
 
@@ -395,38 +397,28 @@ export function bodyGeometries(look, v) {
   // A piece of the paladin armour (paladin.json): triangles in the part's space with the texture's UVs; the vertex
   // colour is only the dirt towards the ground (drawn with PALADIN_MAT, separately from the body's mesh).
   const palPieces = {};
-  // The skirt and the tassets (the torso piece below the hips) bend with the thighs, or the legs come out through
-  // them: skin weights on the body (0) and on four helpers at the hips (models.js), the front one of each leg follows
-  // it only forwards, the back one only backwards (1 front right, 2 back right, 3 front left, 4 back left).
-  const SKIRT_TOP = PV.legR[1], SKIRT_LOW = PV.legR[1] - 0.12;
-  const skirtWeights = (x, y, z) => {
-    const w = Math.sqrt(sstep(SKIRT_TOP, SKIRT_LOW, y)), f = sstep(PV.legR[2] - 0.04, PV.legR[2] + 0.04, z), rt = sstep(-0.03, 0.03, x);
-    const ws = [[0, 1 - w], [1, w * f * rt], [2, w * (1 - f) * rt], [3, w * f * (1 - rt)], [4, w * (1 - f) * (1 - rt)]].sort((a, b) => b[1] - a[1]).slice(0, 4);
-    const sum = ws.reduce((s, a) => s + a[1], 0);
-    return ws.map(([i, v]) => [i, v / sum]);
+  // Garments hanging below the hips (skirts, tunic hems, robes, aprons, capes, the paladin's skirt and tassets) bend
+  // with the legs, or the legs would come out through them: weights on the pelvis and on helper bones at the hips
+  // (models.js): the front of each side follows its thigh only forwards, the back only backwards, and the front below
+  // the knee follows the shin (a long skirt falls from the knees when sitting). Bones: 0 pelvis, 19 front right,
+  // 20 back right, 21 front left, 22 back left, 23 right knee, 24 left knee.
+  const SKIRT_TOP = PV.legR[1], SKIRT_LOW = PV.legR[1] - 0.12, kneeY0 = PV.shinR[1];
+  const garmentSkin = (x, y, z) => {
+    const w = Math.sqrt(sstep(SKIRT_TOP, SKIRT_LOW, y)), f = sstep(PV.legR[2] - 0.04, PV.legR[2] + 0.04, z), rt = sstep(-0.03, 0.03, x), k = sstep(kneeY0 + 0.08, kneeY0 - 0.06, y);
+    return new Map([[0, 1 - w], [19, w * f * rt * (1 - k)], [23, w * f * rt * k], [20, w * (1 - f) * rt], [21, w * f * (1 - rt) * (1 - k)], [24, w * f * (1 - rt) * k], [22, w * (1 - f) * (1 - rt)]]);
   };
   const palPiece = (name) => {
     const P = PALADIN.m.parts[name]; if (!P) return;
     const sx = name === "head" ? 1 : BK, y0 = (name === "head" ? PV.head : name.startsWith("pad") ? PV[name === "padR" ? "armR" : "armL"] : PV[name] || [0, 0, 0])[1];
-    const out = { [name]: { pos: [], uv: [], col: [] }, skirt: { pos: [], uv: [], col: [], si: [], sw: [] } };
+    const pos = [], uv = [], col = [];
     for (let t = 0; t < P.i.length; t += 3) {
       const k = (1 - (dirt * 0.45) * (1 - Math.min(1, Math.max(0, (y0 + P.p[P.i[t] * 3 + 1]) / 1.1)))) * (0.97 + r() * 0.06);
-      const low = name === "torso" && [0, 1, 2].some((j) => P.p[P.i[t + j] * 3 + 1] < SKIRT_TOP), o = out[low ? "skirt" : name];
-      for (let j = 0; j < 3; j++) {
-        const v = P.i[t + j], x = P.p[v * 3], y = P.p[v * 3 + 1], z = P.p[v * 3 + 2];
-        o.pos.push(x * sx, y, z * sx); o.uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); o.col.push(k, k, k);
-        if (low) { const ws = skirtWeights(x, y, z); ws.forEach(([i, wv]) => { o.si.push(i); o.sw.push(wv); }); for (let e = ws.length; e < 4; e++) { o.si.push(0); o.sw.push(0); } }
-      }
+      for (let j = 0; j < 3; j++) { const v = P.i[t + j]; pos.push(P.p[v * 3] * sx, P.p[v * 3 + 1], P.p[v * 3 + 2] * sx); uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); col.push(k, k, k); }
     }
-    Object.entries(out).forEach(([n, o]) => {
-      if (!o.pos.length) return;
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(o.pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(o.uv, 2));
-      g.setAttribute("color", new THREE.Float32BufferAttribute(o.col, 3));
-      if (o.si) { g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(o.si, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(o.sw, 4)); }
-      g.computeVertexNormals(); g.computeBoundingSphere();
-      palPieces[n] = g;
-    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals(); g.computeBoundingSphere();
+    palPieces[name] = g;
   };
   const shell = (part, d, colorOf, o = {}) => pieces[part].push(bodyMesh(Bd, part, colorOf, { ...opt, ...o, d }));
 
@@ -725,18 +717,7 @@ export function bodyGeometries(look, v) {
     const name = side > 0 ? "armR" : "armL";
     const sleeve = look.sleeves === "rolled" ? skin : cloth;
     const hand = paladin ? PAL_GLOVE : plate ? tone(metal, -0.12) : look.gloves || skin;
-    // Under the paladin cuirass the arm's skin on the chest, the back and in the armpit stays with the trunk: turning
-    // with the arm (attacks, talking) it came out through the plates, in front of the chest.
-    const pv = PV[name], onTrunk = (x, y, z, t) => {
-      if (!paladin || t > 0.35) return false;
-      const rx = Math.abs((x - pv[0]) / BK + pv[0]), rz = (z - pv[2]) / BK;
-      return (y < pv[1] - 0.055 && rx < profileAt(R, y)[1] + 0.015) || (t < 0.25 && Math.abs(rz) > 0.075 && rx < Math.abs(pv[0]) + 0.01);
-    };
-    shell(name, 0, (x, y, z, t) => (onTrunk(x, y, z, t) ? null : t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
-    if (paladin) {                                                   // ...drawn in the trunk's space (same place at rest)
-      const g = bodyMesh(Bd, name, (x, y, z, t) => (onTrunk(x, y, z, t) ? torsoCol : null), { ...opt, d: 0 });
-      g.translate(pv[0] * BK, pv[1], pv[2]); pieces.torso.push(g);
-    }
+    shell(name, 0, (x, y, z, t) => (t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
     const A = Part(PV.armR[1], r, 0.2), at = (t) => { const p = Bd.armAt(t); return [p[0] * side * BK, p[1], p[2] * BK]; };
     const ring = (t1, t2, r1, r2, hex) => { const a1 = at(t1), a2 = at(t2); A.tube(r1, r2, a1[1], a2[1], hex, (a1[0] + a2[0]) / 2, (a1[2] + a2[2]) / 2, 8); };
     if (plate) {
@@ -779,8 +760,6 @@ export function bodyGeometries(look, v) {
   const leg = (sd) => {
     const th = sd > 0 ? "legR" : "legL", sh = sd > 0 ? "shinR" : "shinL", hp = PV[th], kp = PV[sh];
     [th, sh].forEach((name) => shell(name, paladin ? -PAL_SLIM : 0, legCol));   // under the paladin plates: slim cloth hose
-    // knee joint filler (thigh space): covers the gap behind the knee when it bends
-    const kf = paladin ? 0.8 : 1, Kf = Part(hp[1], r, dirt); Kf.blob(R.knee.r * 0.95 * kf, R.knee.r * 1.1 * kf, R.knee.r * 0.95 * kf, legCol(0, kneeY), (kp[0] - hp[0]) * sd * sd, kp[1] - hp[1], kp[2] - hp[2], 7, 5); pieces[th].push(Kf.done());
     if (paladin) return;                                            // the paladin's greaves and sabatons (added below) cover the legs
     if (plate) {                                                    // cuisse with tassets, poleyn with its wing, greave, sabaton
       shell(th, 0.018, (x, y) => (y > kneeY + 0.03 ? metal : null)); shell(sh, 0.018, (x, y) => (y < kneeY - 0.04 && y > 0.1 ? steel : null));
@@ -802,12 +781,61 @@ export function bodyGeometries(look, v) {
   if (paladin) ["torso", "armR", "armL", "legR", "legL", "shinR", "shinL", "padR", "padL"].forEach(palPiece);
 
   const merge = (all) => { const list = all.filter((x) => x && x.attributes.position.count); if (!list.length) return null; const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; };
-  const geo = Object.fromEntries(Object.entries(pieces).map(([k, l]) => [k, merge(l)]));
+  // ---------- SKINNING: the whole body in the character's space, each vertex following up to 4 bones ----------
   // The parts are built around the pivots of the unwidened body: shoulders and hips move out with the bulk.
   const wide = (p) => [p[0] * BK, p[1], p[2]];
   const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL) };
+  // the first-person arms stay rigid, in the arm's own space (makeViewmodel)
+  const rigid = (g) => { const c = g.clone(); c.deleteAttribute("skinIndex"); c.deleteAttribute("skinWeight"); return c; };
+  const fp = { armR: merge(pieces.armR.filter(Boolean).map(rigid)), armL: merge(pieces.armL.filter(Boolean).map(rigid)),
+    palR: palPieces.armR?.clone(), palL: palPieces.armL?.clone() };
+  // base vertices in the character's space with their bones: a piece that has none takes those of the nearest ones
+  const base = {};
+  for (const [name, P] of Object.entries(Bd.parts)) {
+    const sx = name === "head" ? 1 : BK, pv = pivots[name], n = P.pos.length / 3, pts = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { pts[i * 3] = P.pos[i * 3] * sx + pv[0]; pts[i * 3 + 1] = P.pos[i * 3 + 1] + pv[1]; pts[i * 3 + 2] = P.pos[i * 3 + 2] * sx + pv[2]; }
+    base[name] = { pts, j: P.j, w: P.w, n };
+  }
+  const near = (names) => (x, y, z) => {
+    const best = [[1e9, null, 0], [1e9, null, 0], [1e9, null, 0]];
+    for (const nm of names) {
+      const B = base[nm];
+      for (let i = 0; i < B.n; i++) {
+        const dx = B.pts[i * 3] - x, dy = B.pts[i * 3 + 1] - y, dz = B.pts[i * 3 + 2] - z, d = dx * dx + dy * dy + dz * dz;
+        if (d < best[2][0]) { best[2] = [d, B, i]; best.sort((p, q) => p[0] - q[0]); }
+      }
+    }
+    const acc = new Map();
+    for (const [d, B, i] of best) { if (!B) continue; const k = 1 / (d + 1e-6); for (let c = 0; c < 4; c++) { const wv = B.w[i * 4 + c]; if (wv > 0) acc.set(B.j[i * 4 + c], (acc.get(B.j[i * 4 + c]) || 0) + wv * k); } }
+    return acc;
+  };
+  const HEAD = new Map([[4, 1]]), nearTorso = near(["torso"]);
+  const torsoPiece = (x, y, z) => (y < SKIRT_TOP ? garmentSkin(x, y, z) : nearTorso(x, y, z));   // hanging below the hips: a garment
+  const skinBy = (g, fn) => {
+    const p = g.attributes.position, n = p.count, si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const l = [...fn(p.getX(i), p.getY(i), p.getZ(i)).entries()].filter((e) => e[1] > 1e-4).sort((q, t) => t[1] - q[1]).slice(0, 4), sum = l.reduce((t, e) => t + e[1], 0) || 1;
+      l.forEach(([b, wv], c) => { si[i * 4 + c] = b; sw[i * 4 + c] = wv / sum; });
+    }
+    g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(sw, 4));
+  };
+  const weigher = (name) => (name === "head" ? () => HEAD : name === "torso" ? torsoPiece : name.startsWith("pad") ? near([name === "padR" ? "armR" : "armL", "torso"]) : near([name]));
+  const pivotOf = (name) => (name.startsWith("pad") ? pivots[name === "padR" ? "armR" : "armL"] : pivots[name]);
+  const all = [], palAll = [];
+  for (const [name, list] of Object.entries(pieces)) for (const g of list) {
+    if (!g || !g.attributes.position.count) continue;
+    const pv = pivotOf(name); g.translate(pv[0], pv[1], pv[2]);
+    if (!g.attributes.skinIndex) skinBy(g, weigher(name));
+    all.push(g);
+  }
+  for (const [name, g] of Object.entries(palPieces)) { const pv = pivotOf(name); g.translate(pv[0], pv[1], pv[2]); skinBy(g, weigher(name)); palAll.push(g); }
+  // the bones' joints, widened like the body (the head is not)
+  const joints = R.joints.map((j, i) => (R.bones[i] === "head" ? j : [j[0] * BK, j[1], j[2] * BK]));
   const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
-  const out = { ...geo, pal: palPieces, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
+  const ft = Bd.foot, kp = pivots.shinR;                                // heel and toe of the right foot (ground contact)
+  const out = { body: merge(all), palBody: merge(palAll), armR: fp.armR, armL: fp.armL, pal: { armR: fp.palR, armL: fp.palL }, bones: R.bones, joints,
+    heelToe: [[kp[0] + ft.x * BK, 0, kp[2] + (ft.z - ft.d * 0.42) * BK], [kp[0] + ft.x * BK, 0, kp[2] + (ft.z + ft.d * 0.42) * BK]],   // the sole
+    long, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
   cache.set(key, out);
   return out;
 }

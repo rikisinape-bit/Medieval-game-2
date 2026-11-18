@@ -77,6 +77,44 @@ function loop(P, I) {
   return { p: out, i: idx };
 }
 
+// A ring of new vertices where a plane crosses the mesh: every crossed triangle is split along the plane, so the shape
+// does not change but there are vertices at that place (the low-poly arms had none between the upper arm and the
+// wrist, the shins none above the ankle: a skinned joint could not bend there). dist(v): signed distance to the plane.
+// Only triangles passing test() start the ring; it then closes over every triangle sharing a split edge (no cracks).
+function cut(V, I, dist, test) {
+  const d = V.map(dist), eps = 1e-7, key = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
+  const crosses = (a, b) => (d[a] > eps && d[b] < -eps) || (d[a] < -eps && d[b] > eps);
+  const split = new Set(), tri = (t) => [I[t], I[t + 1], I[t + 2]];
+  for (let t = 0; t < I.length; t += 3) { const v = tri(t); if (test(v)) for (let e = 0; e < 3; e++) if (crosses(v[e], v[(e + 1) % 3])) split.add(key(v[e], v[(e + 1) % 3])); }
+  for (let grew = true; grew;) {
+    grew = false;
+    for (let t = 0; t < I.length; t += 3) {
+      const v = tri(t); if (![0, 1, 2].some((e) => split.has(key(v[e], v[(e + 1) % 3])))) continue;
+      for (let e = 0; e < 3; e++) { const k = key(v[e], v[(e + 1) % 3]); if (crosses(v[e], v[(e + 1) % 3]) && !split.has(k)) { split.add(k); grew = true; } }
+    }
+  }
+  const mid = new Map(), at = (a, b) => {
+    const k = key(a, b);
+    if (!mid.has(k)) { const s = d[a] / (d[a] - d[b]); V.push(V[a].map((x, c) => x + (V[b][c] - x) * s)); d.push(0); mid.set(k, V.length - 1); }
+    return mid.get(k);
+  };
+  const out = [];
+  for (let t = 0; t < I.length; t += 3) {
+    const v = tri(t), cuts = [0, 1, 2].filter((e) => split.has(key(v[e], v[(e + 1) % 3])));
+    if (!cuts.length) { out.push(...v); continue; }
+    if (cuts.length === 1) { const e = cuts[0], a = v[e], b = v[(e + 1) % 3], c = v[(e + 2) % 3], m = at(a, b); out.push(a, m, c, m, b, c); continue; }   // the third corner is on the plane
+    const e = [0, 1, 2].find((k) => cuts.includes(k) && cuts.includes((k + 2) % 3));          // the corner alone on its side
+    const l = v[e], m = v[(e + 1) % 3], n = v[(e + 2) % 3], p = at(l, m), q = at(n, l);
+    out.push(l, p, q, p, m, n, p, n, q);
+  }
+  I.length = 0; I.push(...out);
+  return mid.size;
+}
+
+// Bones of the skinned body (the game builds them in this order; 19-22 are the skirt's helpers at the hips).
+const BONES = ["pelvis", "spine", "chest", "neck", "head", "clavR", "upperArmR", "forearmR", "handR", "clavL", "upperArmL", "forearmL", "handL",
+  "thighR", "shinR", "footR", "thighL", "shinL", "footL"];
+
 function build(raw, J) {
   // 1. weld + centre + scale
   const map = new Map(), V = [], I = [];
@@ -94,7 +132,7 @@ function build(raw, J) {
   // 2. arms: axis from the vertices well outside the shoulders, then smooth weights along it
   const zAt = (y, x) => { const n = V.filter((v) => Math.abs(v[1] - y) < 0.06 && Math.abs(v[0]) < x + 0.04).map((v) => v[2]); return (Math.min(...n) + Math.max(...n)) / 2; };   // middle of the body's depth
   const arms = {};
-  for (const side of [1, -1]) {
+  for (const side of [1, -1]) {                       // the arm's axis, length and wrist, on the original mesh
     const S = [side * J.shoulder[0], J.shoulder[1], zAt(J.shoulder[1], J.shoulder[0])];
     const far = V.filter((v) => v[0] * side > J.shoulder[0] + 0.1 && v[1] > 0.75);
     const farP = pca(far); let a = farP.axes[0]; if (dot(a, [side, -1, 0]) < 0) a = mul(a, -1);
@@ -108,6 +146,23 @@ function build(raw, J) {
       const m = rs.length ? Math.max(...rs) : 1;
       if (m < best) { best = m; wrist = t; }
     }
+    arms[side] = { S, a, farP, wrist, tips };
+  }
+
+  // Rings of vertices at the joints (the shape does not change): elbows and forearms, knees, above the ankles, waist.
+  let rings = 0;
+  for (const side of [1, -1]) {
+    const { S, a, wrist } = arms[side];
+    for (const u of [0.4, 0.46, 0.52, 0.58, 0.65, 0.78]) rings += cut(V, I, (v) => dot(sub(v, S), a) - wrist * u, (tri) => tri.every((j) => V[j][0] * side > J.shoulder[0] + 0.06 && V[j][1] > 0.6));
+  }
+  for (const y0 of [J.knee - 0.03, J.knee + 0.03, 0.095, 0.12, 0.16, 0.21]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => V[j][1] < 0.6));
+  for (const y0 of [J.hipY + 0.12, J.hipY + 0.16]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => Math.abs(V[j][0]) < 0.24 && V[j][1] > J.crotch));
+  console.log(`  ${rings} vertices added at the joints`);
+
+  for (const side of [1, -1]) {                       // arm coordinates and weights on the new mesh
+    const A = arms[side], { S, a, farP, wrist } = A;
+    const T = V.map((v) => dot(sub(v, S), a));
+    const R = V.map((v, i) => len(sub(sub(v, S), mul(a, T[i]))));
     const W = V.map((v, i) => {                         // arm weight: on the arm axis, beyond the shoulder
       const lim = 0.075 + 0.25 * Math.max(0, T[i] - wrist + 0.03);
       if (v[0] * side > J.shoulder[0] + 0.09 && v[1] > 0.75) return 1;               // in the A-pose everything out there is arm
@@ -117,12 +172,14 @@ function build(raw, J) {
     const handPts = V.filter((v, i) => W[i] > 0.9 && T[i] > wrist + 0.02);
     const hp = pca(handPts); let palm = hp.axes[2];
     if (dot(palm, [-side, 0, 0]) < 0) palm = mul(palm, -1);        // the palm faces the body
-    arms[side] = { S, a, T, W, wrist, tips, palm };
+    Object.assign(A, { T, W, palm });
     // Probes on the arm's real axis (through the middle of the arm, not through the shoulder point S): posed with the
     // arm like any vertex, they give the axis of the posed arm (for fitting armour onto it).
     const off = sub(sub(S, farP.c), mul(a, dot(sub(S, farP.c), a)));
-    arms[side].probe = [0.05, 0.52, 1.0].map((u) => { const T0 = u * wrist; V.push(add(sub(S, off), mul(a, T0))); T.push(T0); W.push(1); return V.length - 1; });
+    A.probe = [0.05, 0.52, 1.0].map((u) => { const T0 = u * wrist; V.push(add(sub(S, off), mul(a, T0))); T.push(T0); W.push(1); return V.length - 1; });
   }
+  arms[-1].T.length = arms[-1].W.length = V.length;               // (the left arm's arrays also cover the right probes)
+  for (let i = 0; i < V.length; i++) { for (const sd of [1, -1]) { const A = arms[sd]; if (A.T[i] === undefined) { A.T[i] = dot(sub(V[i], A.S), A.a); A.W[i] = 0; } } }
 
   // Pose, distal first (everything uses the original arm coordinates T): finger tips, knuckles, elbow, shoulder.
   const P = V.map((v) => [...v]);
@@ -202,28 +259,80 @@ function build(raw, J) {
     const kx = (Math.min(...xs) + Math.max(...xs)) / 2, kz = (Math.min(...zs) + Math.max(...zs)) / 2 - 0.01;
     pivots.shinR = [+kx.toFixed(4), +kneeY.toFixed(4), +kz.toFixed(4)]; pivots.shinL = [-pivots.shinR[0], pivots.shinR[1], pivots.shinR[2]];
     rigKnee = { r: +((Math.max(...xs) - Math.min(...xs)) / 2).toFixed(3) }; }
+  // ---------- skin weights: how much each vertex follows each bone ----------
+  const shY = shoulder[1], span = shY - hipY, neckZ = headPivot[2] - 0.015, ankleY = 0.085;
+  // the trunk: pelvis -> spine -> chest -> neck -> head by height (the neck only in the middle, the face with the head
+  // down to the jaw, the nape a little higher up), the clavicles near the shoulders, the hips partly with the thighs
+  const trunkSkin = (p, w, k = 1) => {
+    const y = p[1], ax = Math.abs(p[0]), s = p[0] >= 0 ? "R" : "L";
+    const s1 = smooth(hipY, hipY + 0.12, y), s2 = smooth(hipY + span * 0.36, hipY + span * 0.65, y);
+    const col = Math.max(1 - smooth(0.085, 0.125, ax), smooth(neck, neck + 0.04, y));
+    const s3 = smooth(neck - 0.085, neck - 0.02, y) * col;
+    const yb = neck + 0.035 - 0.05 * smooth(neckZ - 0.02, neckZ + 0.06, p[2]), s4 = smooth(yb - 0.03, yb + 0.02, y);
+    let pel = 1 - s1, che = s1 * s2 * (1 - s3);
+    const cla = che * 0.6 * smooth(0.07, 0.14, ax) * smooth(shY - 0.15, shY - 0.04, y); che -= cla;
+    const thi = pel * 0.4 * smooth(hipY + 0.06, crotch + 0.02, y) * smooth(0.03, 0.09, ax); pel -= thi;
+    w("pelvis", k * pel); w("spine", k * s1 * (1 - s2)); w("chest", k * che); w("clav" + s, k * cla);
+    w("neck", k * s1 * s2 * s3 * (1 - s4)); w("head", k * s1 * s2 * s3 * s4); w("thigh" + s, k * thi);
+  };
+  const skinOf = (i) => {
+    const p = Ps[i], acc = {}, w = (b, v) => { if (v > 1e-4) acc[b] = (acc[b] || 0) + v; };
+    const sd = arms[1].W[i] > 0 ? 1 : arms[-1].W[i] > 0 ? -1 : 0;
+    let rest = 1;
+    if (sd) {                                          // the arm: upper arm, forearm (elbow), hand (wrist)
+      const A = arms[sd], Wa = A.W[i], T = A.T[i], eT = A.wrist * 0.52, s = sd > 0 ? "R" : "L";
+      const f = smooth(eT - 0.03, eT + 0.03, T), h = smooth(A.wrist - 0.012, A.wrist + 0.02, T);
+      w("upperArm" + s, Wa * (1 - f)); w("forearm" + s, Wa * f * (1 - h)); w("hand" + s, Wa * f * h); rest = 1 - Wa;
+    }
+    const lg = legOf(p);
+    if (rest > 0 && lg && kind[i] !== "torso") {        // the leg: thigh, shin (knee), foot (ankle); its top half pelvis
+      const s = lg > 0 ? "R" : "L", top = 0.5 * smooth(crotch - 0.03, hipY + 0.05, p[1]);
+      const kn = smooth(kneeY + 0.035, kneeY - 0.035, p[1]), an = smooth(ankleY + 0.03, ankleY - 0.02, p[1]);
+      w("pelvis", rest * top); w("thigh" + s, rest * (1 - top) * (1 - kn)); w("shin" + s, rest * (1 - top) * kn * (1 - an)); w("foot" + s, rest * (1 - top) * kn * an);
+    } else if (rest > 0) trunkSkin(p, w, rest);
+    return acc;
+  };
+  const top4 = (acc) => {                              // at most 4 bones, weights summing to 1
+    const l = Object.entries(acc).map(([b, v]) => [BONES.indexOf(b), v]).filter(([b, v]) => b >= 0 && v > 0.002).sort((x, y) => y[1] - x[1]).slice(0, 4);
+    const sum = l.reduce((t, [, v]) => t + v, 0) || 1, out = l.map(([b, v]) => [b, +(v / sum).toFixed(3)]);
+    while (out.length < 4) out.push([0, 0]);
+    return out;
+  };
+
+  // Each triangle in one part only (the skinned body bends at its joints: no doubled triangles hiding gaps), except
+  // the neck ring, kept in the head and the torso (the head is subdivided: it must overlap the neck).
+  const ORDER = ["head", "armR", "armL", "shinR", "shinL", "legR", "legL", "torso"];
+  const partsOf = (tri) => {
+    const ks = tri.map((j) => kind[j]), n = (k) => ks.filter((x) => x === k).length;
+    if (ks.includes("head") && ks.includes("torso")) return ["head", "torso"];
+    return [ORDER.reduce((best, k) => (n(k) > n(best) ? k : best), ORDER.find((k) => ks.includes(k)))];
+  };
   const parts = {};
   for (const name of Object.keys(pivots)) {
-    const used = new Map(), pos = [], idx = [], tt = [];
+    const used = new Map(), pos = [], idx = [], tt = [], jj = [], ww = [];
     for (let i = 0; i < I.length; i += 3) {
       const tri = [I[i], I[i + 1], I[i + 2]];
-      const ks = tri.map((j) => kind[j]);
-      if (!ks.includes(name)) continue;
-      // a cut triangle goes to both parts, except head/torso: those only where the neck is (not the shoulders)
+      if (!partsOf(tri).includes(name)) continue;
       tri.forEach((j) => {
         if (!used.has(j)) {
           used.set(j, pos.length / 3);
           const p = sub(Ps[j], pivots[name]); pos.push(...p.map((x) => +x.toFixed(4)));
           const side = name === "armR" ? 1 : name === "armL" ? -1 : 0;
           tt.push(side ? +(arms[side].T[j] / arms[side].wrist).toFixed(3) : 0);    // 0 shoulder .. 1 wrist .. >1 hand
+          top4(skinOf(j)).forEach(([b, v]) => { jj.push(b); ww.push(v); });
         }
         idx.push(used.get(j));
       });
     }
-    parts[name] = { p: pos, i: idx, ...(name.startsWith("arm") ? { t: tt } : {}) };
+    parts[name] = { p: pos, i: idx, ...(name.startsWith("arm") ? { t: tt } : {}), j: jj, w: ww };
   }
   // The head is subdivided once (Loop): rounder, more natural, and hairlines / beards get finer edges.
-  { const sub1 = loop(parts.head.p, parts.head.i); parts.head = { p: sub1.p.map((x) => +x.toFixed(4)), i: sub1.i }; }
+  { const sub1 = loop(parts.head.p, parts.head.i), jj = [], ww = [];
+    for (let v = 0; v < sub1.p.length / 3; v++) {
+      const acc = {}; trunkSkin(add([sub1.p[v * 3], sub1.p[v * 3 + 1], sub1.p[v * 3 + 2]], headPivot), (b, x) => { if (x > 1e-4) acc[b] = (acc[b] || 0) + x; });
+      top4(acc).forEach(([b, x]) => { jj.push(b); ww.push(x); });
+    }
+    parts.head = { p: sub1.p.map((x) => +x.toFixed(4)), i: sub1.i, j: jj, w: ww }; }
   const prof = [];
   for (let y = 0.3; y <= neck + 0.001; y += 0.05) {
     const pts = y > crotch + 0.2 ? section(y, (k) => k === "torso") : y > crotch ? section(y, (k) => k === "torso" || (k.startsWith("leg") || k.startsWith("shin"))) : section(y, (k) => (k.startsWith("leg") || k.startsWith("shin")));
@@ -250,6 +359,24 @@ function build(raw, J) {
       head: { top: +(headTop - headPivot[1]).toFixed(3), chin: +(neck - headPivot[1]).toFixed(3), halfW: +Math.max(...headPts.map((p) => Math.abs(p[0]))).toFixed(3),
         front: +(Math.max(...face.map((p) => p[2])) - headPivot[2]).toFixed(3), back: +(Math.min(...headPts.map((p) => p[2])) - headPivot[2]).toFixed(3), eye: +(eyeY - headPivot[1]).toFixed(3) },
       armLen: +(R.wrist * SCALE).toFixed(3),
+      bones: BONES,
+      // the skeleton's joints (character space, feet on y = 0), in the order of BONES
+      joints: (() => {
+        const pa = (y) => { let a = prof[0]; for (const r of prof) if (r[0] <= y) a = r; return a; };
+        const zc = (y) => (pa(y)[2] + pa(y)[3]) / 2, zf = (y) => pa(y)[3];
+        const an = section(0.1, (k) => k === "shinR"), ax = (Math.min(...an.map((q) => q[0])) + Math.max(...an.map((q) => q[0]))) / 2, az = (Math.min(...an.map((q) => q[1])) + Math.max(...an.map((q) => q[1]))) / 2;
+        // the arm's joints in the middle of the arm: elbow and wrist on the posed real axis (the old rig points were off
+        // the arm: it bent like a rubber hose), the shoulder
+        const ring = (sd) => add(sd > 0 ? shoulder : pivots.armL, [0.012 * sd, -0.04, -0.02]);   // a little under the top of the shoulder (measured on the man's arm)
+        const J2 = {
+          pelvis: [0, hipY, pivots.legR[2]], spine: [0, hipY + 0.1, zc(hipY + 0.1) - 0.015], chest: [0, hipY + span * 0.58, zc(hipY + span * 0.58) - 0.02],
+          neck: [0, neck - 0.05, neckZ - 0.005], head: [0, neck + 0.04, headPivot[2] - 0.025],
+          clavR: [0.025, shY - 0.04, zf(shY - 0.04) - 0.035], upperArmR: ring(1), forearmR: Ps[arms[1].probe[1]], handR: Ps[arms[1].probe[2]],
+          clavL: [-0.025, shY - 0.04, zf(shY - 0.04) - 0.035], upperArmL: ring(-1), forearmL: Ps[arms[-1].probe[1]], handL: Ps[arms[-1].probe[2]],
+          thighR: pivots.legR, shinR: pivots.shinR, footR: [ax, ankleY, az], thighL: pivots.legL, shinL: pivots.shinL, footL: [-ax, ankleY, az],
+        };
+        return BONES.map((b) => r3(J2[b]));
+      })(),
       torso: prof,
     },
   };
