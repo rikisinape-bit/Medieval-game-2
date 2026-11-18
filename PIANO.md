@@ -29,7 +29,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `fx.js` | Particelle a cubetti (`burst`) |
 | `audio.js` | Audio sintetizzato con Web Audio (nessun file) |
 | `Village3D.jsx` | App: HUD, hooks, log, pulsanti touch, salvataggio ogni 5 s |
-| `Inventory.jsx`, `Shop.jsx`, `InteractionDialog.jsx`, `TouchControls.jsx` | UI React |
+| `GameMenu.jsx` (schede Inventario, Reputazione, Diario, Partita), `CharacterPreview.jsx`, `Shop.jsx`, `LootPanel.jsx`, `InteractionDialog.jsx`, `TouchControls.jsx` | UI React |
 | `index.css` | Tema pergamena scuro (Cinzel, IM Fell English, VT323) |
 
 Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
@@ -163,7 +163,17 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     spalle, più testimoni), i muri attutiscono, le guardie che ti cercano vanno dove hanno sentito, i banditi ti sentono
     arrivare (prima scattavano a 16 m comunque; ora: vicino, se ti vedono o se ti sentono); orecchio nella barra quando ti
     hanno sentito; i passi suonano più piano da furtivo;
-  - campo dei banditi e selciato col kit; scollatura e corpetto degli abiti femminili (vedi sezione 7).
+  - campo dei banditi e selciato col kit; scollatura e corpetto degli abiti femminili (vedi sezione 7);
+  - inseguimento fino alla fine (`GIVE_UP` in `ai.js`): chi ti attacca (banditi, guardie, cavalieri) smette solo quando sei
+    a più di 35 m (prima un bandito a 22 m dal suo posto girava e tornava indietro, guarito di colpo); poi torna al suo posto e
+    guarisce piano (2 vita/s); il bosco non si "resetta" se rientri mentre ti inseguono; le guardie mandate dopo un crimine
+    visto ti riconoscono appena ti vedono (13 m);
+  - menu (`GameMenu.jsx`): scheda Inventario con a sinistra l'equipaggiamento (personaggio grande che gira solo se lo
+    trascini, `CharacterPreview.jsx`; testa e corpo a sinistra, arma e mano sinistra a destra, solo immagini) e a destra
+    l'inventario (tutti gli oggetti, oro e argento compresi, solo immagini con il numero se più di uno); toccando un oggetto
+    si apre accanto una finestra con l'effetto e i pulsanti (Usa, Equipaggia, Togli, Lascia a terra), ritoccandolo si chiude
+    (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
+    (pulsanti `inv-btn-lg`, testi 15–17 px).
 - **Pubblicare come app (idee, non fatto)**: subito una PWA (manifest, icona, offline; sito gratuito: GitHub Pages / Netlify /
   itch.io); poi Android con Capacitor (APK costruito da GitHub Actions, Google Play 25 $ una tantum); iPhone con Capacitor + Mac/Xcode
   (99 $/anno). Prima: verificare le licenze del kit "Lowpoly Medieval Asset", del modello del paladino e del corpo base (uso

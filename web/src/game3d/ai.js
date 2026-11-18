@@ -2,6 +2,9 @@ import { angDiff, zoneOf } from "./world";
 
 // Attack styles (poseHuman): overhead chop, horizontal cut, lunge, rising backhand. Each NPC blow picks one.
 const ATTACKS = ["over", "side", "thrust", "rise"];
+// Whoever has decided to stop the player keeps at it to the end: it gives up only when the player has got this far
+// away (metres). Then it goes back to its place and heals slowly (engine).
+export const GIVE_UP = 35;
 export const FIGHT = {
   knight: { block: 0.35, sp: 3.4, wind: 0.5 }, soldier: { block: 0.25, sp: 3.0, wind: 0.6 },
   smith: { block: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.2, sp: 3.8, wind: 0.55 },
@@ -22,7 +25,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
   const alertGuards = (x, z, r = 22, suspect = true) => npcs.forEach((g) => {
     if (!g.guard || !g.alive || g.hostile || g.spar || zoneOf(g.x, g.z) !== zoneOf(x, z) || Math.hypot(g.x - x, g.z - z) > r) return;
     if (suspect && sameZone(g) && sees(g, P.x, P.z, 16)) { g.hostile = true; say(`${g.name}: "Fermo là, criminale!"`); }
-    else { g.alert = 14; g.alertPos = [x, z]; g.actT = null; }
+    else { g.alert = 14; g.alertPos = [x, z]; g.alertSuspect = suspect; g.actT = null; }
   });
 
   const scream = (n, x, z, text, suspect = true) => {
@@ -98,10 +101,9 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
         if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
         else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }
-      const home = n.role === "bandit" && Math.hypot(n.x - n.pos[0], n.z - n.pos[1]) > 22;
-      if (d > 35 || home || (n.spar && d > 15)) {
+      // (before, a bandit 22 m from its post turned round and walked home, its back to the player, healed at once)
+      if (d > GIVE_UP || (n.spar && d > 15)) {
         n.hostile = false; n.state = "idle"; n.actT = null;
-        if (home) n.hp = n.hpMax;
         if (n.spar) { n.spar = false; n.hp = n.hpMax; say(`${n.name}: "Scappi dall'allenamento? Torna quando sei pronto."`); }
       }
       return out;
@@ -118,7 +120,10 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
     if (n.guard && n.alert > 0) {
       n.alert -= dt; out.mode = "look";
       if (step(n.alertPos[0], n.alertPos[1], 2.8)) out.mode = "look";
-      if (sameZone(n) && sees(n, P.x, P.z, 8) && (repOf(n) < -10 || Math.hypot(P.x - n.alertPos[0], P.z - n.alertPos[1]) < 5)) { n.hostile = true; n.alert = 0; say(`${n.name}: "Eccolo! Prendetelo!"`); }
+      // a guard sent after the culprit of a crime someone saw knows who it is looking for: it goes for the player as
+      // soon as it sees it; after a body is found it only suspects whoever is near the body (or a known criminal)
+      const known = n.alertSuspect, range = known ? 13 : 8;
+      if (sameZone(n) && sees(n, P.x, P.z, range) && (known || repOf(n) < -10 || Math.hypot(P.x - n.alertPos[0], P.z - n.alertPos[1]) < 5)) { n.hostile = true; n.alert = 0; say(`${n.name}: "Eccolo! Prendetelo!"`); }
       return out;
     }
 

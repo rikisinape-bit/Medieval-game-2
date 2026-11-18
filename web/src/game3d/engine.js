@@ -954,7 +954,7 @@ export function createGame(canvas, hooks, saved) {
   const bandits = () => npcs.filter((n) => n.role === "bandit" && n.alive);
   function resetForest() {
     enc.state = "idle"; enc.rescued = false;
-    bandits().forEach((b) => Object.assign(b, { goTo: null, hostile: false, state: "idle", hp: b.hpMax, actT: null }));
+    bandits().forEach((b) => Object.assign(b, { goTo: null, hostile: false, state: "idle", actT: null }));
   }
   // Bandits hidden behind the trees: either an ambush or the boss demanding a toll. Bolder at night.
   function updateEncounter() {
@@ -1129,7 +1129,8 @@ export function createGame(canvas, hooks, saved) {
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt;
     region = regionOf(P.x, P.z);
-    if (region !== lastRegion) { if (region === "forest" && P.z > FZ - 5) resetForest(); lastRegion = region; }
+    // back in the forest from the village: the bandits are again where they wait (not while they are chasing you)
+    if (region !== lastRegion) { if (region === "forest" && P.z > FZ - 5 && !bandits().some((b) => b.hostile)) resetForest(); lastRegion = region; }
     atmosphere(dt);
     updateCarriage(dt, time);
     updateHomes();
@@ -1200,6 +1201,7 @@ export function createGame(canvas, hooks, saved) {
         return;
       }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt; n.blockT = (n.blockT || 0) - dt;
+      if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
