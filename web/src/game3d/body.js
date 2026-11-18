@@ -47,7 +47,7 @@ varying vec3 vAcross;
 const BODY_FS = `varying float vSurf;
 varying vec3 vLoc;
 varying vec3 vAcross;
-float bHairK = 0.0;
+float bHairK = 0.0, bLock = 0.0, bStrand = 0.0;
 vec3 bAcross = vec3( 1.0, 0.0, 0.0 );
 float bHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.1031 ); p3 += dot( p3, p3.yzx + 33.33 ); return fract( ( p3.x + p3.y ) * p3.z ); }
 // value noise, periodic along x (per = cells around the head, so the strands close up behind it)
@@ -59,16 +59,26 @@ float bNoise( vec2 p, float per ) {
 `;
 const BODY_HAIR = `
 	if ( vSurf > 1.5 && vSurf < 2.5 ) {
-		// strands run down from the crown: across them = around the head's vertical axis (head space, pivot = centre)
+		// Locks and strands run down from the crown: across them = around the head's vertical axis (head space, pivot
+		// = centre). 36 locks around the head (~1.8 cm each): rounded, lit in the middle, a dark groove between two,
+		// each a little lighter or darker; fine strands inside them. vSurf > 2.1 = cropped hair: strands only.
 		float az = atan( vLoc.x, vLoc.z ) / 6.2832 + 0.5, el = vLoc.y;
 		float rr = max( length( vLoc.xz ), 0.004 ), pix = length( fwidth( vLoc ) );
-		float wav = bNoise( vec2( az * 7.0, el * 9.0 ), 7.0 ) - 0.5;                     // the strands wave a little
-		float u1 = az * 230.0 + wav * 5.0, u2 = az * 60.0 + wav * 1.6;
-		float s1 = bNoise( vec2( u1, el * 7.0 ), 230.0 ), s2 = bNoise( vec2( u2, el * 3.5 + 7.0 ), 60.0 );
-		// fade a level out where its strands get thinner than a pixel (no shimmer from far away)
-		float f1 = 1.0 - smoothstep( 0.3, 0.8, pix / ( rr * 6.2832 / 230.0 ) ), f2 = 1.0 - smoothstep( 0.3, 0.8, pix / ( rr * 6.2832 / 60.0 ) );
-		bHairK = ( s1 - 0.5 ) * f1 * 0.75 + ( s2 - 0.5 ) * f2 * 0.6;
-		diffuseColor.rgb *= 1.0 + bHairK * 1.05;
+		float wav = bNoise( vec2( az * 9.0, el * 7.0 ), 9.0 ) - 0.5;                       // the locks wave a little
+		float warp = bNoise( vec2( az * 7.0, el * 3.0 + 11.0 ), 7.0 ) - 0.5;             // locks bunch up and spread out
+		float uL = ( az + warp * 0.08 ) * 36.0 + wav * 0.9, fL = fract( uL ), idL = mod( floor( uL ), 36.0 );
+		float rnd = bHash( vec2( idL, 7.3 ) ), rnd2 = bHash( vec2( idL, 1.9 ) );
+		fL = clamp( ( fL - 0.5 ) * ( 1.0 + rnd2 * 0.5 ) + 0.5 + ( rnd2 - 0.5 ) * 0.2, 0.0, 1.0 );   // and are not all alike
+		float edge = abs( fL - 0.5 ) * 2.0;                                              // 0 middle of the lock, 1 its side
+		// fade a level out where it gets thinner than a few pixels (no shimmer from far away)
+		float kL = ( 1.0 - smoothstep( 0.3, 0.65, pix / ( rr * 6.2832 / 36.0 ) ) ) * ( vSurf > 2.1 ? 0.0 : 1.0 );
+		float uS = az * 240.0 + wav * 5.0 + rnd * 17.0;
+		float s1 = bNoise( vec2( uS, el * 6.0 ), 240.0 ), kS = 1.0 - smoothstep( 0.3, 0.8, pix / ( rr * 6.2832 / 240.0 ) );
+		float along = bNoise( vec2( idL * 1.7, el * 9.0 ), 1000.0 ) - 0.5;            // a lock changes a little along its length
+		bStrand = ( s1 - 0.5 ) * kS;
+		bLock = ( fL - 0.5 ) * 2.0 * kL;
+		bHairK = bStrand * 0.55 + ( ( rnd - 0.5 ) * 0.26 + along * 0.14 + ( 0.3 - edge * edge ) * 0.32 - smoothstep( 0.62 + rnd * 0.18, 1.0, edge ) * ( 0.3 + rnd2 * 0.2 ) ) * kL;
+		diffuseColor.rgb *= 1.0 + bHairK;
 	}
 `;
 const BODY_ROUGH = `
@@ -77,7 +87,7 @@ const BODY_ROUGH = `
 const BODY_NORMAL = `
 	if ( vSurf > 1.5 && vSurf < 2.5 ) {
 		bAcross = normalize( vAcross - normal * dot( normal, vAcross ) + 1e-5 );
-		normal = normalize( normal + bAcross * bHairK * 0.9 );                           // ridges of the strands
+		normal = normalize( normal + bAcross * ( bLock * 0.65 + bStrand * 0.7 ) );     // each lock rounded, strands ridged
 	}
 `;
 // skin: diffuse light wrapped past the terminator, more in red; hair: Kajiya-Kay highlights along the strands
@@ -89,7 +99,7 @@ const BODY_DIRECT = `
 	} else if ( vSurf > 1.5 && vSurf < 2.5 ) {
 		vec3 bT = normalize( cross( geometryNormal, bAcross ) );
 		vec3 bH = normalize( directLight.direction + geometryViewDir );
-		float t1 = dot( bT, bH ), t2 = dot( bT, normalize( bH - geometryNormal * 0.3 ) );
+		float t1 = dot( bT, bH ), t2 = dot( bT, normalize( bH - geometryNormal * ( 0.25 + 0.15 * bLock ) ) );
 		float k1 = pow( max( 0.0, 1.0 - t1 * t1 ), 60.0 ), k2 = pow( max( 0.0, 1.0 - t2 * t2 ), 10.0 );
 		float vis = saturate( dot( geometryNormal, directLight.direction ) + 0.15 );
 		reflectedLight.directSpecular += directLight.color * vis * ( k1 * 0.07 + k2 * 0.32 * material.diffuseColor ) * ( 1.0 + bHairK );
@@ -115,7 +125,7 @@ BODY_MAT.onBeforeCompile = (sh) => {
     .replace("#include <normal_fragment_maps>", "#include <normal_fragment_maps>" + BODY_NORMAL)
     .replace("#include <lights_physical_pars_fragment>", lights.replace(DIFFUSE_LINE, BODY_DIRECT));
 };
-BODY_MAT.customProgramCacheKey = () => "body-skin-hair-3";
+BODY_MAT.customProgramCacheKey = () => "body-skin-hair-4";
 
 // Smooth 3D value noise (0..1) for colours that vary across the body (the same at a vertex shared by two triangles).
 const vhash = (x, y, z) => { let h = Math.imul(x, 374761393) ^ Math.imul(y, 668265263) ^ Math.imul(z, 1274126177); h = Math.imul(h ^ (h >>> 13), 1103515245); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
@@ -267,7 +277,7 @@ function faceZ(B, x, y) {
  * body itself are skin, smooth (the model's own normals) with the colour of each vertex from tint(x, y, z, t) (factors
  * r, g, b): cheeks, nose, shadows blend into each other. hair = tint: a smooth shell of hair (BODY_MAT draws strands).
  */
-function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004, skin = null, hair = null }) {
+function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise = 0.07, edge = d > 0.004, skin = null, hair = null, hairKind = 2 }) {
   const P = B.parts[part], pv = P.piv, sx = part === "head" ? 1 : bulk;
   const out = [], col = [], nrm = [], srf = [], picked = new Map();          // picked: edge "a_b" -> [a, b, r, g, b] of the triangle that owns it
   const vtx = (j, dd = d) => [P.pos[j * 3] * sx + P.nrm[j * 3] * dd, P.pos[j * 3 + 1] + P.nrm[j * 3 + 1] * dd, P.pos[j * 3 + 2] * sx + P.nrm[j * 3 + 2] * dd];
@@ -307,7 +317,7 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
     for (const f of P.vf[j]) { const gl = Math.hypot(F[f], F[f + 1], F[f + 2]) || 1; if ((F[i] * F[f] + F[i + 1] * F[f + 1] + F[i + 2] * F[f + 2]) / (fl * gl) > crease) { x += F[f]; y += F[f + 1]; z += F[f + 2]; } }
     x /= sx; z /= sx; const l = Math.hypot(x, y, z) || 1; return [x / l, y / l, z / l];
   };
-  const kind = hair ? 2 : 0;
+  const kind = hair ? (hairKind || 2) : 0;
   for (let i = 0; i < P.idx.length; i += 3) {
     const tri = [P.idx[i], P.idx[i + 1], P.idx[i + 2]], v = tri.map((j) => vtx(j));
     const cx = (v[0][0] + v[1][0] + v[2][0]) / 3 + pv[0], cy = (v[0][1] + v[1][1] + v[2][1]) / 3 + pv[1], cz = (v[0][2] + v[1][2] + v[2][2]) / 3 + pv[2];
@@ -592,7 +602,7 @@ export function bodyGeometries(look, v) {
   // The skin of the head (its shades come from skinTint, vertex by vertex).
   shell("head", 0, (x, y, z) => (palHelm && loc(x, y, z)[1] < hm.chin + 0.05 ? tone(PAL_CLOTH, -0.1) : skin));   // the coif below the great helm
   const hairHex = darken ? mixHex(hc, skin, 0.35) : hc;
-  if (!covered || hs === "long") shell("head", thick, (x, y, z, t, ymin) => (isHair(x, y, z, t, ymin) ? hairHex : null), { hair: hairTint });   // the hair: the head's own shape, thicker
+  if (!covered || hs === "long") shell("head", thick, (x, y, z, t, ymin) => (isHair(x, y, z, t, ymin) ? hairHex : null), { hair: hairTint, hairKind: hs === "buzz" ? 2.25 : 2 });   // the hair: the head's own shape, thicker (cropped: no locks)
   if (bd) {
     shell("head", bd[1], (x, y, z, t, m) => (bd[0](x, y, z, t, m) ? hc : null), { hair: hairTint });
     if (bd[2]) shell("head", bd[2], (x, y, z) => (chin(x, y, z) ? tone(hc, 0.06) : null), { hair: hairTint });
