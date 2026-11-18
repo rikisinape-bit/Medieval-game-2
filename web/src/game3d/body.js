@@ -238,17 +238,39 @@ export function bodyGeometries(look, v) {
   // A piece of the paladin armour (paladin.json): triangles in the part's space with the texture's UVs; the vertex
   // colour is only the dirt towards the ground (drawn with PALADIN_MAT, separately from the body's mesh).
   const palPieces = {};
+  // The skirt and the tassets (the torso piece below the hips) bend with the thighs, or the legs come out through
+  // them: skin weights on the body (0) and on four helpers at the hips (models.js), the front one of each leg follows
+  // it only forwards, the back one only backwards (1 front right, 2 back right, 3 front left, 4 back left).
+  const SKIRT_TOP = PV.legR[1], SKIRT_LOW = PV.legR[1] - 0.12;
+  const sstep = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
+  const skirtWeights = (x, y, z) => {
+    const w = Math.sqrt(sstep(SKIRT_TOP, SKIRT_LOW, y)), f = sstep(PV.legR[2] - 0.04, PV.legR[2] + 0.04, z), rt = sstep(-0.03, 0.03, x);
+    const ws = [[0, 1 - w], [1, w * f * rt], [2, w * (1 - f) * rt], [3, w * f * (1 - rt)], [4, w * (1 - f) * (1 - rt)]].sort((a, b) => b[1] - a[1]).slice(0, 4);
+    const sum = ws.reduce((s, a) => s + a[1], 0);
+    return ws.map(([i, v]) => [i, v / sum]);
+  };
   const palPiece = (name) => {
     const P = PALADIN.m.parts[name]; if (!P) return;
-    const sx = name === "head" ? 1 : BK, pos = [], uv = [], col = [], y0 = (name === "head" ? PV.head : name.startsWith("pad") ? PV[name === "padR" ? "armR" : "armL"] : PV[name] || [0, 0, 0])[1];
+    const sx = name === "head" ? 1 : BK, y0 = (name === "head" ? PV.head : name.startsWith("pad") ? PV[name === "padR" ? "armR" : "armL"] : PV[name] || [0, 0, 0])[1];
+    const out = { [name]: { pos: [], uv: [], col: [] }, skirt: { pos: [], uv: [], col: [], si: [], sw: [] } };
     for (let t = 0; t < P.i.length; t += 3) {
       const k = (1 - (dirt * 0.45) * (1 - Math.min(1, Math.max(0, (y0 + P.p[P.i[t] * 3 + 1]) / 1.1)))) * (0.97 + r() * 0.06);
-      for (let j = 0; j < 3; j++) { const v = P.i[t + j]; pos.push(P.p[v * 3] * sx, P.p[v * 3 + 1], P.p[v * 3 + 2] * sx); uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); col.push(k, k, k); }
+      const low = name === "torso" && [0, 1, 2].some((j) => P.p[P.i[t + j] * 3 + 1] < SKIRT_TOP), o = out[low ? "skirt" : name];
+      for (let j = 0; j < 3; j++) {
+        const v = P.i[t + j], x = P.p[v * 3], y = P.p[v * 3 + 1], z = P.p[v * 3 + 2];
+        o.pos.push(x * sx, y, z * sx); o.uv.push(P.uv[v * 2], P.uv[v * 2 + 1]); o.col.push(k, k, k);
+        if (low) { const ws = skirtWeights(x, y, z); ws.forEach(([i, wv]) => { o.si.push(i); o.sw.push(wv); }); for (let e = ws.length; e < 4; e++) { o.si.push(0); o.sw.push(0); } }
+      }
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(uv, 2));
-    g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); g.computeVertexNormals(); g.computeBoundingSphere();
-    palPieces[name] = g;
+    Object.entries(out).forEach(([n, o]) => {
+      if (!o.pos.length) return;
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(o.pos, 3)); g.setAttribute("uv", new THREE.Float32BufferAttribute(o.uv, 2));
+      g.setAttribute("color", new THREE.Float32BufferAttribute(o.col, 3));
+      if (o.si) { g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(o.si, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(o.sw, 4)); }
+      g.computeVertexNormals(); g.computeBoundingSphere();
+      palPieces[n] = g;
+    });
   };
   const shell = (part, d, colorOf, o = {}) => pieces[part].push(bodyMesh(Bd, part, colorOf, { ...opt, ...o, d }));
 
@@ -525,7 +547,18 @@ export function bodyGeometries(look, v) {
     const name = side > 0 ? "armR" : "armL";
     const sleeve = look.sleeves === "rolled" ? skin : cloth;
     const hand = paladin ? PAL_GLOVE : plate ? tone(metal, -0.12) : look.gloves || skin;
-    shell(name, 0, (x, y, z, t) => (t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
+    // Under the paladin cuirass the arm's skin on the chest, the back and in the armpit stays with the trunk: turning
+    // with the arm (attacks, talking) it came out through the plates, in front of the chest.
+    const pv = PV[name], onTrunk = (x, y, z, t) => {
+      if (!paladin || t > 0.35) return false;
+      const rx = Math.abs((x - pv[0]) / BK + pv[0]), rz = (z - pv[2]) / BK;
+      return (y < pv[1] - 0.055 && rx < profileAt(R, y)[1] + 0.015) || (t < 0.25 && Math.abs(rz) > 0.075 && rx < Math.abs(pv[0]) + 0.01);
+    };
+    shell(name, 0, (x, y, z, t) => (onTrunk(x, y, z, t) ? null : t > 1.0 ? hand : t < 0.45 ? torsoCol : plate || mail ? metal : sleeve));
+    if (paladin) {                                                   // ...drawn in the trunk's space (same place at rest)
+      const g = bodyMesh(Bd, name, (x, y, z, t) => (onTrunk(x, y, z, t) ? torsoCol : null), { ...opt, d: 0 });
+      g.translate(pv[0] * BK, pv[1], pv[2]); pieces.torso.push(g);
+    }
     const A = Part(PV.armR[1], r, 0.2), at = (t) => { const p = Bd.armAt(t); return [p[0] * side * BK, p[1], p[2] * BK]; };
     const ring = (t1, t2, r1, r2, hex) => { const a1 = at(t1), a2 = at(t2); A.tube(r1, r2, a1[1], a2[1], hex, (a1[0] + a2[0]) / 2, (a1[2] + a2[2]) / 2, 8); };
     if (plate) {

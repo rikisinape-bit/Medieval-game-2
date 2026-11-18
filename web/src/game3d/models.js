@@ -131,6 +131,16 @@ export function makeHuman(look, weapon, seed) {
   // pauldrons of the paladin armour: their own pivots at the shoulders, they follow the arm half way (poseHuman)
   const padR = geo.pal?.padR ? pivot(P.armR, "padR") : null, padL = geo.pal?.padL ? pivot(P.armL, "padL") : null;
   if (padR) padR.rotation.order = padL.rotation.order = "XZY";
+  // the paladin's skirt and tassets bend with the thighs (skinned on the body and on four helpers at the hips:
+  // front and back of each leg, see followSkirt), or the legs would come out through them
+  let skirt = null;
+  if (geo.pal?.skirt) {
+    const helper = (hip) => { const o = new THREE.Object3D(); o.position.copy(hip.position); body.add(o); return o; };
+    skirt = { FR: helper(hipR), BR: helper(hipR), FL: helper(hipL), BL: helper(hipL) };
+    const m = new THREE.SkinnedMesh(geo.pal.skirt, PALADIN_MAT); m.castShadow = true; m.receiveShadow = true; body.add(m);
+    g.updateMatrixWorld(true);
+    m.bind(new THREE.Skeleton([body, skirt.FR, skirt.BR, skirt.FL, skirt.BL])); m.computeBoundingSphere();
+  }
   const prop = at(box(0.5, 0.4, 0.4, "#5a4030"), 0, 1.15, 0.45); prop.visible = false; body.add(prop);
   let sword = null;
   // weapon: "short" | "long" (NPCs) or any sword key (player); the grip goes through the fist, along its axis
@@ -138,7 +148,7 @@ export function makeHuman(look, weapon, seed) {
   if (look.shield) { const sh = makeShield(look.shield, look.shieldKind || "heater"); sh.rotation.y = -Math.PI / 2; armL.add(at(sh, ...geo.shieldAt, -Math.PI / 2)); }
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.visible = false; armR.add(t); tools[id] = t; });
-  g.userData = { hipL, hipR, kneeL, kneeR, armL, armR, sword, head, prop, tools, tool: null, variant: v, geo, body, padR, padL };
+  g.userData = { hipL, hipR, kneeL, kneeR, armL, armR, sword, head, prop, tools, tool: null, variant: v, geo, body, padR, padL, skirt };
   return g;
 }
 export const showTool = (g, id) => {
@@ -215,12 +225,20 @@ export function poseHuman(g, t, moving, mode, k = 0) {
     default: break;
   }
   if (mode === "windup" || mode === "swing") armR.rotation.y = (ARM_TWIST[atk] ?? 0) * (mode === "windup" ? ease(K) : 1 - Math.max(0, (K - 0.7) / 0.3));   // forearm turns with the sword
-  followPads(g.userData);
+  followPads(g.userData); followSkirt(g.userData);
   return y;
 }
 
 // Pauldrons follow the arms half way: they stay on the shoulders when an arm is raised.
 const followPads = (u) => { if (u.padR) { u.padR.rotation.set(u.armR.rotation.x * 0.45, 0, u.armR.rotation.z * 0.55); u.padL.rotation.set(u.armL.rotation.x * 0.45, 0, u.armL.rotation.z * 0.55); } };
+
+// The paladin's skirt: the front of each half follows its thigh going forward, the back going backward (a leg that
+// goes back moves away from the front, and when sitting the back of the skirt stays down). Call it again after
+// changing the hips by hand (riding).
+export const followSkirt = (u) => {
+  const s = u.skirt; if (!s) return;
+  [[u.hipR, s.FR, s.BR], [u.hipL, s.FL, s.BL]].forEach(([hip, F, B]) => { const r = hip.rotation; F.rotation.set(Math.min(0, r.x), r.y, r.z); B.rotation.set(Math.max(0, r.x), r.y, r.z); });
+};
 
 // Height of a seated character's origin so that its hips are at hipsAt (saddle 1.87, carriage seat 1.17).
 export const saddleY = (g, hipsAt) => hipsAt - (g.userData.geo?.pivots.legR[1] ?? 0.82) * (g.userData.variant?.height ?? 1);
@@ -256,7 +274,7 @@ export function poseDeath(g, kind, p) {
     armL.rotation.set(-1.2 * f, 0, 0.55 * f); armR.rotation.set(-0.8 * f, 0, -0.2 * f); head.rotation.set(0.2 * f, -0.4 * f, 0.3 * f);   // the upper arm drapes over the chest
     legs(-0.4 * f, 0.15 * f, 0.6 * f, 0.2 * f);
   }
-  followPads(g.userData);
+  followPads(g.userData); followSkirt(g.userData);
 }
 
 export function makeDummy() {
