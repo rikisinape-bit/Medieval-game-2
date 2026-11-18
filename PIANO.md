@@ -136,6 +136,8 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 
 - **Gioco giocabile**: `web/` (React + Three.js, Vite). `cd web && npm install && npm run dev`; versione per la pagina
   pubblicata: `npm run build:artifact` (crea `web/dist`, i modelli come moduli JS). Pagina pubblicata: "Roccanera e Valdoro".
+  Per aggiornarla, confrontare TUTTI i file di `web/dist` con quelli pubblicati (impronte sha256) e caricare ogni file cambiato:
+  anche il CSS cambia nome quando cambia il codice (una volta è rimasto quello vecchio: pagina senza stile).
 - **Pagine di prova** (con `npm run dev`): `lineup.html` (personaggi; `?eq=1` equipaggiamenti, `?faces=hair|beard|female`
   volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `bodyview.html` (corpo base),
   `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore), `window.__atk = { t, combo }` (ferma un colpo), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera).
