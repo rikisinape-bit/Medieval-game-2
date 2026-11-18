@@ -42,6 +42,23 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
     return ws.length > 0;
   };
 
+  // Noise at (x, z) heard from r metres (engine: running, a horse, blows...). Whoever hears it turns to look where it
+  // came from for a moment, and whoever looks at the player sees it (no pickpocketing, no blow from behind, a crime
+  // has witnesses). A wall muffles it. A guard searching for the player goes where the noise was. Sleepers sleep on.
+  // Returns how many heard it.
+  const hear = (x, z, r) => {
+    let heard = 0;
+    npcs.forEach((n) => {
+      if (!n.alive || n.hostile || n.spar || n.sleepAt || n.scripted || zoneOf(n.x, n.z) !== zoneOf(x, z)) return;
+      if (Math.hypot(n.x - x, n.z - z) > (houseOf(n.x, n.z) === houseOf(x, z) ? r : r * 0.4)) return;
+      heard += 1;
+      if (n.guard && n.alert > 0) { n.alertPos = [x, z]; return; }
+      if (n.panic > 0) return;
+      n.heardAt = [x, z]; n.heardT = 1.8 + Math.random() * 1.2;
+    });
+    return heard;
+  };
+
   const scanBodies = () => npcs.forEach((b) => {
     if (b.alive || b.discovered || b.role === "bandit") return;
     const w = npcs.find((n) => n.alive && !n.hostile && !n.panic && n.role !== "bandit" && zoneOf(n.x, n.z) === zoneOf(b.x, b.z) && sees(n, b.x, b.z, 10));
@@ -117,6 +134,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
       if (step(n.sleepAt[0], n.sleepAt[1], 1.1)) { out.mode = "sleep"; n.yaw = n.sleepAt[2]; }
       return out;
     }
+    if (n.heardT > 0) { n.heardT -= dt; face(n.heardAt[0], n.heardAt[1], 5); return out; }   // a noise: stops and looks (hear)
     if (d < 2.4 && !P.sneak && sameZone(n) && n.role !== "bandit" && Math.abs(angDiff(Math.atan2(dx, dz), n.yaw)) < 1.6) { face(P.x, P.z, 5); return out; }
     const r = n.routine;
     if (!r) return out;
@@ -135,5 +153,5 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
     return out;
   }
 
-  return { update, crime, scream, sees, alertGuards, scanBodies, sameZone };
+  return { update, crime, scream, sees, hear, alertGuards, scanBodies, sameZone };
 }

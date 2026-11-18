@@ -12,9 +12,11 @@ import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, addNature, kitObject, kitMaterial, kitHouseTop, kitSize } from "./nature";
 import { makeMountain, mountainHeight } from "./mountain";
+import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
+const solvedBlows = {};   // first-person blows, solved once (fparm.js): the player's arm is the same whatever it wears
 const segDist = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
 const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z, PATH[i], p)));
 
@@ -42,9 +44,11 @@ export function createGame(canvas, hooks, saved) {
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
   // Trees are only recorded here (position + collision circle); the models are added later, all together.
   const treeSpots = [], S_nature = { tris: 0, count: 0 }, natureMeshes = [];
-  const putTree = (pine, x, z, ry = 0, r = 0) => {
+  // gone: a tree that was there before the bandits' camp grew (kept in the list so the forest's random layout does not
+  // change, but neither drawn nor solid)
+  const putTree = (pine, x, z, ry = 0, r = 0, gone = false) => {
     if (mountainHeight(x, z) > 0.4) return;                    // no trees half-buried in the mountain
-    treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r });
+    treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
   const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
@@ -112,14 +116,39 @@ export function createGame(canvas, hooks, saved) {
     const a = PATH[i], dx = p[0] - a[0], dz = p[1] - a[1], L = Math.hypot(dx, dz);
     put(box(7, 0.12, L + 3, "#7a6a4a"), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
   });
-  put(box(10, 0.115, 9, "#6a5a3a"), CAMP[0], CAMP[1]);
-  put(makeCamp(), CAMP[0], CAMP[1], 0, 0.6);
+  // The bandits' camp: a clearing beside the road, three tents round the fire (with a ring of stones), a rack of
+  // spears, a palisade with a lookout tower closing it on the north and the east; the side of the road is open.
+  // Pieces of the medieval kit (without the kit: the old camp). Morn's places (where he
+  // watches the road, where he eats by the fire) and the things lying about stay free.
+  const [CX0, CZ0] = CAMP, campKit = hasKit() ? [] : null;
+  const inCamp = (x, z) => !!campKit && ((x - CX0 - 1.8) / 8.2) ** 2 + ((z - CZ0 + 1.8) / 7.6) ** 2 < 1;   // the clearing: no trees
+  if (campKit) {
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshStandardMaterial({ color: "#5c4e34", roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2; ground.scale.set(7.4, 6.6, 1); ground.position.set(CX0 + 1.8, 0.057, CZ0 - 1.6); ground.receiveShadow = true; scene.add(ground);
+    put(makeCamp(true), CX0, CZ0, 0, 0.75);                                              // logs, crate, sack, the fire's light
+    obstacles.push({ x: CX0 + 3.3, z: CZ0 - 0.4, r: 0.45 });
+    const kit = (id, dx, dz, ry = 0, k = 1, y = 0) => campKit.push({ id, x: CX0 + dx, z: CZ0 + dz, ry, k, y });
+    const solid = (dx, dz, ry, hw, hd) => rects.push({ cx: CX0 + dx, cz: CZ0 + dz, hw, hd, ry });
+    kit("campfire_01", 0, 0, 0.4, 2.2);
+    for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; kit(i % 2 ? "street_rock_1" : "street_rock_5", Math.cos(a) * 0.72, Math.sin(a) * 0.72, -a, 0.32, -0.015); }
+    [["tent_3", 4.4, -3.4, 0.5], ["tent_1", 5.3, 1.9, -0.25], ["tent_2", -0.3, -5.9, 0.05]].forEach(([id, dx, dz, ry]) => { kit(id, dx, dz, ry); obstacles.push({ x: CX0 + dx, z: CZ0 + dz, r: 1.3 }); });
+    kit("weapon_holder_01", 2.3, 3.9, Math.PI + 0.5); obstacles.push({ x: CX0 + 2.3, z: CZ0 + 3.9, r: 0.65 });
+    // palisade: east side (along z), north side (along x), a slanting piece and the lookout tower at the corner
+    const wall = (id, dx, dz, ry, len, k = 1) => { kit(id, dx, dz, ry, k); solid(dx, dz, ry, (len * k) / 2, 0.22); };
+    wall("wood_wall_01", 8.4, -1.0, Math.PI / 2, 4.02); wall("wood_wall_02", 8.4, 2.0, Math.PI / 2, 2.03);
+    kit("wood_tower", 8.2, -4.1, Math.PI / 2); solid(8.2, -4.1, Math.PI / 2, 0.75, 0.9);
+    wall("wood_wall_01", 7.75, -6.5, -1.284, 4.02, 0.8);
+    wall("wood_wall_01", 5.3, -8.0, 0, 4.02); wall("wood_wall_01", 1.3, -8.2, 0.05, 4.02);
+    wall("wood_wall_02", -1.7, -8.35, 0.08, 2.03);
+    [[8.6, 0.0], [6.0, -8.25], [2.6, -8.45], [-2.5, -8.6]].forEach(([dx, dz], i) => kit("wood_wall_support", dx, dz, i ? -Math.PI / 2 : Math.PI));   // props behind the stakes
+    addNature(scene, campKit, natureMeshes);
+  } else { put(box(10, 0.115, 9, "#6a5a3a"), CX0, CZ0); put(makeCamp(), CX0, CZ0, 0, 0.6); }
   const banditDefs = NPC_DEFS.filter((d) => d.role === "bandit");
   let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
   const treeOk = (x, z) => pathDist(x, z) > 4.6 && Math.hypot(x - CAMP[0], z - CAMP[1]) > 5.5 && !banditDefs.some((d) => Math.hypot(x - d.pos[0], z - d.pos[1]) < 1.3) && !PICKUPS.some((p) => Math.hypot(x - p.x, z - p.z) < 1.2);
   for (let gx = -28; gx <= 28; gx += 4.6) for (let gz = -36; gz > WZ + 3; gz -= 4.6) {
     const x = gx + (rnd() - 0.5) * 3.2, z = gz + (rnd() - 0.5) * 3.2;
-    if (treeOk(x, z)) putTree(rnd() < 0.5, x, z, rnd() * 6, 0.8);
+    if (treeOk(x, z)) putTree(rnd() < 0.5, x, z, rnd() * 6, 0.8, inCamp(x, z));
   }
   for (let z = -33; z > WZ; z -= 3) [-1, 1].forEach((s) => putTree(z % 2 === 0, s * (31.5 + (z % 3)), z, z, 0.9));
   banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(true, d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
@@ -193,7 +222,8 @@ export function createGame(canvas, hooks, saved) {
     treeSpots.forEach((t, i) => {
       const dead = inForest(t.x, t.z) && i % 19 === 7;                              // a few dead trees in the forest
       const id = dead ? "morto" : `${t.pine ? "pino" : "albero"}_${1 + Math.floor(nr() * 3)}`;
-      items.push({ id, x: t.x, z: t.z, ry: nr() * 6.28, k: 0.85 + nr() * 0.35 });
+      const it = { id, x: t.x, z: t.z, ry: nr() * 6.28, k: 0.85 + nr() * 0.35 };
+      if (!t.gone) items.push(it);                                                  // (cut down for the bandits' camp)
     });
     // Landmarks: great twisted trees with blood-red leaves
     [[8.5, -71.5, 1], [-22, -48, 2], [21, -66, 1], [-19, -93, 2], [-23.5, WZ + 9, 1], [25, -37, 2]].forEach(([x, z, v]) => {
@@ -210,7 +240,7 @@ export function createGame(canvas, hooks, saved) {
       }
     };
     const forestPt = () => [(nr() - 0.5) * 58, -34 - nr() * (-34 - WZ - 4)];
-    const offPath = (m) => (x, z) => pathDist(x, z) > m && Math.hypot(x - CAMP[0], z - CAMP[1]) > 5 && freeOf(x, z, 0.5);
+    const offPath = (m) => (x, z) => pathDist(x, z) > m && (campKit ? !inCamp(x, z) : Math.hypot(x - CAMP[0], z - CAMP[1]) > 5) && freeOf(x, z, 0.5);
     scatter("felce", 70, forestPt, offPath(3.7));
     scatter("cespuglio", 22, forestPt, offPath(4.2));
     scatter("cespuglio_fiorito", 8, forestPt, offPath(4.2));
@@ -220,7 +250,7 @@ export function createGame(canvas, hooks, saved) {
     scatter("pianta", 28, forestPt, offPath(3.3));
     scatter("trifoglio", 22, forestPt, offPath(3.4));
     scatter("roccia", 10, forestPt, offPath(5.2), 0.7, 1.3);
-    scatter("fungo", 14, () => { const t = treeSpots[Math.floor(nr() * treeSpots.length)], a = nr() * 6.28; return [t.x + Math.cos(a) * 0.75, t.z + Math.sin(a) * 0.75]; }, (x, z) => inForest(x, z) && pathDist(x, z) > 3.5, 0.7, 1.1);
+    scatter("fungo", 14, () => { const t = treeSpots[Math.floor(nr() * treeSpots.length)], a = nr() * 6.28; return [t.x + Math.cos(a) * 0.75, t.z + Math.sin(a) * 0.75]; }, (x, z) => inForest(x, z) && pathDist(x, z) > 3.5 && !inCamp(x, z), 0.7, 1.1);
     const pathPt = () => { const i = 1 + Math.floor(nr() * (PATH.length - 1)), t = nr(), a = PATH[i - 1], b = PATH[i]; return [a[0] + (b[0] - a[0]) * t + (nr() - 0.5) * 7, a[1] + (b[1] - a[1]) * t + (nr() - 0.5) * 3]; };
     scatter("sasso_tondo", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
     scatter("sasso_quadro", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
@@ -243,17 +273,20 @@ export function createGame(canvas, hooks, saved) {
     // Valdoro: grass along the walls, flowers by the fountain
     scatter("erba_alta", 12, () => [(nr() < 0.5 ? -1 : 1) * (14.6 + nr() * 0.8), WZ - 3 - nr() * 26], (x, z) => freeOf(x, z, 0.4));
     scatter("fiori", 4, () => { const a = nr() * 6.28; return [Math.cos(a) * 3.1, WZ - 16 + Math.sin(a) * 3.1]; }, () => true, 0.6, 0.9);
-    // Paving stones around the well, the fountain and in front of the gate
-    const ring = (cx, cz, rad, n) => { for (let i = 0; i < n; i++) { const a = (i / n) * 6.28; items.push({ id: "selciato", x: cx + Math.cos(a) * rad, z: cz + Math.sin(a) * rad, ry: -a + 1.57, k: 0.95 + nr() * 0.2 }); } };
-    ring(0, 0, 2.1, 9); ring(0, WZ - 16, 3.4, 12);
-    [-1.6, 0, 1.6].forEach((x) => [2.2, 3.5, -2.2].forEach((dz) => items.push({ id: "selciato", x: x + (nr() - 0.5) * 0.3, z: WZ + dz, ry: nr() < 0.5 ? 0 : 1.57, k: 1.3 })));
+    // Without the kit: a few paving stones of the nature pack around the well, the fountain and in front of the gate
+    // (with the kit: real paving, below)
+    if (!hasKit()) {
+      const ring = (cx, cz, rad, n) => { for (let i = 0; i < n; i++) { const a = (i / n) * 6.28; items.push({ id: "selciato", x: cx + Math.cos(a) * rad, z: cz + Math.sin(a) * rad, ry: -a + 1.57, k: 0.95 + nr() * 0.2 }); } };
+      ring(0, 0, 2.1, 9); ring(0, WZ - 16, 3.4, 12);
+      [-1.6, 0, 1.6].forEach((x) => [2.2, 3.5, -2.2].forEach((dz) => items.push({ id: "selciato", x: x + (nr() - 0.5) * 0.3, z: WZ + dz, ry: nr() < 0.5 ? 0 : 1.57, k: 1.3 })));
+    }
     S_nature.tris = addNature(scene, items, natureMeshes);
     S_nature.count = items.length;
     console.info(`Vegetazione: ${S_nature.count} elementi, ${S_nature.tris} triangoli in ${natureMeshes.length} gruppi`);
   } else {
     // Fallback: the old procedural trees, baked into one mesh per material.
     const treeG = new THREE.Group();
-    treeSpots.forEach((t) => { const o = makeTree(t.pine); at(o, t.x, 0, t.z, t.ry); treeG.add(o); });
+    treeSpots.forEach((t) => { if (t.gone) return; const o = makeTree(t.pine); at(o, t.x, 0, t.z, t.ry); treeG.add(o); });
     treeG.updateMatrixWorld(true);
     const byMat = new Map();
     treeG.traverse((o) => {
@@ -270,6 +303,30 @@ export function createGame(canvas, hooks, saved) {
       scene.add(merged);
       geos.forEach((g) => g.dispose());
     });
+  }
+
+  // ---- Paving (selciato) with the kit's flagstones (street_rock_1..6): round the well of Roccanera; in Valdoro before
+  // the gate, along the main street, round the fountain, on towards the keep and across the square. Laid on a grid with
+  // a little play, each stone turned by quarter turns and a little more, scaled to its cell, its top a few cm above
+  // the ground and a little higher or lower than the next one (no flicker where two overlap).
+  if (hasKit()) {
+    let ps = 4242; const pr = () => { ps = (ps * 16807) % 2147483647; return (ps - 1) / 2147483646; };
+    const stones = [1, 2, 3, 4, 5, 6].map((i) => { const id = `street_rock_${i}`, sz = kitSize(id); return sz && { id, size: Math.max(sz[0], sz[2]), h: sz[1] }; }).filter(Boolean);
+    const paving = [], STEP = 0.8;
+    const pave = (x0, x1, z0, z1, inside, top) => {
+      for (let x = x0; x <= x1 + 1e-6; x += STEP) for (let z = z0; z <= z1 + 1e-6; z += STEP) {
+        const px = x + (pr() - 0.5) * 0.14, pz = z + (pr() - 0.5) * 0.14, st = stones[Math.floor(pr() * stones.length)];
+        const ry = Math.floor(pr() * 4) * (Math.PI / 2) + (pr() - 0.5) * 0.25, k = (STEP / st.size) * (0.96 + pr() * 0.12), y = top + 0.03 + pr() * 0.015 - st.h * k;
+        if (inside(px, pz)) paving.push({ id: st.id, x: px, z: pz, ry, k, y });
+      }
+    };
+    const ring = (cx, cz, r0, r1) => (x, z) => { const d = Math.hypot(x - cx, z - cz); return d > r0 && d < r1; };
+    const rect = (x0, x1, z0, z1) => (x, z) => x > x0 && x < x1 && z > z0 && z < z1;
+    pave(-3.4, 3.4, -3.4, 3.4, ring(0, 0, 1.3, 3.3), 0.01);                                     // round the well
+    pave(-2.4, 2.4, WZ + 1.8, WZ + 4.6, () => true, 0.06);                                      // before the gate of Valdoro
+    const FC = WZ - 16, streets = [rect(-2.2, 2.2, WZ - 30, WZ - 1.6), ring(0, FC, 0, 4.8), rect(-12.8, 12.8, FC - 1.6, FC + 1.6)];
+    pave(-12.8, 12.8, WZ - 29.8, WZ - 1.8, (x, z) => streets.some((f) => f(x, z)) && Math.hypot(x, z - FC) > 2.15, 0.065);   // the square's streets
+    S_nature.paving = addNature(scene, paving, natureMeshes);
   }
 
   // Carriage (the coachman is an NPC that sits on it)
@@ -398,29 +455,48 @@ export function createGame(canvas, hooks, saved) {
 
   const input = { x: 0, y: 0 };
   const keys = {};
-  let pitch = 0, atkT = -1, combo = 0, queued = false;
+  let pitch = 0, atkT = -1, combo = 0, queued = false, blow = 1;   // blow: what the current swing is (1, 2, 3 or "thrust")
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
   // Parry (K / Para): a short guard; blocking right at the start is a perfect parry (the enemy staggers, your next blow
   // does double damage). Running (Shift / Corri): faster, but not while sneaking, attacking or parrying.
   let parryT = -1, riposteT = 0, running = false, stillT = 0;
+  // Stamina (resistenza, 0..100): running on foot uses it up in about 6 s, a dodge costs 15; it comes back after a
+  // moment, walking or (faster) standing still. Out of breath at 0: no running and no dodging until it is back to 30.
+  // (On horseback the horse runs: no stamina.)
+  P.stamina = 100;
+  let winded = false, breathT = 0;
+  // Noise (rumore): how far the player's moves are heard (metres): running 11, walking 3.5, sneaking almost nothing,
+  // a horse 8 / galloping 16, blows and parries 14 (ai.hear). heardT: someone heard the player (HUD).
+  let noiseT = 0, heardT = 0;
+  const NOISE = { run: 11, walk: 3.5, sneak: 0.8, horse: 8, gallop: 16, blow: 14 };
+  const makeNoise = (x, z, r) => { if (ai.hear(x, z, r) > 0 && (r >= 8 || P.sneak)) heardT = 1.5; };
   const inCombat = () => npcs.some((n) => n.alive && n.hostile && n.fights && ai.sameZone(n) && Math.hypot(n.x - P.x, n.z - P.z) < 14);
   let paused = false;
   const lerp = (a, b, t) => a + (b - a) * t;
-  // First-person blows of the combo. The sword never turns around its own length in the fist: the edge is brought
-  // onto the cut by turning the whole arm on itself (forearm), and the wrist bends (the blade tilts in its own plane,
-  // towards the forearm) so the blade reaches out. For each blow: where the fist is and where the blade points at the
-  // top of the wind-up (w) and at the end of the cut (e), and the direction of the cut (view space: x right, y up,
-  // -z forward). 1: from high right down to the left; 2: backhand from high left down to the right; 3: wide cut from
-  // the right, over and down to the left.
-  const FP_CUTS = {
-    1: { w: [[0.36, 0.04, -0.44], [0.35, 0.9, 0.1]], e: [[-0.08, -0.26, -0.48], [-0.85, -0.3, -0.4]], cut: [-0.7, -0.7, -0.15] },
-    2: { w: [[0.02, 0.04, -0.46], [-0.4, 0.9, 0.05]], e: [[0.4, -0.26, -0.46], [0.85, -0.3, -0.4]], cut: [0.7, -0.7, -0.15] },
-    3: { w: [[0.4, -0.06, -0.44], [0.9, 0.4, 0.1]], e: [[-0.06, -0.16, -0.52], [-0.9, -0.15, -0.35]], cut: [-0.75, -0.6, -0.2] },
+  // First-person blows (fparm.js). The sword never turns around its own length in the fist: the edge is brought onto
+  // the cut by turning the arm and the forearm on themselves; the elbow bends and opens, the wrist bends. For each
+  // blow, at the top of the wind-up (w) and at the end (e): where the fist is, where the blade points, which way the
+  // cut goes and where the elbow points (view space: x right, y up, -z forward); ph: when the wind-up ends and when
+  // the blow ends (fraction of the swing). 1: from high right down to the left; 2: backhand from high left down to the
+  // right; 3: overhead, the sword raised over the shoulder and brought straight down the middle (the last blow of the
+  // combo); thrust (affondo): the fist drawn back to the chest, then the arm shoots out at the target (sneaking, or
+  // the counter after a perfect parry).
+  // (The blade turns in the plane of the forearm and the edge: a cut across the screen sweeps in a plane that holds
+  // the forearm pointing ahead, so at the end of a cut the blade points ahead and to the side, the edge to the side.)
+  const FP_BLOWS = {
+    1: { w: { hand: [0.38, 0.06, -0.36], blade: [0.35, 0.9, 0.1], cut: [-0.7, -0.7, -0.15], pole: [1, -0.5, 0.2] },
+      e: { hand: [-0.08, -0.26, -0.48], blade: [-0.5, -0.5, -0.7], cut: [-0.5, -0.5, 0.7], pole: [0.5, -1, 0] } },
+    2: { w: { hand: [0.04, 0.04, -0.4], blade: [-0.55, 0.8, -0.2], cut: [0.7, -0.7, -0.15], pole: [0.3, -1, 0.2] },
+      e: { hand: [0.42, -0.26, -0.44], blade: [0.5, -0.5, -0.7], cut: [0.5, -0.5, 0.7], pole: [1, -0.4, 0] } },
+    3: { w: { hand: [0.25, 0.13, -0.24], blade: [0.05, 0.7, 0.7], cut: [0, -0.3, -1], pole: [1, 0.1, -0.1] },
+      e: { hand: [0.08, -0.3, -0.5], blade: [-0.02, -0.5, -0.85], cut: [0, -1, 0.15], pole: [0.6, -0.8, 0.2] }, ph: [0.3, 0.62] },
+    thrust: { w: { hand: [0.3, -0.32, -0.06], blade: [0, 0, -1], cut: [0, -1, 0], pole: [0.1, -0.6, 1] },
+      e: { hand: [0.22, -0.13, -0.6], blade: [0, 0.04, -1], cut: [0, -1, 0], pole: [0.6, -1, 0.2] }, ph: [0.32, 0.52] },
   };
   const smooth01 = (x) => x * x * (3 - 2 * x);
   // Stealth: slower, crouched, and NPCs see the player at shorter range (see ai.sees).
   P.sneak = false;
-  if (import.meta.env.DEV) window.__P = P;                          // dev only: the player, for tests
+  if (import.meta.env.DEV) { window.__P = P; window.__S = S; }      // dev only: the player and the world state, for tests
   const setSneak = (v) => {
     if (v && P.mounted) { say("Non puoi nasconderti a cavallo."); return; }
     P.sneak = !!v;
@@ -484,6 +560,7 @@ export function createGame(canvas, hooks, saved) {
   const hurtPlayer = (n) => {
     const facing = Math.abs(angDiff(Math.atan2(n.x - P.x, n.z - P.z), P.yaw)) < 1.4;
     if (iframe > 0) { hooks.onFloat("SCHIVATA!", "#a8e07a"); return; }
+    makeNoise(P.x, P.z, NOISE.blow);                                                 // steel on steel, or a blow taken
     if (parryT > 0 && facing) {
       const perfect = parryT > (hasShield() ? 0.5 : 0.36);
       fx.burst(P.x + Math.sin(P.yaw) * 0.6, 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
@@ -516,6 +593,7 @@ export function createGame(canvas, hooks, saved) {
   const pitchOf = (n) => (LOOKS[n.look]?.female || n.female ? 560 : n.role === "noble" ? 420 : 290) * (0.9 + Math.random() * 0.2);
   const snd = { scream: (n) => sfx.scream(vAt(n.x, n.z), pitchOf(n)), swing: (n) => sfx.swing(vAt(n.x, n.z) * 0.8) };
   const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf });
+  if (import.meta.env.DEV) window.__ai = ai;                        // dev only (tests)
 
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
@@ -566,11 +644,14 @@ export function createGame(canvas, hooks, saved) {
     if (n.hp <= 0) killNpc(n, seen || n.witnessed);
   };
 
+  // The blow of the combo, or a thrust: sneaking (a stab) or right after a perfect parry (the counter).
+  const nextBlow = () => (riposteT > 0 || (P.sneak && !P.mounted) ? "thrust" : combo);
   const playerAttack = () => {
+    const reach = blow === "thrust" ? 3.0 : 2.6;                                   // the lunge reaches further
     const target = npcs.filter((n) => {
       if (!n.alive || !ai.sameZone(n)) return false;
       const dx = n.x - P.x, dz = n.z - P.z;
-      return Math.hypot(dx, dz) < 2.6 && Math.abs(angDiff(Math.atan2(dx, dz), P.yaw)) < 0.9;
+      return Math.hypot(dx, dz) < reach && Math.abs(angDiff(Math.atan2(dx, dz), P.yaw)) < 0.9;
     }).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
     if (!target) return;
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
@@ -578,6 +659,7 @@ export function createGame(canvas, hooks, saved) {
     if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block) {
       fx.burst(n.x - dx * 0.3, 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
       sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
+      makeNoise(n.x, n.z, NOISE.blow);
       return;
     }
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
@@ -585,6 +667,7 @@ export function createGame(canvas, hooks, saved) {
     if (combo === 3) dmg = Math.round(dmg * 1.5);
     if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
     hitNpc(n, unaware ? n.hp : dmg);
+    makeNoise(n.x, n.z, unaware ? 3 : NOISE.blow);                                  // a blow from behind is quiet
     if (unaware && !n.alive) hooks.onFloat("COLPO ALLE SPALLE", "#ff5a4a");
   };
 
@@ -604,6 +687,7 @@ export function createGame(canvas, hooks, saved) {
     else return;
     equip(); sfx.pick(0.8); note(`Equipaggi: ${it.name}.`);
   };
+  if (import.meta.env.DEV) window.__equip = (id) => { P.inv[id] = (P.inv[id] || 0) + 1; equipItem(id); };   // dev only (tests)
   const unequip = (slot) => { if (slot === "hand" || !P.eq[slot]) return; P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; P.eq[slot] = null; equip(); };
   const consumeItem = (id) => {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
@@ -682,46 +766,25 @@ export function createGame(canvas, hooks, saved) {
   // First-person parry: the arm turns around the view axis so the blade lies across the screen, a little higher.
   const FP_PARRY = { turn: 1.3, dx: -0.1, dy: 0.12, dz: 0 };
   const _pq = new THREE.Quaternion(), _fwd = new THREE.Vector3(0, 0, 1);
-  // Pose of the arm for a key: the fist towards `hand`; then the turn of the arm on itself (θ, around the
-  // shoulder-fist line) and the bend of the wrist (φ, the blade tilting in its own plane) that best give a blade
-  // pointing along `blade` with its edge facing the cut. Returns { q: arm orientation, wrist: φ }.
-  const armPose = (loc, hand, blade, cut) => {
-    const dir = new THREE.Vector3(...hand).sub(new THREE.Vector3(...VM_REST.R.pos)).normalize(), B = new THREE.Vector3(...blade).normalize();
-    const C = new THREE.Vector3(...cut).normalize(); C.addScaledVector(B, -C.dot(B)).normalize();          // the cut, across the blade
-    const q1 = new THREE.Quaternion().setFromUnitVectors(loc.f.clone().normalize(), dir);
-    const e1 = loc.e.clone().applyQuaternion(q1), b1 = loc.b.clone().applyQuaternion(q1), n1 = loc.n.clone().applyQuaternion(q1);
-    let best = { score: -9, th: 0, ph: 0 };
-    const e = new THREE.Vector3(), b = new THREE.Vector3(), n = new THREE.Vector3();
-    for (let i = 0; i < 360; i += 3) {
-      const th = (i * Math.PI) / 180;
-      n.copy(n1).applyAxisAngle(dir, th);
-      for (let ph = -1.4; ph <= 1.4; ph += 0.05) {
-        b.copy(b1).applyAxisAngle(dir, th).applyAxisAngle(n, ph); e.copy(e1).applyAxisAngle(dir, th).applyAxisAngle(n, ph);
-        const score = 1.4 * b.dot(B) + e.dot(C) - 0.1 * Math.abs(ph);
-        if (score > best.score) best = { score, th, ph };
-      }
-    }
-    return { q: new THREE.Quaternion().setFromAxisAngle(dir, best.th).multiply(q1), wrist: best.ph };
+  // The arm's angles at the keys of a blow, solved the first time the blow is used (the arm's measures do not change
+  // with the equipment: the solved keys are kept for every view model).
+  const fpRig = () => vm.rig || (vm.rig = armRig(vm.bonesR, vm.fistR));
+  const fpKeys = (c) => {
+    if (!FP_BLOWS[c]) c = 1;
+    if (!solvedBlows.rest) solvedBlows.rest = restPose(VM_REST.R.rx);
+    if (!solvedBlows[c]) { const K = FP_BLOWS[c], rig = fpRig(); solvedBlows[c] = { w: solveKey(rig, VM_REST.R.pos, K.w), e: solveKey(rig, VM_REST.R.pos, K.e), ph: K.ph || [0.25, 0.65] }; }
+    return solvedBlows[c];
   };
-  // Keyframe orientations of the arm for each blow (computed once per view model: they depend on the fist).
-  const fpKeys = () => {
-    if (vm.keys) return vm.keys;
-    const tw = vm.fistR.parent; tw.updateMatrix(); vm.fistR.updateMatrix();
-    const m = new THREE.Matrix4().multiplyMatrices(tw.matrix, vm.fistR.matrix);
-    const loc = { f: new THREE.Vector3().setFromMatrixPosition(m), e: new THREE.Vector3(1, 0, 0).transformDirection(m),   // fist, edge,
-      b: new THREE.Vector3(0, 0, 1).transformDirection(m), n: new THREE.Vector3(0, 1, 0).transformDirection(m) };            // blade, flat (arm space)
-    const rest = { q: new THREE.Quaternion().setFromEuler(new THREE.Euler(VM_REST.R.rx, 0, 0)), wrist: 0 };
-    vm.keys = { rest };
-    Object.entries(FP_CUTS).forEach(([c, K]) => { vm.keys[c] = { w: armPose(loc, ...K.w, K.cut), e: armPose(loc, ...K.e, K.cut) }; });
-    return vm.keys;
+  // The arm's pose at swing phase p of blow c: rest -> wind-up -> end of the blow -> rest, joint by joint.
+  const _fpPose = restPose(0);
+  const fpArm = (p, c) => {
+    const k = fpKeys(c), rest = solvedBlows.rest, [p1, p2] = k.ph;
+    const [a, b, t] = p < p1 ? [rest, k.w, smooth01(p / p1)] : p < p2 ? [k.w, k.e, smooth01((p - p1) / (p2 - p1))] : [k.e, rest, smooth01((p - p2) / (1 - p2))];
+    return mixPose(a, b, t, _fpPose);
   };
-  // Arm orientation (into `out`) and wrist bend for swing phase p of blow c.
-  const fpArm = (p, c, out) => {
-    const K = fpKeys(), k = K[c] || K[1];
-    const [a, b, t] = p < 0.25 ? [K.rest, k.w, smooth01(p / 0.25)] : p < 0.65 ? [k.w, k.e, smooth01((p - 0.25) / 0.4)] : [k.e, K.rest, smooth01((p - 0.65) / 0.35)];
-    out.slerpQuaternions(a.q, b.q, t);
-    return a.wrist + (b.wrist - a.wrist) * t;
-  };
+  if (import.meta.env.DEV) window.__fp = { get vm() { return vm; }, camera, solvedBlows, FP_BLOWS, fpKeys, fpRig, solveKey };   // dev only: the first-person arm (tests)
+  // The blows are solved one at a time shortly after the start (a few ms each), not at the first swing of each.
+  { const todo = Object.keys(FP_BLOWS); const next = () => { if (!todo.length) return; fpKeys(todo.shift()); setTimeout(next, 150); }; setTimeout(next, 2000); }
   function startTalk(id) {
     const n = S.npcs[id];
     if (!n || !n.alive || !n.mesh) { talk = null; return; }
@@ -832,12 +895,19 @@ export function createGame(canvas, hooks, saved) {
     sfx.unlock();
     if (dialogOpen || paused) return;
     if (kind === "interact") interact();
-    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
+    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; blow = nextBlow(); sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
     if (kind === "parry" && parryT <= -0.3 && atkT < 0 && !P.mounted) { parryT = hasShield() ? 0.8 : 0.55; running = false; }
-    if (kind === "run") { if (inCombat() && !P.mounted) kind = "dodge"; else { running = !running; if (running) setSneak(false); } }   // in a fight the button dodges
+    if (kind === "run") {                                                // in a fight the button dodges
+      if (inCombat() && !P.mounted) kind = "dodge";
+      else if (winded && !P.mounted && !running) hooks.onFloat("SENZA FIATO", "#c8b88a");
+      else { running = !running; if (running) setSneak(false); }
+    }
     if (kind === "camera") setView(view === "first" ? "third" : "first");
+    if (kind === "dodge" && dodgeCd <= 0 && !P.mounted && (winded || P.stamina < 15)) { hooks.onFloat("SENZA FIATO", "#c8b88a"); kind = null; }
     if (kind === "dodge" && dodgeCd <= 0) {
+      if (!P.mounted) { P.stamina -= 15; breathT = 0.8; }
+      makeNoise(P.x, P.z, 6);
       const kx = input.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), ky = input.y + (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
       const f = Math.hypot(kx, ky) > 0.2 ? [kx, ky] : [0, 1];
       const fwx = Math.sin(P.yaw), fwz = Math.cos(P.yaw), rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
@@ -899,7 +969,10 @@ export function createGame(canvas, hooks, saved) {
       else say("I banditi si fermano ai piedi delle mura e si ritirano nel bosco.");
       return;
     }
-    if (enc.state === "idle" && P.z < FZ - 8 && P.z > FZ - 52 && bs.some((b) => Math.hypot(b.x - P.x, b.z - P.z) < (P.sneak ? 8 : 16))) {
+    // the bandits notice the player close by, when they see it (sneaking: much closer) or when they hear it (running,
+    // a galloping horse: from far away; a sneaking player is not heard)
+    const noticed = (b) => Math.hypot(b.x - P.x, b.z - P.z) < (P.sneak ? 4 : 8) || ai.sees(b, P.x, P.z, 18) || b.heardT > 0;
+    if (enc.state === "idle" && P.z < FZ - 8 && P.z > FZ - 52 && bs.some(noticed)) {
       if (boss.alive && Math.random() < (S.night ? 0.2 : 0.5)) {
         enc.state = "approach";
         bs.forEach((b) => { if (b !== boss) { const dx = P.x - b.x, dz = P.z - b.z, d = Math.hypot(dx, dz) || 1; b.goTo = [P.x - (dx / d) * 3.5, P.z - (dz / d) * 3.5]; } });
@@ -1040,6 +1113,7 @@ export function createGame(canvas, hooks, saved) {
       const wanted = npcs.some((n) => n.alive && n.guard && n.hostile && !n.spar) ? 2 : npcs.some((n) => n.alive && n.alert > 0) ? 1 : 0;
       hooks.onHud({
         hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view, running, combat: inCombat(),
+        stamina: P.stamina, winded, heard: heardT > 0,
         dayT: S.dayT, night: S.night, places: repSummary(S),
         foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
       });
@@ -1071,26 +1145,41 @@ export function createGame(canvas, hooks, saved) {
     let moving = false;
     if (!dialogOpen && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
-      const run = (running || keys.shift) && !P.sneak && atkT < 0 && parryT <= 0;
+      const run = (running || keys.shift) && !P.sneak && atkT < 0 && parryT <= 0 && (P.mounted || !winded);
       const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || parryT > 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
       [P.x, P.z] = collide(P.x + mx * spd * dt, P.z + mz * spd * dt);
       moving = true; bobT += dt * (P.mounted ? 7 : 9) * (run ? 1.45 : 1); P.running = run;
       stillT = 0;
     } else { [P.x, P.z] = collide(P.x, P.z); P.running = false; stillT += dt; if (stillT > 1.2) running = false; }   // stopping ends the run
+    // stamina: running uses it up; it comes back a moment after (faster standing still)
+    if (P.running && !P.mounted) {
+      P.stamina = Math.max(0, P.stamina - 16 * dt); breathT = 0.8;
+      if (P.stamina <= 0) { winded = true; running = false; hooks.onFloat("SENZA FIATO", "#c8b88a"); note("Sei senza fiato: cammina per riprenderlo."); }
+    } else if ((breathT -= dt) <= 0) P.stamina = Math.min(100, P.stamina + (moving ? 9 : 16) * dt);
+    if (winded && P.stamina >= 30) winded = false;
+    // noise of the player's moves, a few times a second
+    noiseT -= dt; heardT -= dt;
+    if (noiseT <= 0) {
+      noiseT = 0.25;
+      const r = !moving ? 0 : P.mounted ? (P.running ? NOISE.gallop : NOISE.horse) : P.sneak ? NOISE.sneak : P.running ? NOISE.run : NOISE.walk;
+      if (r > 0) makeNoise(P.x, P.z, r);
+    }
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
     iframe -= dt; dodgeCd -= dt; parryT -= dt; riposteT -= dt; shake = Math.max(0, shake - dt);
     let k = 0;
-    if (import.meta.env.DEV && window.__atk) { atkT = window.__atk.t - dt; combo = window.__atk.combo; queued = false; }   // dev only: freeze a blow (tests)
+    if (import.meta.env.DEV && window.__atk) { atkT = window.__atk.t - dt; combo = window.__atk.combo; blow = window.__atk.blow || combo; queued = false; }   // dev only: freeze a blow (tests)
     if (atkT >= 0) {
       const prev = atkT; atkT += dt; k = atkT / 0.4;
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
       if (import.meta.env.DEV && window.__atk) atkT = window.__atk.t;
-      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
+      // the thrust is a lunge: a short step forward while the arm shoots out
+      if (blow === "thrust" && !P.mounted && k > 0.3 && k < 0.52 && !(import.meta.env.DEV && window.__atk)) [P.x, P.z] = collide(P.x + Math.sin(P.yaw) * 2.4 * dt, P.z + Math.cos(P.yaw) * 2.4 * dt);
+      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; blow = nextBlow(); sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
     if (h) { h.x = P.x; h.z = P.z; h.yaw = P.yaw; }
     const beat = h ? Math.floor(time * 4) : Math.floor((time * 9) / Math.PI);
-    if (moving && beat !== P.beat) { if (h) sfx.hoof(0.7); else sfx.step(0.6); }
+    if (moving && beat !== P.beat) { if (h) sfx.hoof(0.7); else sfx.step(P.sneak ? 0.2 : P.running ? 0.85 : 0.6); }   // (as loud as the noise they make)
     P.beat = beat;
     horses.forEach((ho) => at(ho.mesh, ho.x, 0, ho.z, ho.yaw));
 
@@ -1145,7 +1234,7 @@ export function createGame(canvas, hooks, saved) {
     if (view === "third") {
       // Player body
       const pm = playerMesh;
-      pm.userData.atk = ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo
+      pm.userData.atk = blow === "thrust" ? "thrust" : ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo, or a lunge
       const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : parryT > 0 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
       at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
@@ -1167,12 +1256,11 @@ export function createGame(canvas, hooks, saved) {
     } else {
       camera.position.set(P.x + shk * 0.8, eyeY, P.z);
       camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);
-      // The three blows of the combo (FP_CUTS): the arm turns so the edge leads; the sword never turns in the fist.
-      const R = VM_REST.R, L = VM_REST.L, blow = Math.max(1, combo);
+      // The blows (FP_BLOWS): the arm turns so the edge leads, the elbow bends, the wrist bends; the sword never turns in the fist.
+      const R = VM_REST.R, L = VM_REST.L;
       const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
-      let wrist = 0;
-      if (atkT >= 0) wrist = fpArm(Math.min(1, k), blow, vm.armR.quaternion); else vm.armR.rotation.set(R.rx, 0, 0);
-      if (vm.sword) vm.sword.rotation.set(0, wrist, 0);                  // the wrist bends: the blade tilts in its own plane
+      if (atkT >= 0) applyPose(fpRig(), vm.armR, vm.bonesR, fpArm(Math.min(1, k), blow));
+      else { vm.armR.rotation.set(R.rx, 0, 0); vm.bonesR.fore.quaternion.identity(); vm.bonesR.hand.quaternion.identity(); }
       if (g > 0) vm.armR.quaternion.premultiply(_pq.setFromAxisAngle(_fwd, FP_PARRY.turn * g));    // parry: the blade turns across the screen
       vm.armR.position.set(R.pos[0] + FP_PARRY.dx * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + FP_PARRY.dy * g, R.pos[2] + FP_PARRY.dz * g);
       const sg = hasShield() ? g : 0;

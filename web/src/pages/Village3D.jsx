@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints } from "lucide-react";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
@@ -20,14 +20,14 @@ const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - 
 const ATK = 84, ATK_C = 6 + ATK / 2, ARC = 86;
 const onArc = (deg, size) => { const a = (deg * Math.PI) / 180; return [ATK_C + Math.cos(a) * ARC - size / 2, ATK_C + Math.sin(a) * ARC - size / 2, size]; };
 // at: [right, bottom, size] in px inside the cluster.
-function Btn({ testid, color, onPress, icon, label, at, active }) {
+function Btn({ testid, color, onPress, icon, label, at, active, dim }) {
   const [right, bottom, size] = at;
   return (
     <button
       onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }}
       data-testid={testid}
       data-ui=""
-      className={`absolute pointer-events-auto rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} backdrop-blur-sm flex flex-col items-center justify-center font-pixel ${size > 60 ? "text-[11px]" : "text-[8px]"} active:scale-90 transition-transform select-none touch-none`}
+      className={`absolute pointer-events-auto rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} ${dim ? "opacity-40" : ""} backdrop-blur-sm flex flex-col items-center justify-center font-pixel ${size > 60 ? "text-[11px]" : "text-[8px]"} active:scale-90 transition-transform select-none touch-none`}
       style={{ borderColor: color, color, right, bottom, width: size, height: size }}
     >
       {icon}<span className="mt-0.5 leading-none">{label}</span>
@@ -43,13 +43,18 @@ function TopBar({ hud, onMenu, onCamera }) {
     <div className="fixed top-0 inset-x-0 z-20 h-8 px-2 flex items-center gap-3 font-pixel text-[13px] text-[#e8dcc4] bg-gradient-to-b from-black/75 to-transparent pointer-events-none" data-testid="hud3d">
       <span className="flex items-center gap-1" data-testid="hud3d-hp">
         <Heart size={13} className="text-red-400" fill="#c0392b" />
-        <span className="w-20 h-1.5 rounded-full bg-black/60 overflow-hidden"><span className="block h-full bg-[#c0392b] transition-[width] duration-300" style={{ width: `${Math.max(0, hud.hp)}%` }} /></span>
+        {/* life, and under it the stamina (resistenza): running uses it up; it pulses when you are out of breath */}
+        <span className="flex flex-col gap-[2px]">
+          <span className="w-20 h-1.5 rounded-full bg-black/60 overflow-hidden"><span className="block h-full bg-[#c0392b] transition-[width] duration-300" style={{ width: `${Math.max(0, hud.hp)}%` }} /></span>
+          <span className="w-20 h-1 rounded-full bg-black/60 overflow-hidden" data-testid="hud3d-stamina" title="Resistenza"><span className={`block h-full transition-[width] duration-200 ${hud.winded ? "bg-[#9a7240] animate-pulse" : "bg-[#a8c070]"}`} style={{ width: `${Math.max(0, Math.min(100, hud.stamina ?? 100))}%` }} /></span>
+        </span>
         <span className="w-7">{Math.max(0, Math.round(hud.hp))}</span>
       </span>
       <span className="flex items-center gap-1" data-testid="hud3d-gold"><Coins size={13} className="text-[#e8c050]" />{hud.gold}</span>
       {crown && <span className="flex items-center gap-1" data-testid="hud3d-rep" title={`La Corona: ${crown.label} (${crown.value})`}><RepFace mood={crown.mood} size={17} title={`La Corona ti considera: ${crown.label}`} /></span>}
       {hud.wanted > 0 && <span data-testid="hud3d-wanted" className={`px-1.5 rounded-sm text-[11px] ${hud.wanted === 2 ? "bg-red-900/85 text-red-100 animate-pulse" : "bg-amber-900/75 text-amber-100"}`}>{hud.wanted === 2 ? "RICERCATO" : "Guardie in allerta"}</span>}
       {hud.sneak && <EyeOff size={14} className="text-slate-300" data-testid="hud3d-sneak" />}
+      {hud.heard && <span title="Ti hanno sentito"><Ear size={14} className="text-amber-300 animate-pulse" data-testid="hud3d-heard" /></span>}
       <span className="flex items-center gap-1 text-[11px] text-[#cfc2a8]/80" data-testid="hud3d-clock">{hud.night ? <Moon size={11} /> : <Sun size={11} />}{clockOf(hud.dayT)} · {hud.mounted ? "A cavallo" : ZONE[hud.zone] || "Roccanera"}</span>
       <span className="ml-auto flex gap-1 pointer-events-auto" data-ui="">
         <button onClick={onCamera} className="h-6 px-1.5 rounded-sm bg-black/50 border border-[#4a3820] flex items-center gap-1 text-[11px]" data-testid="village3d-camera-btn" aria-label="Cambia telecamera"><Camera size={13} />{hud.view === "third" ? "3ª" : "1ª"}</button>
@@ -173,8 +178,8 @@ export default function Village3D() {
           <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={32} />} label="Attacca" at={[6, 6, ATK]} />
           <Btn testid="btn3d-sneak" color="#9ab0c8" onPress={() => act("sneak")} active={hud?.sneak} icon={hud?.sneak ? <EyeOff size={15} /> : <Eye size={15} />} label={hud?.sneak ? "Furtivo" : "Nasconditi"} at={onArc(100, 46)} />
           {hud?.combat
-            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
-            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
+            ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} dim={hud?.winded || (hud?.stamina ?? 100) < 15} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
+            : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} dim={hud?.winded && !hud?.mounted} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
           <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
           {hud?.sneak
             ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />

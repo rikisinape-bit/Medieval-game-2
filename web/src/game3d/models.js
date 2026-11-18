@@ -194,11 +194,20 @@ export function makeField() {
   return bake(g);
 }
 
-export function makeCamp() {
+// The bandits' camp around its fire (centre). kit: the tents and the fire are pieces of the medieval kit (engine.js):
+// here only the logs to sit on, a crate, a sack and the fire's light.
+export function makeCamp(kit = false) {
   const g = new THREE.Group();
-  const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
-  add(g, at(tent, 2.5, 1.1, -2.6), at(cyl(0.5, 0.6, 0.2, "#3a3a3a", 8), 0, 0.1, 0), at(box(0.4, 0.4, 0.4, "#ff7a20", "#ff5a10"), 0, 0.35, 0),
-    at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
+  if (!kit) {
+    const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
+    add(g, at(tent, 2.5, 1.1, -2.6), at(cyl(0.5, 0.6, 0.2, "#3a3a3a", 8), 0, 0.1, 0), at(box(0.4, 0.4, 0.4, "#ff7a20", "#ff5a10"), 0, 0.35, 0),
+      at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
+  } else {
+    const log = (x, z, ry, len) => { const l = cyl(0.17, 0.19, len, "#4e3420", 7); l.rotation.set(0, ry, Math.PI / 2); return at(l, x, 0.17, z, ry); };
+    add(g, log(0.3, 2.0, 0, 1.5), log(-2.1, -1.4, Math.PI / 2, 1.5), log(2.6, 2.6, 0.5, 1.1),
+      at(box(0.6, 0.5, 0.6, "#6a4a2e"), 3.3, 0.25, -0.4), at(box(0.45, 0.4, 0.45, "#5a3e26"), 3.35, 0.7, -0.35),
+      at(cyl(0.22, 0.3, 0.55, "#5c5240", 6), -2.6, 0.27, 0.9));
+  }
   lightAnchor(g, "#ff8a30", 5, 9, 0, 1.2, 0);
   return bake(g);
 }
@@ -435,7 +444,6 @@ export function makeLantern() {
   g.userData = { glow };
   return g;
 }
-// First-person arms, attached to the camera.
 // First-person arms: the player's own arm geometry (sleeves, armour, gloves) from body.js, attached to the camera.
 // rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
 export const VM_REST = { R: { pos: [0.3, -0.12, 0.1], rx: 1.45 }, L: { pos: [-0.36, -0.14, 0.08], rx: 1.3 } };
@@ -444,17 +452,25 @@ export function makeViewmodel(look) {
   const g = new THREE.Group();
   // Each arm is turned half a turn on itself (thumb up): what the fist holds (fistR / fistL, oriented like the
   // fist, objects along +Z) points up and forwards. hand: the fist's position with the arm's plain orientation.
+  // The arm is skinned on three bones (body.js, fpJoints): the shoulder group turns the whole arm, bones.fore bends
+  // the elbow and turns the forearm on itself, bones.hand bends the wrist. What the fist holds follows the hand.
   const arm = (geometry, rest, left) => {
     const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
     const tw = new THREE.Group(); tw.rotation.y = Math.PI; p.add(tw);
-    tw.add(new THREE.Mesh(geometry, BODY_MAT));
-    const pal = geo.pal?.[left ? "armL" : "armR"]; if (pal) tw.add(new THREE.Mesh(pal, PALADIN_MAT));   // paladin bracers
-    const fist = inFist(new THREE.Group(), geo, left); tw.add(fist);
-    const gp = left ? geo.gripL : geo.grip, hand = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(hand);
-    g.add(p); return [p, hand, fist];
+    const [S, E, W] = geo.fpJoints[left ? "L" : "R"], up = new THREE.Bone(), fore = new THREE.Bone(), hand = new THREE.Bone();
+    up.position.set(...S); fore.position.set(E[0] - S[0], E[1] - S[1], E[2] - S[2]); hand.position.set(W[0] - E[0], W[1] - E[1], W[2] - E[2]);
+    up.add(fore); fore.add(hand); tw.add(up);
+    const fist = inFist(new THREE.Group(), geo, left); fist.position.sub(new THREE.Vector3(...W)); hand.add(fist);
+    const gp = left ? geo.gripL : geo.grip, mark = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(mark);
+    g.add(p); p.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton([up, fore, hand]);
+    const skin = (geometry2, material) => { const m = new THREE.SkinnedMesh(geometry2, material); m.frustumCulled = false; tw.add(m); m.bind(skeleton); return m; };
+    skin(geometry, BODY_MAT);
+    const pal = geo.pal?.[left ? "armL" : "armR"]; if (pal) skin(pal, PALADIN_MAT);   // paladin bracers
+    return [p, mark, fist, { tw, up, fore, hand, S, E, W }];
   };
-  const [armR, handR, fistR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL] = arm(geo.armL, VM_REST.L, true);
-  return { g, armR, armL, handR, handL, fistR, fistL };
+  const [armR, handR, fistR, bonesR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL, bonesL] = arm(geo.armL, VM_REST.L, true);
+  return { g, armR, armL, handR, handL, fistR, fistL, bonesR, bonesL, geo };
 }
 
 // The player's 3D body with the current equipment (used in third person and in the menu preview).
