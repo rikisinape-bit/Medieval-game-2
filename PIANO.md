@@ -168,12 +168,17 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     a più di 35 m (prima un bandito a 22 m dal suo posto girava e tornava indietro, guarito di colpo); poi torna al suo posto e
     guarisce piano (2 vita/s); il bosco non si "resetta" se rientri mentre ti inseguono; le guardie mandate dopo un crimine
     visto ti riconoscono appena ti vedono (13 m);
-  - menu (`GameMenu.jsx`): scheda Inventario con a sinistra l'equipaggiamento (personaggio grande che gira solo se lo
-    trascini, `CharacterPreview.jsx`; testa e corpo a sinistra, arma e mano sinistra a destra, solo immagini) e a destra
-    l'inventario (tutti gli oggetti, oro e argento compresi, solo immagini con il numero se più di uno); toccando un oggetto
-    si apre accanto una finestra con l'effetto e i pulsanti (Usa, Equipaggia, Togli, Lascia a terra), ritoccandolo si chiude
-    (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
-    (pulsanti `inv-btn-lg`, testi 15–17 px).
+  - menu (`GameMenu.jsx`): scheda **Inventario** con tutti gli oggetti e basta (quelli indossati per primi, con un puntino
+    d'oro; oro e argento compresi; solo immagini, il numero se più di uno) e scheda **Equipaggiamento**: personaggio grande
+    che gira solo se lo trascini (`CharacterPreview.jsx`), ai lati le caselle con le sole immagini (testa e corpo a sinistra;
+    arma, mano sinistra e uso rapido a destra; su uno schermo basso le caselle si rimpiccioliscono) e accanto solo le cose
+    equipaggiabili (armi, armature, elmi, scudi, torcia, cibo/acqua/pozioni per l'uso rapido); toccando un oggetto si apre
+    accanto una finestra con l'effetto e i pulsanti (Usa, Equipaggia o Uso rapido, Togli, Lascia a terra), ritoccandolo si
+    chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
+    (pulsanti `inv-btn-lg`, testi 15–17 px);
+  - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
+    (la casella indica solo cosa usare e quanti ne restano); il tasto rotondo a sinistra di Corri (o Q) ne consuma uno
+    se non hai la vita piena; finito, il tasto resta sbiadito finché non ne trovi altri.
 - **Pubblicare come app (idee, non fatto)**: subito una PWA (manifest, icona, offline; sito gratuito: GitHub Pages / Netlify /
   itch.io); poi Android con Capacitor (APK costruito da GitHub Actions, Google Play 25 $ una tantum); iPhone con Capacitor + Mac/Xcode
   (99 $/anno). Prima: verificare le licenze del kit "Lowpoly Medieval Asset", del modello del paladino e del corpo base (uso

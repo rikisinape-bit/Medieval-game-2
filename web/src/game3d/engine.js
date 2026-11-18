@@ -343,7 +343,8 @@ export function createGame(canvas, hooks, saved) {
   const farAway = Math.abs(sp.z ?? 0) > 150;
   const S = {
     player: { hp: 100, gold: 30, ore: 0, inv: { pane: 1, torcia: 1 }, mounted: null, x: 0, z: 5, yaw: Math.PI, ...sp, ...(farAway ? { x: 0, z: 5, yaw: Math.PI } : {}),
-      eq: { hand: sp.eq?.hand || sp.sword || "corta", body: sp.eq?.body || sp.armor || null, head: sp.eq?.head || null, off: sp.eq?.off || null } },
+      eq: { hand: sp.eq?.hand || sp.sword || "corta", body: sp.eq?.body || sp.armor || null, head: sp.eq?.head || null, off: sp.eq?.off || null,
+        quick: ITEMS[sp.eq?.quick]?.kind === "food" ? sp.eq.quick : null } },
     rep: { village: 0, crown: 0, ...(saved?.rep || {}) },
     known: { crown: 0, ...(saved?.known || {}) },
     flags: { ...(saved?.flags || {}) },
@@ -682,16 +683,26 @@ export function createGame(canvas, hooks, saved) {
   const take = (id, q = 1) => { P.inv[id] = (P.inv[id] || 0) - q; if (P.inv[id] <= 0) delete P.inv[id]; };
   const equipItem = (id) => {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
+    // the quick-use slot (button next to Corri, key Q) only points at a kind of food or drink: it stays in the pack
+    if (it.kind === "food") { P.eq.quick = id; sfx.pick(0.6); note(`Uso rapido: ${it.name}.`); return; }
     if (it.kind === "sword") { P.inv[SWORD_ITEM[P.eq.hand]] = (P.inv[SWORD_ITEM[P.eq.hand]] || 0) + 1; take(id); P.eq.hand = it.sword; }
     else if (it.kind === "armor" || it.kind === "helm" || it.kind === "offhand") { const slot = it.kind === "armor" ? "body" : it.kind === "helm" ? "head" : "off"; if (P.eq[slot]) P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; take(id); P.eq[slot] = id; }
     else return;
     equip(); sfx.pick(0.8); note(`Equipaggi: ${it.name}.`);
   };
   if (import.meta.env.DEV) window.__equip = (id) => { P.inv[id] = (P.inv[id] || 0) + 1; equipItem(id); };   // dev only (tests)
-  const unequip = (slot) => { if (slot === "hand" || !P.eq[slot]) return; P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; P.eq[slot] = null; equip(); };
+  const unequip = (slot) => { if (slot === "quick") { P.eq.quick = null; return; } if (slot === "hand" || !P.eq[slot]) return; P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; P.eq[slot] = null; equip(); };
   const consumeItem = (id) => {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
     if (it.kind === "food") { if (P.hp >= 100) { note(`Sei già in piena salute: tieni ${it.name} per dopo.`); return; } take(id); P.hp = Math.min(100, P.hp + it.heal); hooks.onFloat(`+${it.heal}`, "#a8e07a"); say(`${it.name}: +${it.heal} vita.`); }
+  };
+  // The quick-use button: eats or drinks one of what is in the quick slot (if there is any left and some life to win).
+  const quickUse = () => {
+    const id = P.eq.quick, it = ITEMS[id];
+    if (!it) { hooks.onFloat("USO RAPIDO VUOTO", "#c8b88a"); note("Metti cibo, acqua o una pozione nell'uso rapido: Menu, Equipaggiamento."); return; }
+    if (!P.inv[id]) { hooks.onFloat(`FINITO: ${it.name}`, "#c8b88a"); return; }
+    if (P.hp >= 100) { hooks.onFloat("VITA PIENA", "#a8e07a"); return; }
+    consumeItem(id); sfx.pick(0.5);
   };
   const dropItem = (id) => {
     let q = 1;
@@ -904,6 +915,7 @@ export function createGame(canvas, hooks, saved) {
       else { running = !running; if (running) setSneak(false); }
     }
     if (kind === "camera") setView(view === "first" ? "third" : "first");
+    if (kind === "quick") quickUse();
     if (kind === "dodge" && dodgeCd <= 0 && !P.mounted && (winded || P.stamina < 15)) { hooks.onFloat("SENZA FIATO", "#c8b88a"); kind = null; }
     if (kind === "dodge" && dodgeCd <= 0) {
       if (!P.mounted) { P.stamina -= 15; breathT = 0.8; }
@@ -1308,6 +1320,7 @@ export function createGame(canvas, hooks, saved) {
     if (kk === " " || kk === "l") action("dodge");
     if (kk === "i") hooks.onToggleInventory?.();
     if (kk === "k") action("parry");
+    if (kk === "q") action("quick");
   };
   const ku = (e) => { keys[e.key.toLowerCase()] = false; };
   const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); };

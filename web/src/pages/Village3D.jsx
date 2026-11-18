@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear } from "lucide-react";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear, FlaskConical } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
@@ -7,6 +7,7 @@ import InteractionDialog from "@/components/InteractionDialog";
 import LootPanel from "@/components/LootPanel";
 import GameMenu from "@/components/GameMenu";
 import RepFace from "@/components/RepFace";
+import ItemPic from "@/components/ItemPic";
 import Shop from "@/components/Shop";
 import { loadSave, writeSave, clearSave } from "@/lib/save";
 
@@ -31,6 +32,20 @@ function Btn({ testid, color, onPress, icon, label, at, active, dim }) {
       style={{ borderColor: color, color, right, bottom, width: size, height: size }}
     >
       {icon}<span className="mt-0.5 leading-none">{label}</span>
+    </button>
+  );
+}
+
+// Quick use: the food, drink or potion put in the quick-use square of the equipment (menu), with how many are left.
+// It sits left of Corri, on the bottom row. Empty or used up: dimmed.
+function QuickBtn({ hud, onPress }) {
+  const id = hud?.eq?.quick, n = id ? hud.inv?.[id] || 0 : 0;
+  return (
+    <button onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }} data-testid="btn3d-quick" data-ui="" title="Uso rapido (Q)"
+      className={`absolute pointer-events-auto rounded-full border-2 bg-black/40 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-transform select-none touch-none ${!id || n === 0 ? "opacity-45" : ""}`}
+      style={{ borderColor: "#e8c050", right: 166, bottom: 8, width: 50, height: 50 }}>
+      {id ? <ItemPic id={id} size={36} /> : <FlaskConical size={19} className="text-[#e8c050]" />}
+      {id && <span className="absolute -bottom-1 -right-1 min-w-[18px] h-[18px] px-0.5 rounded-full bg-black/85 border border-[#e8c050] font-pixel text-[13px] leading-[16px] text-center text-[#e8dcc4]">{n}</span>}
     </button>
   );
 }
@@ -172,7 +187,8 @@ export default function Village3D() {
       <div className={`pointer-events-none fixed inset-0 z-30 ${dialog ? "hidden" : ""}`}>
         <Joystick onJoystick={(v) => { if (gameRef.current) { gameRef.current.input.x = v.x; gameRef.current.input.y = v.y; } }} />
         {/* Action buttons on one circle around the big Attacca in the corner, from the bottom towards the middle up to
-            the screen edge: Corri (Schiva in a fight), Para, Usa (Ruba when sneaking), Nasconditi.
+            the screen edge: Corri (Schiva in a fight), Para, Usa (Ruba when sneaking), Nasconditi; left of Corri, on the
+            bottom row, the quick use (food, drink, potions).
             The container lets touches through, only the buttons catch them. */}
         <div className="absolute bottom-2 right-2 w-[160px] h-[160px]">
           <Btn testid="btn3d-attack" color="#ff6a5a" onPress={() => act("attack")} icon={<Sword size={32} />} label="Attacca" at={[6, 6, ATK]} />
@@ -180,6 +196,7 @@ export default function Village3D() {
           {hud?.combat
             ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} dim={hud?.winded || (hud?.stamina ?? 100) < 15} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
             : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} dim={hud?.winded && !hud?.mounted} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
+          <QuickBtn hud={hud} onPress={() => act("quick")} />
           <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
           {hud?.sneak
             ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
