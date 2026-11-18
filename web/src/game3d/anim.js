@@ -15,9 +15,10 @@ const CH = ["pel", "pelP", "spine", "chest", "neck", "head", "clavR", "clavL", "
 const BONE_OF = { pel: "pelvis", spine: "spine", chest: "chest", neck: "neck", head: "head", clavR: "clavR", clavL: "clavL", armR: "upperArmR", armL: "upperArmL",
   foreR: "forearmR", foreL: "forearmL", handR: "handR", handL: "handL", thighR: "thighR", thighL: "thighL", shinR: "shinR", shinL: "shinL", footR: "footR", footL: "footL" };
 const newPose = () => Object.fromEntries(CH.map((c) => [c, [0, 0, 0]]));
+const clearPose = (P) => { for (const c of CH) { const a = P[c]; a[0] = 0; a[1] = 0; a[2] = 0; } return P; };
 const set = (P, c, x = 0, y = 0, z = 0) => { P[c][0] = x; P[c][1] = y; P[c][2] = z; return P; };
 const add = (P, c, x = 0, y = 0, z = 0) => { P[c][0] += x; P[c][1] += y; P[c][2] += z; return P; };
-const flat = (P) => { const a = new Float32Array(CH.length * 3); CH.forEach((c, i) => { a[i * 3] = P[c][0]; a[i * 3 + 1] = P[c][1]; a[i * 3 + 2] = P[c][2]; }); return a; };
+const flat = (P, a = new Float32Array(CH.length * 3)) => { CH.forEach((c, i) => { a[i * 3] = P[c][0]; a[i * 3 + 1] = P[c][1]; a[i * 3 + 2] = P[c][2]; }); return a; };
 const blend = (A, B, k) => { const o = newPose(); CH.forEach((c) => { for (let i = 0; i < 3; i++) o[c][i] = A[c][i] + (B[c][i] - A[c][i]) * k; }); return o; };
 // a key pose written as { channel: [x, y, z] } (the rest 0); mirror() swaps the sides of an asymmetric pose
 const key = (o) => { const P = newPose(); Object.entries(o).forEach(([c, v]) => set(P, c, ...v)); return P; };
@@ -340,11 +341,13 @@ function apply(u, A) {
     if (c === "pelP") return;
     const b = B[BONE_OF[c]], L = LIM[c];
     let x = A[i * 3], y = A[i * 3 + 1], z = A[i * 3 + 2];
+    if (!Number.isFinite(x)) x = 0; if (!Number.isFinite(y)) y = 0; if (!Number.isFinite(z)) z = 0;   // never a broken number on a bone
     if (L) { x = clamp(x, L[0][0], L[0][1]); y = clamp(y, L[1][0], L[1][1]); z = clamp(z, L[2][0], L[2][1]); }
     b.rotation.set(x, y, z);
   });
   const D = dims(u), i = CH.indexOf("pelP") * 3;
-  B.pelvis.position.set(D.pel.x + A[i], D.pel.y + A[i + 1], D.pel.z + A[i + 2]);
+  const ok = (v) => (Number.isFinite(v) ? v : 0);
+  B.pelvis.position.set(D.pel.x + ok(A[i]), D.pel.y + ok(A[i + 1]), D.pel.z + ok(A[i + 2]));
   u.body.rotation.set(0, 0, 0); u.body.position.set(0, 0, 0);
   u.head.scale.setScalar(u.headGone ? 0.001 : 1);
 }
@@ -380,7 +383,7 @@ export const followSkirt = (u) => {
 // backhand). Returns the height of the character's root (the feet on the ground; sitting: as before).
 export function poseHuman(g, t, moving, mode, k = 0) {
   const u = g.userData, D = dims(u), ph = ((u.variant?.seed || 0) % 997) / 997 * TAU, shield = !!u.shield, long = !!u.geo?.long;
-  const P = newPose();
+  const P = clearPose(u._P || (u._P = newPose()));
   let lift = 0, sitY = null;
   const walking = moving && !["sit", "sleep", "dead", "windup", "swing", "stagger"].includes(mode);
   switch (mode) {
@@ -441,10 +444,11 @@ export function poseHuman(g, t, moving, mode, k = 0) {
   const turn = P.pel[1] + P.spine[1] + P.chest[1];
   if (!["windup", "swing", "slash", "train", "look", "sleep", "dead"].includes(mode)) { add(P, "neck", 0, -0.45 * turn, 0); add(P, "head", 0, -0.4 * turn, 0); }
   // cross-fade into a new activity (a blow: quickly)
-  const A = flat(P), now = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now()) / 1000;
   const tag = `${mode}|${walking}|${mode === "windup" || mode === "swing" ? "atk" : ""}`;
-  if (u._last && u._tag !== tag) { u._from = u._last.slice(); u._t0 = now; u._dur = mode === "swing" ? 0.06 : mode === "windup" ? 0.12 : 0.25; }
+  if (u._last && u._tag !== tag) { u._from = Float32Array.from(u._last); u._t0 = now; u._dur = mode === "swing" ? 0.06 : mode === "windup" ? 0.12 : 0.25; }   // (copied before it is overwritten)
   u._tag = tag;
+  const A = flat(P, u._A || (u._A = new Float32Array(CH.length * 3)));
   if (u._from) { const f = ease((now - u._t0) / u._dur); if (f >= 1) u._from = null; else for (let i = 0; i < A.length; i++) A[i] = u._from[i] + (A[i] - u._from[i]) * f; }
   u._last = A;
   apply(u, A);

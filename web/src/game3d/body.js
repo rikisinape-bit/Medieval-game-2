@@ -354,8 +354,20 @@ function bodyMesh(B, part, colorOf, { d = 0, bulk = 1, rand, dirt = 0.32, noise 
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(out, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
   g.setAttribute("normal", new THREE.Float32BufferAttribute(nrm, 3)); g.setAttribute("surf", new THREE.Float32BufferAttribute(srf, 1));
-  g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(sj, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(sw, 4));
+  setSkin(g, sj, sw);
   return g;
+}
+
+// Skin attributes in one byte each (bone index; weight 0..255, normalized): a quarter of the memory of floats, which
+// matters on phones. The weights of a vertex always add up to 255.
+function setSkin(g, sj, sw) {
+  const n = sj.length / 4, si = new Uint8Array(n * 4), q = new Uint8Array(n * 4);
+  for (let i = 0; i < n; i++) {
+    let sum = 0, big = 0;
+    for (let c = 0; c < 4; c++) { si[i * 4 + c] = sj[i * 4 + c]; const v = Math.round((sw[i * 4 + c] || 0) * 255); q[i * 4 + c] = v; sum += v; if (v > q[i * 4 + big]) big = c; }
+    if (!sum) { si[i * 4] = 0; q[i * 4] = 255; } else q[i * 4 + big] = Math.max(0, Math.min(255, q[i * 4 + big] + 255 - sum));
+  }
+  g.setAttribute("skinIndex", new THREE.Uint8BufferAttribute(si, 4)); g.setAttribute("skinWeight", new THREE.Uint8BufferAttribute(q, 4, true));
 }
 
 const cache = new Map();
@@ -365,8 +377,9 @@ const cache = new Map();
  * Returns { torso, head, armL, armR, legL, legR (thighs), shinL, shinR, pivots, grip, gripAxis, gripL, gripAxisL, shieldAt }:
  * every part in the local space of its pivot (pivots in the character's space, feet on y = 0).
  */
-export function bodyGeometries(look, v) {
-  const key = JSON.stringify([look, v]);
+// opts.fp: only the rigid arms for the first-person view (makeViewmodel), not the whole skinned body.
+export function bodyGeometries(look, v, opts = {}) {
+  const key = JSON.stringify([look, v, !!opts.fp]);
   if (cache.has(key)) return cache.get(key);
   const r = rng(v.seed + 7);
   const F = v.female, BK = v.bulk, Bd = baseBody(F), R = Bd.rig, PV = R.pivots;
@@ -786,9 +799,14 @@ export function bodyGeometries(look, v) {
   const wide = (p) => [p[0] * BK, p[1], p[2]];
   const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL) };
   // the first-person arms stay rigid, in the arm's own space (makeViewmodel)
-  const rigid = (g) => { const c = g.clone(); c.deleteAttribute("skinIndex"); c.deleteAttribute("skinWeight"); return c; };
-  const fp = { armR: merge(pieces.armR.filter(Boolean).map(rigid)), armL: merge(pieces.armL.filter(Boolean).map(rigid)),
-    palR: palPieces.armR?.clone(), palL: palPieces.armL?.clone() };
+  const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
+  const hands = { pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
+  if (opts.fp) {                                         // the first-person arms: rigid, in the arm's own space
+    const rigid = (g) => { g.deleteAttribute("skinIndex"); g.deleteAttribute("skinWeight"); return g; };
+    const outFp = { ...hands, armR: merge(pieces.armR.filter(Boolean).map(rigid)), armL: merge(pieces.armL.filter(Boolean).map(rigid)), pal: { armR: palPieces.armR, armL: palPieces.armL } };
+    cache.set(key, outFp);
+    return outFp;
+  }
   // base vertices in the character's space with their bones: a piece that has none takes those of the nearest ones
   const base = {};
   for (const [name, P] of Object.entries(Bd.parts)) {
@@ -796,30 +814,55 @@ export function bodyGeometries(look, v) {
     for (let i = 0; i < n; i++) { pts[i * 3] = P.pos[i * 3] * sx + pv[0]; pts[i * 3 + 1] = P.pos[i * 3 + 1] + pv[1]; pts[i * 3 + 2] = P.pos[i * 3 + 2] * sx + pv[2]; }
     base[name] = { pts, j: P.j, w: P.w, n };
   }
-  const near = (names) => (x, y, z) => {
-    const best = [[1e9, null, 0], [1e9, null, 0], [1e9, null, 0]];
-    for (const nm of names) {
-      const B = base[nm];
-      for (let i = 0; i < B.n; i++) {
-        const dx = B.pts[i * 3] - x, dy = B.pts[i * 3 + 1] - y, dz = B.pts[i * 3 + 2] - z, d = dx * dx + dy * dy + dz * dz;
-        if (d < best[2][0]) { best[2] = [d, B, i]; best.sort((p, q) => p[0] - q[0]); }
+  // Weights of the pieces that have none, written into acc (one slot per bone): the nearest base vertices, found
+  // through a grid of 5 cm cells. Fast and without garbage: dozens of characters are built when the game starts.
+  const CELL = 0.05, grids = new Map(), ck = (cx, cy, cz) => ((cx + 500) * 1000 + (cy + 500)) * 1000 + (cz + 500);
+  const gridOf = (names) => {
+    const k = names.join(); if (grids.has(k)) return grids.get(k);
+    const cells = new Map();
+    for (const nm of names) { const B = base[nm]; for (let i = 0; i < B.n; i++) { const c = ck(Math.floor(B.pts[i * 3] / CELL), Math.floor(B.pts[i * 3 + 1] / CELL), Math.floor(B.pts[i * 3 + 2] / CELL)); let L = cells.get(c); if (!L) cells.set(c, (L = [])); L.push(B, i); } }
+    grids.set(k, cells); return cells;
+  };
+  const nD = [0, 0, 0], nB = [null, null, null], nI = [0, 0, 0];         // the 3 nearest so far
+  const near = (names) => (x, y, z, acc) => {
+    const cells = gridOf(names), cx = Math.floor(x / CELL), cy = Math.floor(y / CELL), cz = Math.floor(z / CELL);
+    nD[0] = nD[1] = nD[2] = 1e9; nB[0] = nB[1] = nB[2] = null;
+    for (let r = 1; r <= 6 && !nB[2]; r++) {
+      for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) for (let k = -r; k <= r; k++) {
+        if (r > 1 && Math.max(Math.abs(i), Math.abs(j), Math.abs(k)) < r) continue;   // only the new shell of cells
+        const L = cells.get(ck(cx + i, cy + j, cz + k)); if (!L) continue;
+        for (let e = 0; e < L.length; e += 2) {
+          const B = L[e], v = L[e + 1], dx = B.pts[v * 3] - x, dy = B.pts[v * 3 + 1] - y, dz = B.pts[v * 3 + 2] - z, d = dx * dx + dy * dy + dz * dz;
+          if (d >= nD[2]) continue;
+          let s = 2; while (s > 0 && d < nD[s - 1]) { nD[s] = nD[s - 1]; nB[s] = nB[s - 1]; nI[s] = nI[s - 1]; s--; }
+          nD[s] = d; nB[s] = B; nI[s] = v;
+        }
       }
     }
-    const acc = new Map();
-    for (const [d, B, i] of best) { if (!B) continue; const k = 1 / (d + 1e-6); for (let c = 0; c < 4; c++) { const wv = B.w[i * 4 + c]; if (wv > 0) acc.set(B.j[i * 4 + c], (acc.get(B.j[i * 4 + c]) || 0) + wv * k); } }
-    return acc;
+    for (let q = 0; q < 3; q++) { const B = nB[q]; if (!B) continue; const kk = 1 / (nD[q] + 1e-6), o = nI[q] * 4; for (let c = 0; c < 4; c++) if (B.w[o + c] > 0) acc[B.j[o + c]] += B.w[o + c] * kk; }
   };
-  const HEAD = new Map([[4, 1]]), nearTorso = near(["torso"]);
-  const torsoPiece = (x, y, z) => (y < SKIRT_TOP ? garmentSkin(x, y, z) : nearTorso(x, y, z));   // hanging below the hips: a garment
+  const garmentInto = (x, y, z, acc) => { garmentSkin(x, y, z).forEach((w, b) => { acc[b] += w; }); };
+  const nearTorso = near(["torso"]);
+  const torsoPiece = (x, y, z, acc) => (y < SKIRT_TOP ? garmentInto(x, y, z, acc) : nearTorso(x, y, z, acc));   // hanging below the hips: a garment
+  const acc = new Float32Array(32);
   const skinBy = (g, fn) => {
-    const p = g.attributes.position, n = p.count, si = new Uint16Array(n * 4), sw = new Float32Array(n * 4);
+    const p = g.attributes.position, n = p.count, si = new Array(n * 4).fill(0), sw = new Array(n * 4).fill(0), memo = new Map();
     for (let i = 0; i < n; i++) {
-      const l = [...fn(p.getX(i), p.getY(i), p.getZ(i)).entries()].filter((e) => e[1] > 1e-4).sort((q, t) => t[1] - q[1]).slice(0, 4), sum = l.reduce((t, e) => t + e[1], 0) || 1;
-      l.forEach(([b, wv], c) => { si[i * 4 + c] = b; sw[i * 4 + c] = wv / sum; });
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const mk = ((Math.round(x * 500) + 1000) * 4000 + (Math.round(y * 500) + 1000)) * 4000 + (Math.round(z * 500) + 1000);   // (2 mm: corners shared by triangles)
+      let r = memo.get(mk);
+      if (!r) {
+        acc.fill(0); fn(x, y, z, acc);
+        r = [0, 0, 0, 0, 0, 0, 0, 0];                                         // 4 bones, 4 weights: the largest ones
+        for (let b = 0; b < acc.length; b++) { const wv = acc[b]; if (wv <= 1e-4) continue; let s = 3; if (wv <= r[4 + s]) continue; while (s > 0 && wv > r[4 + s - 1]) { r[s] = r[s - 1]; r[4 + s] = r[4 + s - 1]; s--; } r[s] = b; r[4 + s] = wv; }
+        const sum = r[4] + r[5] + r[6] + r[7] || 1; for (let c = 4; c < 8; c++) r[c] /= sum;
+        memo.set(mk, r);
+      }
+      for (let c = 0; c < 4; c++) { si[i * 4 + c] = r[c]; sw[i * 4 + c] = r[4 + c]; }
     }
-    g.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(si, 4)); g.setAttribute("skinWeight", new THREE.Float32BufferAttribute(sw, 4));
+    setSkin(g, si, sw);
   };
-  const weigher = (name) => (name === "head" ? () => HEAD : name === "torso" ? torsoPiece : name.startsWith("pad") ? near([name === "padR" ? "armR" : "armL", "torso"]) : near([name]));
+  const weigher = (name) => (name === "head" ? (x, y, z, a) => { a[4] = 1; } : name === "torso" ? torsoPiece : name.startsWith("pad") ? near([name === "padR" ? "armR" : "armL", "torso"]) : near([name]));
   const pivotOf = (name) => (name.startsWith("pad") ? pivots[name === "padR" ? "armR" : "armL"] : pivots[name]);
   const all = [], palAll = [];
   for (const [name, list] of Object.entries(pieces)) for (const g of list) {
@@ -831,11 +874,10 @@ export function bodyGeometries(look, v) {
   for (const [name, g] of Object.entries(palPieces)) { const pv = pivotOf(name); g.translate(pv[0], pv[1], pv[2]); skinBy(g, weigher(name)); palAll.push(g); }
   // the bones' joints, widened like the body (the head is not)
   const joints = R.joints.map((j, i) => (R.bones[i] === "head" ? j : [j[0] * BK, j[1], j[2] * BK]));
-  const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
   const ft = Bd.foot, kp = pivots.shinR;                                // heel and toe of the right foot (ground contact)
-  const out = { body: merge(all), palBody: merge(palAll), armR: fp.armR, armL: fp.armL, pal: { armR: fp.palR, armL: fp.palL }, bones: R.bones, joints,
+  const out = { body: merge(all), palBody: merge(palAll), bones: R.bones, joints,
     heelToe: [[kp[0] + ft.x * BK, 0, kp[2] + (ft.z - ft.d * 0.42) * BK], [kp[0] + ft.x * BK, 0, kp[2] + (ft.z + ft.d * 0.42) * BK]],   // the sole
-    long, pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
+    long, ...hands };
   cache.set(key, out);
   return out;
 }

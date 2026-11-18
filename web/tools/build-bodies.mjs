@@ -149,14 +149,15 @@ function build(raw, J) {
     arms[side] = { S, a, farP, wrist, tips };
   }
 
-  // Rings of vertices at the joints (the shape does not change): elbows and forearms, knees, above the ankles, waist.
+  // Rings of vertices at the joints (the shape does not change): elbows, knees, above the ankles, waist. Only as many
+  // as a smooth bend needs: every ring multiplies the triangles of every garment over it (memory on phones).
   let rings = 0;
   for (const side of [1, -1]) {
     const { S, a, wrist } = arms[side];
-    for (const u of [0.4, 0.46, 0.52, 0.58, 0.65, 0.78]) rings += cut(V, I, (v) => dot(sub(v, S), a) - wrist * u, (tri) => tri.every((j) => V[j][0] * side > J.shoulder[0] + 0.06 && V[j][1] > 0.6));
+    for (const u of [0.44, 0.52, 0.6]) rings += cut(V, I, (v) => dot(sub(v, S), a) - wrist * u, (tri) => tri.every((j) => V[j][0] * side > J.shoulder[0] + 0.06 && V[j][1] > 0.6));
   }
-  for (const y0 of [J.knee - 0.03, J.knee + 0.03, 0.095, 0.12, 0.16, 0.21]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => V[j][1] < 0.6));
-  for (const y0 of [J.hipY + 0.12, J.hipY + 0.16]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => Math.abs(V[j][0]) < 0.24 && V[j][1] > J.crotch));
+  for (const y0 of [J.knee - 0.03, J.knee + 0.03, 0.1, 0.16]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => V[j][1] < 0.6));
+  for (const y0 of [J.hipY + 0.14]) rings += cut(V, I, (v) => v[1] - y0, (tri) => tri.every((j) => Math.abs(V[j][0]) < 0.24 && V[j][1] > J.crotch));
   console.log(`  ${rings} vertices added at the joints`);
 
   for (const side of [1, -1]) {                       // arm coordinates and weights on the new mesh

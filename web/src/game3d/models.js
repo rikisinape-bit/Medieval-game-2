@@ -138,6 +138,9 @@ export function makeHuman(look, weapon, seed) {
   };
   const mesh = skin(geo.body, BODY_MAT);
   if (geo.palBody) skin(geo.palBody, PALADIN_MAT);
+  // Once on the graphics card, an NPC's body needs no copy in the page's memory (phones run short of it). The
+  // player's stays: the menu's preview draws it with another renderer.
+  if (seed !== "player") [geo.body, geo.palBody].forEach((gg) => gg && Object.values(gg.attributes).forEach((a) => { if (!a.onUploadCallback?.freed) { const f = function () { this.array = null; }; f.freed = true; a.onUpload(f); } }));
   // offsets from the shoulder (the arm's space of geo.grip, shieldAt) to the wrist and the elbow
   const off = (a, b) => { const p = J(a), q = J(b); return new THREE.Vector3(p[0] - q[0], p[1] - q[1], p[2] - q[2]); };
   const wristR = off("handR", "upperArmR"), wristL = off("handL", "upperArmL"), elbowL = off("forearmL", "upperArmL");
@@ -437,7 +440,7 @@ export function makeLantern() {
 // rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
 export const VM_REST = { R: { pos: [0.3, -0.12, 0.1], rx: 1.45 }, L: { pos: [-0.36, -0.14, 0.08], rx: 1.3 } };
 export function makeViewmodel(look) {
-  const geo = bodyGeometries(look, variantOf(look, "player"));
+  const geo = bodyGeometries(look, variantOf(look, "player"), { fp: true });
   const g = new THREE.Group();
   // Each arm is turned half a turn on itself (thumb up): what the fist holds (fistR / fistL, oriented like the
   // fist, objects along +Z) points up and forwards. hand: the fist's position with the arm's plain orientation.
