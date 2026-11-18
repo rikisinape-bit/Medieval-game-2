@@ -149,6 +149,10 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   paladino muovendo le braccia (petto) e le gambe (gonna che ora segue le cosce); pelle più vera (liscia, calda, con sfumature)
   e capelli/barbe con ciocche ben marcate; scheletro vero con pelle deformabile (caviglie, polsi, gomiti, busto e bacino,
   collo e testa) e tutte le pose e i movimenti rifatti (`anim.js`).
+- **Pubblicare come app (idee, non fatto)**: subito una PWA (manifest, icona, offline; sito gratuito: GitHub Pages / Netlify /
+  itch.io); poi Android con Capacitor (APK costruito da GitHub Actions, Google Play 25 $ una tantum); iPhone con Capacitor + Mac/Xcode
+  (99 $/anno). Prima: verificare le licenze del kit "Lowpoly Medieval Asset", del modello del paladino e del corpo base (uso
+  commerciale, attribuzione), salvataggi più sicuri (Capacitor Preferences), informativa privacy, prove su un telefono economico.
 - **Prossimi passi possibili**: gomito nel braccio in prima persona
   (colpo dall'alto e affondo); resistenza per la corsa / rumore che allerta; campo dei banditi e selciato col kit;
   scollatura degli abiti femminili (alzarla se serve); direzione dark fantasy (sezione 6).
