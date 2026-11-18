@@ -1115,10 +1115,12 @@ export function createGame(canvas, hooks, saved) {
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
-      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; poseHuman(n.mesh, 0, false, "sleep"); }
+      // characters hidden in the fog are only moved, not posed (the pose of dozens of skeletons costs on a phone)
+      const shown = n.mesh.visible;
+      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; if (shown) poseHuman(n.mesh, 0, false, "sleep"); }
       else {
         n.mesh.userData.atk = n.atk;
-        const y = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k);
+        const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k)) : n.lastY ?? 0;
         at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y, n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
