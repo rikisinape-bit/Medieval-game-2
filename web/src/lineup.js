@@ -59,7 +59,7 @@ const n = list.length, sp = faces ? 0.42 : 0.85;
 list.forEach(([look, id, extra], i) => {
   const g = look === "playerEq" ? makePlayerModel(extra) : makeHuman({ ...LOOKS[look], ...(extra || {}) }, ["knight", "soldier", "bandit"].includes(look) ? (look === "knight" || id === "bandit3" ? "long" : "short") : null, id);
   g.userData.atk = q.get("atk") || "over";
-  const y = poseHuman(g, 0, !!q.get("walk"), q.get("mode") || null, +(q.get("k") || 0.5)); g.position.y = y;
+  const y = poseHuman(g, +(q.get("t") || 0), !!q.get("walk"), q.get("mode") || null, +(q.get("k") || 0.5)); g.position.y = y;
   if (q.get("death")) poseDeath(g, +q.get("death"), +(q.get("p") || 1));
   g.position.x = (i - (n - 1) / 2) * sp + (q.get("weapons") ? -4.6 : 0); g.rotation.y = extra?._ry ?? +(q.get("ry") || 0.25);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, DEATH_TIME, saddleY, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
@@ -1121,7 +1121,7 @@ export function createGame(canvas, hooks, saved) {
         const y = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k);
         at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y, n.z, n.yaw);
         n.mesh.rotation.x = 0;
-        n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0;
+        n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
       }
       if (r.mode === "hammer") { const b = Math.floor((nt * 5) / Math.PI); if (b !== n.beat) { n.beat = b; sfx.anvil(vAt(n.x, n.z)); } }
       else if (r.walk) { const b = Math.floor((nt * 9) / Math.PI); if (b !== n.beat) { n.beat = b; sfx.step(vAt(n.x, n.z) * 0.35); } }
@@ -1146,7 +1146,7 @@ export function createGame(canvas, hooks, saved) {
       pm.userData.atk = ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo
       const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : parryT > 0 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
       at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : ny, P.z, P.yaw);
-      pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0;
+      pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
       // Camera behind the right shoulder; pulled in if a wall is in the way.
       const headY = (P.mounted ? 2.45 : 1.75) - crouch;
