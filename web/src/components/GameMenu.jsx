@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
-import { X, Heart, Pause, RotateCw, Gauge, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical } from "lucide-react";
+import { X, Heart, Pause, RotateCw, Gauge, BatteryMedium, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical } from "lucide-react";
 import { ITEMS, SWORD_ITEM, dmgReduction, sellPrice } from "@/game3d/items";
 import CharacterPreview from "@/components/CharacterPreview";
 import ItemPic from "@/components/ItemPic";
@@ -226,7 +226,7 @@ function ReputationTab({ hud }) {
 }
 
 // ---- Menu shell ----------------------------------------------------------------
-export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps }) {
+export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps, saving = false, onSaving }) {
   const [tab, setTab] = useState("inv");
   if (!hud) return null;
   const tabs = [["inv", "Inventario"], ["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
@@ -256,6 +256,8 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps =
               <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, Q uso rapido, I menu.</p>
               <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger flex items-center gap-1.5" onClick={onReset} data-testid="menu-reset"><RotateCw size={16} />Nuova partita…</button>
               <button type="button" data-ui="" className="inv-btn inv-btn-lg flex items-center gap-1.5" onClick={onFps} data-testid="menu-fps"><Gauge size={16} />Contatore FPS: {fps ? "acceso" : "spento"}</button>
+              <button type="button" data-ui="" className="inv-btn inv-btn-lg flex items-center gap-1.5" onClick={onSaving} data-testid="menu-saving"><BatteryMedium size={16} />Risparmio batteria: {saving ? "acceso" : "spento"}</button>
+              <p className="text-[15px] text-[#8a7d66]">Il risparmio batteria disegna 30 immagini al secondo invece di 60, a risoluzione normale e con ombre più semplici: il telefono scalda meno, il gioco è un po' meno fluido e nitido.</p>
               <p className="text-[14px] text-[#8a7d66]" data-testid="menu-credits">Crediti: lastricato di Valdoro, texture «Stone Ground 01» di Game industry veteran (skfb.ly/6VGCp), licenza CC BY 4.0.</p>
             </div>
           )}

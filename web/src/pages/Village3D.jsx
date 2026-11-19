@@ -51,22 +51,22 @@ function QuickBtn({ hud, onPress }) {
 }
 
 // Thin top bar: life, gold and a face showing how the Crown sees you. Everything else lives in the menu.
-// Frames per second (switched on in the menu, Partita): its own counter of the screen's frames, and the slowest frame
-// of the last second, so the game's weight can be read on a real phone.
-function FpsMeter() {
+// Frames per second (switched on in the menu, Partita): the frames the game really drew in the last second and the
+// longest wait between two of them, so the game's weight can be read on a real phone. Green at the game's own limit
+// (60, or 30 when saving the battery), yellow a little below, red when it struggles.
+function FpsMeter({ getStats, cap }) {
   const [v, setV] = useState(null);
   useEffect(() => {
-    let raf, n = 0, t0 = performance.now(), last = t0, worst = 0;
-    const tick = (t) => {
-      n++; worst = Math.max(worst, t - last); last = t;
-      if (t - t0 >= 1000) { setV({ fps: Math.round((n * 1000) / (t - t0)), worst: Math.round(worst) }); n = 0; t0 = t; worst = 0; }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+    let prev = null, t0 = performance.now();
+    const id = setInterval(() => {
+      const st = getStats(), t = performance.now();
+      if (st && prev) setV({ fps: Math.round(((st.frames - prev.frames) * 1000) / (t - t0)), worst: Math.round(st.worst) });
+      prev = st; t0 = t;
+    }, 1000);
+    return () => clearInterval(id);
+  }, [getStats]);
   if (!v) return null;
-  const c = v.fps >= 50 ? "text-[#a8e07a]" : v.fps >= 30 ? "text-[#e8c050]" : "text-red-400";
+  const c = v.fps >= cap * 0.85 ? "text-[#a8e07a]" : v.fps >= cap * 0.55 ? "text-[#e8c050]" : "text-red-400";
   return <div className={`fixed top-8 left-2 z-20 px-1.5 rounded-sm bg-black/60 font-pixel text-[13px] pointer-events-none ${c}`} data-testid="hud3d-fps">{v.fps} FPS · max {v.worst} ms</div>;
 }
 
@@ -113,6 +113,9 @@ export default function Village3D() {
   const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
   const [fps, setFps] = useState(() => { try { return localStorage.getItem("rv-fps") === "1"; } catch { return false; } });
+  const [saving, setSaving] = useState(() => { try { return localStorage.getItem("rv-risparmio") === "1"; } catch { return false; } });
+  const savingRef = useRef(saving);
+  const getStats = React.useCallback(() => gameRef.current?.stats(), []);
 
   useEffect(() => {
     let alive = true;
@@ -145,7 +148,7 @@ export default function Village3D() {
           setFloats((f) => [...f, { id, t, c, big }].slice(-2));
           setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1100);
         },
-      }, saved);
+      }, saved, { saving: savingRef.current });
       gameRef.current = game;
       saveId = setInterval(save, 5000);
       document.addEventListener("visibilitychange", onHide);
@@ -223,9 +226,10 @@ export default function Village3D() {
             : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
         </div>
       </div>
-      {fps && <FpsMeter />}
+      {fps && <FpsMeter getStats={getStats} cap={saving ? 30 : 60} />}
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)}
-        fps={fps} onFps={() => setFps((f) => { try { localStorage.setItem("rv-fps", f ? "0" : "1"); } catch { /* private mode */ } return !f; })} />}
+        fps={fps} onFps={() => setFps((f) => { try { localStorage.setItem("rv-fps", f ? "0" : "1"); } catch { /* private mode */ } return !f; })}
+        saving={saving} onSaving={() => { const v = !saving; savingRef.current = v; setSaving(v); gameRef.current?.setPower(v); try { localStorage.setItem("rv-risparmio", v ? "1" : "0"); } catch { /* private mode */ } }} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
       {loot && <LootPanel info={loot} onAct={(k, id, item) => gameRef.current?.loot(k, id, item)} onClose={() => { gameRef.current?.closeLoot(); setLoot(null); }} />}
       <InteractionDialog

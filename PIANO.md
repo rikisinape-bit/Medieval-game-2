@@ -209,8 +209,15 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
     (pulsanti `inv-btn-lg`, testi 15–17 px);
   - oggetti del villaggio del pacchetto Medieval Props e terreno con texture (vedi sezione 7);
+  - **calore del telefono** (giocando un po' scaldava, anche a 60+ FPS): il gioco disegnava quante immagini permetteva lo
+    schermo (fino a 120 sui telefoni a 90/120 Hz). Ora: al massimo 60 al secondo (`frame()` in `engine.js` salta le
+    chiamate in più; simulato su schermi a 60/90/120/144 Hz: sempre 60), 8 al secondo a gioco in pausa dietro un menu (non
+    nei dialoghi), le 6 luci puntiformi e quella della torcia spente tutte insieme quando nessuna luce è vicina (di giorno
+    lontano da forgia, fuochi e miniera: `setLightsOn`, solo due stati di luci compilati all'avvio, cambiare non blocca);
+    **Risparmio batteria** (menu, Partita; `localStorage` "rv-risparmio", `setPower`): 30 immagini al secondo, risoluzione
+    1× invece di 1,5×, ombre semplici (PCF invece di PCF morbide);
   - **contatore FPS** (menu, scheda Partita; `FpsMeter` in `Village3D.jsx`, ricordato in `localStorage` "rv-fps"): fotogrammi al
-    secondo e fotogramma più lento dell'ultimo secondo, per misurare il peso sul telefono vero; prova emulata (`phone2.cjs`:
+    secondo davvero disegnati e attesa più lunga tra due nell'ultimo secondo (verde vicino al limite 60/30), per misurare il peso sul telefono vero; prova emulata (`phone2.cjs`:
     processore rallentato 4×): le foglioline ai bordi non cambiano il lavoro del processore (differenza dentro il rumore);
   - lastricato di pietra nel cortile di Valdoro e davanti al portone (al posto delle lastre del kit), terra con la texture
     della roccia di `rocks.blend`, foglioline 3D ai bordi tra terra e prato (vedi sezione 7);

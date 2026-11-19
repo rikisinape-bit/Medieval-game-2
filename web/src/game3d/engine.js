@@ -22,12 +22,14 @@ const solvedBlows = {};   // first-person blows, solved once (fparm.js): the pla
 const segDist = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
 const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z, PATH[i], p)));
 
-export function createGame(canvas, hooks, saved) {
+// opts.saving: battery saving (30 frames a second, screen resolution, hard-edged shadows; setPower switches it later)
+export function createGame(canvas, hooks, saved, opts = {}) {
+  let saving = !!opts.saving;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   setupPaladinEnv(renderer);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, saving ? 1 : 1.5));
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = saving ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#9cc4e4");
   scene.fog = new THREE.Fog("#b8d0e0", 30, 80);
@@ -611,18 +613,27 @@ export function createGame(canvas, hooks, saved) {
       const reach = scene.fog.far + 6;
       natureMeshes.forEach((m) => { const c = m.geometry.boundingSphere; m.visible = Math.hypot(c.center.x - P.x, c.center.z - P.z) - c.radius < reach; });
       leaves.update(P.x, P.z);
-      const best = anchors.filter((a) => !a.night || lan > 0).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z)).slice(0, pool.length);
+      // only the lights that can reach what is around the player (the camera may be a few metres behind)
+      const near = anchors.filter((a) => (!a.night || lan > 0) && Math.hypot(a.x - P.x, a.z - P.z) < a.distance + 14);
+      const best = near.sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z)).slice(0, pool.length);
       pool.forEach((l, i) => { const a = best[i]; l.userData.a = a || null; if (a && l.userData.cur !== a) { l.userData.cur = a; l.position.set(a.x, a.y, a.z); l.color.set(a.color); l.distance = a.distance; l.intensity = 0; } });
+      lightsWanted = best.length > 0 || !!torchLight;
+      if (lightsWanted) setLightsOn(true);
     }
     pool.forEach((l) => { const a = l.userData.a; l.intensity += ((a ? a.intensity : 0) - l.intensity) * k; });
     if (torchLight) torchLight.intensity += (((S.night || region === "mine") ? 3.5 : 0.5) - torchLight.intensity) * k;
+    if (!lightsWanted && lightsOn && pool.every((l) => l.intensity < 0.02)) setLightsOn(false);   // faded out: off
   };
-  // Fixed pool of point lights (constant light count = no shader recompiles; 6 instead of ~22 lights).
+  // Fixed pool of point lights (6 instead of ~22 lights). Every point light costs on every pixel even when dark, so
+  // all of them (and the torch's) are switched off together when no light is near (the day away from the forge, the
+  // fires and the mine): only two light counts, both compiled at the start, so switching never stalls.
   scene.updateMatrixWorld(true);
   const anchors = [], wp = new THREE.Vector3();
   scene.traverse((o) => { const a = o.userData.anchor; if (a) { o.getWorldPosition(wp); anchors.push({ ...a, x: wp.x, y: wp.y, z: wp.z }); } });
   const pool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight("#ffb050", 0, 10); scene.add(l); return l; });
-  let lightT = 0;
+  let lightT = 0, lightsOn = true, lightsWanted = true;
+  const setLightsOn = (v) => { if (v !== lightsOn) { lightsOn = v; [...pool, torchLamp].forEach((l) => { l.visible = v; }); } };
+  if (import.meta.env.DEV) window.__lights = () => ({ on: lightsOn, wanted: lightsWanted, programs: renderer.info.programs.length });   // dev only (tests)
   atmosphere(1);
 
   const makeHostile = (ids) => ids.forEach((id) => { const n = S.npcs[id]; if (n?.alive) n.hostile = true; });
@@ -1204,9 +1215,20 @@ export function createGame(canvas, hooks, saved) {
 
   const clock = new THREE.Clock();
   let raf = 0, time = 0, bobT = 0;
-  function frame() {
+  // Frame pacing (heat and battery on phones): at most 60 frames a second whatever the screen (90/120 Hz screens
+  // would draw up to twice as many), 30 when saving the battery, 8 while the world is paused behind a menu.
+  let due = 0, lastDraw = 0, frames = 0, worstGap = 0;
+  function frame(now) {
+    raf = requestAnimationFrame(frame);
+    const gap = 1000 / (paused && !talk ? 8 : saving ? 30 : 60);
+    if (now - due < gap * 0.75) return;
+    due = Math.max(due + gap, now - gap);
+    frames++; if (lastDraw) worstGap = Math.max(worstGap, now - lastDraw); lastDraw = now;
+    step();
+  }
+  function step() {
     const dt = Math.min(0.1, clock.getDelta());
-    if (paused) { if (talk) updateTalk(dt); updateHud(dt); renderer.render(scene, camera); raf = requestAnimationFrame(frame); return; }
+    if (paused) { if (talk) updateTalk(dt); updateHud(dt); renderer.render(scene, camera); return; }
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt;
@@ -1357,7 +1379,6 @@ export function createGame(canvas, hooks, saved) {
     if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);
     renderer.render(scene, camera);
-    raf = requestAnimationFrame(frame);
   }
 
   const resize = () => {
@@ -1403,6 +1424,7 @@ export function createGame(canvas, hooks, saved) {
   window.addEventListener("keyup", ku);
   window.addEventListener("resize", resize);
   resize();
+  setLightsOn(false); renderer.compileAsync(scene, camera); setLightsOn(true);   // the "lights off" shaders too, now
   raf = requestAnimationFrame(frame);
 
   return {
@@ -1411,6 +1433,15 @@ export function createGame(canvas, hooks, saved) {
     closeDialog: () => { dialogOpen = false; endTalk(); },
     loot: (kind, id, item) => loot(kind, id, item),
     closeLoot: () => { dialogOpen = false; lootId = null; },
+    // frames drawn so far and the longest wait between two of them since the last call (the FPS counter)
+    stats: () => { const w = worstGap; worstGap = 0; return { frames, worst: w }; },
+    setPower: (v) => {
+      if (saving === !!v) return;
+      saving = !!v;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, saving ? 1 : 1.5)); resize();
+      renderer.shadowMap.type = saving ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+      scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });
+    },
     setPaused: (v) => { paused = !!v; lookers.clear(); if (paused) Object.keys(keys).forEach((kk) => { keys[kk] = false; }); },
     invAction: (kind, id) => { sfx.unlock(); if (kind === "use") consumeItem(id); else if (kind === "equip") equipItem(id); else if (kind === "drop") dropItem(id); else if (kind === "unequip") unequip(id); },
     getSave: () => ({
