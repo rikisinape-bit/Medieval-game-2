@@ -13,6 +13,7 @@ import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
+import { createClouds } from "./clouds";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
@@ -587,6 +588,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
   // (in the mine the world keeps the village's light: the dark is in the mountain only, see mine.js)
   const cA = new THREE.Color(), cB = new THREE.Color();
+  // clouds (clouds.js): white by day, warm at dusk, dark and thinner at night, faint over the thick of the forest
+  const clouds = createClouds(scene), cloudLight = new THREE.Color(1, 1, 1);
+  let cloudAlpha = 1;
   const atmosphere = (dt) => {
     const el = -Math.cos(S.dayT * Math.PI * 2), dayK = clamp((el + 0.08) * 4, 0, 1), dusk = clamp(1 - Math.abs(el - 0.05) / 0.2, 0, 1);
     S.night = el < 0.05;
@@ -595,6 +599,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
     const near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
     const si = d[4] * clamp(el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dayK);
+    cloudLight.setRGB(0.16, 0.19, 0.27).lerp(cB.setRGB(1, 1, 1), dayK).lerp(cB.setRGB(1.25, 0.74, 0.58), dusk * 0.75);
+    cloudAlpha += ((0.55 + 0.45 * dayK) * (region === "forest" ? 0.4 : 1) - cloudAlpha) * Math.min(1, dt * 1.5);
     const k = Math.min(1, dt * 2.5);
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
     scene.fog.near += (near - scene.fog.near) * k; scene.fog.far += (far - scene.fog.far) * k;
@@ -1233,7 +1239,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   }
   function step() {
     const dt = Math.min(0.1, clock.getDelta());
-    if (paused) { if (talk) updateTalk(dt); updateHud(dt); renderer.render(scene, camera); return; }
+    if (paused) { if (talk) updateTalk(dt); updateHud(dt); clouds.update(dt, camera, cloudLight, cloudAlpha); renderer.render(scene, camera); return; }
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt;
@@ -1388,6 +1394,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     mine.update(camera.position);
     if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);
+    clouds.update(dt, camera, cloudLight, cloudAlpha);                            // (with the camera where it is drawn from)
     renderer.render(scene, camera);
   }
 
