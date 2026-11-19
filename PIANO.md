@@ -227,17 +227,11 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     shader di three.js `lights_pars_begin`/`lights_fragment_begin`/`lights_fragment_end`, per posizione nel mondo) spegne
     la luce del cielo e del sole dentro la montagna man mano che ci si allontana dal portale (minimo 8,5%), le torce
     no: da dentro si vede il fuori illuminato com'è, e le braccia del giocatore e chi è nella miniera sono al buio;
-  - **nuvole** (`clouds.js`): immagini delle nuvole volumetriche "Cumulonimbus Field" (file VDB in
-    `assets/sorgenti/nuvole/`, NON nel repository): `tools/render-clouds.py` (Python di Blender, anche il modulo `bpy`) le
-    renderizza di lato con la scena d'esempio del pacchetto (shader delle nuvole e cielo), fondo trasparente, 5 campi ×
-    fotogrammi e lati diversi → `assets/sorgenti/nuvole/render/`; `npm run nuvole` (`tools/build-clouds.mjs`) le ritaglia,
-    sfuma la base piatta e le estremità e le impacchetta in `src/game3d/nuvole.webp` + `nuvole.json` (larghezza in metri
-    di ogni banco). Nel gioco: un piano di nuvole alto e largo (metri "virtuali") col vento (direzione a caso per partita,
-    gira piano; ogni nuvola un po' più veloce o lenta); ognuna disegnata a 185 m dalla telecamera nella direzione del suo
-    posto e alla grandezza che avrebbe da lì (più piccole e fitte verso l'orizzonte), dritta sullo schermo, a volte
-    specchiata; svaniscono nella foschia lontana e chi esce dal piano rientra dall'altra parte come un'altra nuvola: il
-    cielo cambia sempre e ogni partita parte diverso. Una sola mesh di ~26 quadrati (1 disegno), niente luci né nebbia;
-    colore dal giorno/notte (bianche, calde al tramonto, scure e più trasparenti di notte, deboli sopra il bosco fitto);
+  - **nuvole: tolte** (su richiesta, dopo averle provate). Restano gli strumenti per rifarle: `tools/render-clouds.py`
+    (Python di Blender: renderizza di lato le nuvole volumetriche "Cumulonimbus Field" di `assets/sorgenti/nuvole/`, fuori
+    da git) e `npm run nuvole` (`tools/build-clouds.mjs`: atlante `src/game3d/nuvole.webp` + `.json`); il codice del cielo
+    (`clouds.js`: banchi che scorrono col vento su un piano alto, disegnati a 185 m dalla telecamera, una mesh) è nel
+    commit 0bba773, da recuperare con git se servirà;
   - **personaggi nella miniera**: stanno sul pavimento in discesa (`floorY`) e trovano la strada nelle gallerie
     (`mine.route`: le gallerie come grafo di nodi, il più breve con Dijkstra; da fuori passano davanti al portale, `OUT`;
     `step` in `ai.js` va di nodo in nodo); chi ti insegue ti segue dentro e fuori dalla miniera (prima smetteva perché
@@ -272,7 +266,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - **Pubblicare come app (idee, non fatto)**: subito una PWA (manifest, icona, offline; sito gratuito: GitHub Pages / Netlify /
   itch.io); poi Android con Capacitor (APK costruito da GitHub Actions, Google Play 25 $ una tantum); iPhone con Capacitor + Mac/Xcode
   (99 $/anno). Prima: verificare le licenze del kit "Lowpoly Medieval Asset", del modello del paladino, del corpo base, del
-  pacchetto "Medieval Props Minipack 4", delle texture del terreno (Vol_42_1, Vol_19_4), della foglia di `rocks.blend` e delle nuvole "Cumulonimbus Field"
+  pacchetto "Medieval Props Minipack 4", delle texture del terreno (Vol_42_1, Vol_19_4) e della foglia di `rocks.blend`
   (uso commerciale, attribuzione; `rock_05` è di Poly Haven, CC0; il lastricato "Stone Ground 01" di Game industry veteran,
   skfb.ly/6VGCp, è CC BY 4.0: citato nel menu, scheda Partita), salvataggi più sicuri (Capacitor Preferences), informativa privacy, prove su un telefono economico.
 - **Prossimi passi possibili**: direzione dark fantasy (sezione 6); pubblicare come app (sopra). Piccole idee: i dormienti
