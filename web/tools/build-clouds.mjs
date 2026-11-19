@@ -14,7 +14,7 @@ const SRC = process.env.NUVOLE_SRC || new URL("../../assets/sorgenti/nuvole/rend
 const OUT = new URL("../src/game3d/", import.meta.url).pathname;
 const W = 2048, K = 0.55, MIN_W = 70, PAD = 4;
 // metres across each render (the fields' size seen from that side, printed by render.py)
-const FIELD_M = { n1: 1062, n3: 1060, n5: 1060, n7: 1060, n8: 631 };
+const FIELD_M = { n1_165: 1062, n1_096: 1050, n3_135: 755, n5_300: 640, n5_180: 621, n7_310: 733, n7_180: 733, n8_216: 631 };
 
 const pieces = [];
 for (const f of fs.readdirSync(SRC).filter((x) => x.endsWith(".png")).sort()) {
@@ -23,7 +23,7 @@ for (const f of fs.readdirSync(SRC).filter((x) => x.endsWith(".png")).sort()) {
   let x0 = w, x1 = 0, y0 = h, y1 = 0;                  // trimmed to the cloud
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (data[(y * w + x) * 4 + 3] > 10) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   if (x1 - x0 < MIN_W) continue;
-  pieces.push({ f, x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, m: ((x1 - x0 + 1) * (FIELD_M[f.split("_")[0]] || 1000)) / w });
+  pieces.push({ f, x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1, m: ((x1 - x0 + 1) * (FIELD_M[f.split("_").slice(0, 2).join("_")] || 800)) / w });
 }
 // pack: tallest first, on shelves
 pieces.sort((p, q) => q.h - p.h);
