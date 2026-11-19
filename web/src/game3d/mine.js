@@ -172,6 +172,12 @@ function crystal(p, dir, len, wid) {
 }
 const tilt = (n, k) => n.clone().add(new THREE.Vector3(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).multiplyScalar(k)).normalize();
 
+// The tunnels as a graph of nodes (for the characters' way through the mine); OUT: in front of the portal, outside.
+const OUT = { x: PX + 3.5, z: CZ };
+const GRAPH = {};
+TUN.forEach((t) => { (GRAPH[t.a] ||= []).push([t.b, t.L]); (GRAPH[t.b] ||= []).push([t.a, t.L]); });
+GRAPH.OUT = [["E0", Math.hypot(OUT.x - N.E0.x, OUT.z - N.E0.z)]]; GRAPH.E0.push(["OUT", GRAPH.OUT[0][1]]);
+
 /** Builds the mine into the scene; returns what the engine needs to walk in it. */
 export function buildMine(scene) {
   const t0 = performance.now();
@@ -306,6 +312,46 @@ export function buildMine(scene) {
         if (d < bd) { bd = d; bx = px; bz = pz; }
       }
       return [bx, bz];
+    },
+    // Where to walk to reach (tx, tz) along the tunnels: the next node of the shortest way (null: straight is fine).
+    // Outside, the way in goes to the front of the portal first, so nobody walks into the mountain.
+    route(x, z, tx, tz) {
+      const a = inZone(x, z), b = inZone(tx, tz);
+      if (!a && !b) return null;
+      const ends = (px, pz, isIn) => {
+        if (!isIn) {                                                       // outside: by the front of the portal (or straight in, if already there)
+          const out = [["OUT", Math.hypot(px - OUT.x, pz - OUT.z)]];
+          if (px > PX - 0.2 && px < PX + 6 && Math.abs(pz - CZ) < 2.6) out.push(["E0", Math.hypot(px - N.E0.x, pz - N.E0.z)]);
+          return out;
+        }
+        let ts = TUN.filter((t) => { const [u, v] = local(t, px, pz); return u > -t.hw && u < t.L + t.hw && Math.abs(v) < t.hw; });
+        if (!ts.length) ts = [TUN.reduce((best, t) => { const [u, v] = local(t, px, pz), o = Math.max(-u - t.hw, u - t.L - t.hw, Math.abs(v) - t.hw, 0); return o < best.o ? { t, o } : best; }, { t: TUN[0], o: Infinity }).t];
+        return ts.flatMap((t) => [[t.a, Math.hypot(px - t.A.x, pz - t.A.z)], [t.b, Math.hypot(px - t.B.x, pz - t.B.z)]]).concat([["_set", ts]]);
+      };
+      const from = ends(x, z, a), to = ends(tx, tz, b);
+      const fromT = a && from.find((e) => e[0] === "_set")[1], toT = b && to.find((e) => e[0] === "_set")[1];
+      if (a && b && fromT.some((t) => toT.includes(t))) return null;                 // in the same tunnel: straight
+      // shortest way over the nodes (Dijkstra, a dozen nodes)
+      const dist = { START: 0 }, prev = {}, done = new Set(), goal = Object.fromEntries(to.filter((e) => e[0] !== "_set"));
+      const edges = (k) => (k === "START" ? from.filter((e) => e[0] !== "_set") : GRAPH[k] || []);
+      let bestEnd = null, bestCost = Infinity;
+      for (;;) {
+        let k = null;
+        for (const q in dist) if (!done.has(q) && (k === null || dist[q] < dist[k])) k = q;
+        if (k === null || dist[k] >= bestCost) break;
+        done.add(k);
+        if (k in goal && dist[k] + goal[k] < bestCost) { bestCost = dist[k] + goal[k]; bestEnd = k; }
+        for (const [q, c] of edges(k)) if (dist[q] === undefined || dist[k] + c < dist[q]) { dist[q] = dist[k] + c; prev[q] = k; }
+      }
+      if (!bestEnd) return null;
+      const way = [];
+      for (let k = bestEnd; k !== "START"; k = prev[k]) way.unshift(k);
+      // the first node not yet reached
+      for (const k of way) {
+        const nd = k === "OUT" ? OUT : N[k];
+        if (Math.hypot(nd.x - x, nd.z - z) > 0.6) return [nd.x, nd.z];
+      }
+      return null;
     },
     // how high a camera can go at a point: under the vault, which comes down towards the walls (and the rough rock)
     roofY(x, z) {

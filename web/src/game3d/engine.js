@@ -673,7 +673,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const vAt = (x, z) => (zoneOf(x, z) === zoneOf(P.x, P.z) ? Math.max(0, 1 - Math.hypot(x - P.x, z - P.z) / 28) : 0);
   const pitchOf = (n) => (LOOKS[n.look]?.female || n.female ? 560 : n.role === "noble" ? 420 : 290) * (0.9 + Math.random() * 0.2);
   const snd = { scream: (n) => sfx.scream(vAt(n.x, n.z), pitchOf(n)), swing: (n) => sfx.swing(vAt(n.x, n.z) * 0.8) };
-  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf });
+  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, route: mine.route });
   if (import.meta.env.DEV) window.__ai = ai;                        // dev only (tests)
 
   const killNpc = (n, seen) => {

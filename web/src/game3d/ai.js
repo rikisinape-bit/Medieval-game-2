@@ -10,7 +10,8 @@ export const FIGHT = {
   smith: { block: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.2, sp: 3.8, wind: 0.55 },
 };
 
-export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
+// route(x, z, tx, tz): the next point on the way through the mine's tunnels, or null (straight)
+export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, route = () => null }) {
   const sameZone = (n) => zoneOf(P.x, P.z) === zoneOf(n.x, n.z);
   const repOf = (n) => (n.valdoro ? S.known.crown : S.rep.crown);
   // A sneaking player is noticed at about half the range (less at night), only well in front, and only very close behind.
@@ -75,27 +76,28 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf }) {
     const out = { walk: false, mode: null, k: 0, carry: false };
     const dx = P.x - n.x, dz = P.z - n.z, d = Math.hypot(dx, dz);
     const face = (tx, tz, r = 6) => { n.yaw += angDiff(Math.atan2(tx - n.x, tz - n.z), n.yaw) * Math.min(1, dt * r); };
-    const step = (tx, tz, sp) => {
+    const step = (gx, gz, sp) => {
+      const w = route(n.x, n.z, gx, gz), tx = w ? w[0] : gx, tz = w ? w[1] : gz;   // through the mine: node by node
       const ddx = tx - n.x, ddz = tz - n.z, dd = Math.hypot(ddx, ddz);
-      if (dd < 0.25) return true;
+      if (dd < 0.25) return !w;
       const s = Math.min(dd, sp * dt);
       n.x += (ddx / dd) * s; n.z += (ddz / dd) * s;
       face(tx, tz, 8); out.walk = true;
       return false;
     };
 
-    if (n.hostile && n.fights && sameZone(n)) {
+    if (n.hostile && n.fights) {                                  // (also into the mine and out of it: it follows the tunnels)
       const F = FIGHT[n.role] || FIGHT.soldier;
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
       out.mode = "guard";
       if (n.stagger > 0) out.mode = "stagger";
       else if (n.state === "windup") {
         n.k += dt / F.wind; out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);
-        if (n.k >= 1) { n.state = "swing"; n.k = 0; snd.swing(n); if (d < 2.3) hurtPlayer(n); }
+        if (n.k >= 1) { n.state = "swing"; n.k = 0; snd.swing(n); if (d < 2.3 && !route(n.x, n.z, P.x, P.z)) hurtPlayer(n); }   // (not through rock)
       } else if (n.state === "swing") {
         n.k += dt / 0.3; out.mode = "swing"; out.k = n.k;
         if (n.k >= 1) { n.state = "idle"; n.cd = 0.8 + Math.random() * 0.7; n.side = Math.random() < 0.5 ? -1 : 1; }
-      } else if (d > 1.8) step(P.x, P.z, F.sp);
+      } else if (d > 1.8 || route(n.x, n.z, P.x, P.z)) step(P.x, P.z, F.sp);
       else {
         face(P.x, P.z, 8);
         if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }

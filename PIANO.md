@@ -227,6 +227,11 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     shader di three.js `lights_pars_begin`/`lights_fragment_begin`/`lights_fragment_end`, per posizione nel mondo) spegne
     la luce del cielo e del sole dentro la montagna man mano che ci si allontana dal portale (minimo 8,5%), le torce
     no: da dentro si vede il fuori illuminato com'è, e le braccia del giocatore e chi è nella miniera sono al buio;
+  - **personaggi nella miniera**: stanno sul pavimento in discesa (`floorY`) e trovano la strada nelle gallerie
+    (`mine.route`: le gallerie come grafo di nodi, il più breve con Dijkstra; da fuori passano davanti al portale, `OUT`;
+    `step` in `ai.js` va di nodo in nodo); chi ti insegue ti segue dentro e fuori dalla miniera (prima smetteva perché
+    era un'altra "zona") e non colpisce attraverso la roccia; chi rinuncia o torna ai suoi giri risale ed esce da solo
+    (prove: `chasemine.cjs`, `exitmine.cjs`);
   - **dialoghi a passi** (`dialogs.js`): ogni scelta compare solo quando ha senso; le domande portano alla risposta del
     personaggio (`next`) e le scelte in `CONTINUES` non chiudono il dialogo: la risposta (la riga di `applyEffect`)
     prende il posto del testo e le scelte seguono il nuovo stato (`getDialog(id, S, reply)`, `choose` in `engine.js`; la
