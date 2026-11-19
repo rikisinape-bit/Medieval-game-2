@@ -12,6 +12,7 @@ import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
+import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
 
@@ -52,19 +53,22 @@ export function createGame(canvas, hooks, saved) {
     treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
-  // The ground (ground.js): grass on the meadows (darker under the trees of the forest), dirt with stones on the square,
-  // the roads and the forest path, cracked earth in the bandits' camp. Laid in world space at their real size.
+  // The ground (ground.js): grass on the meadows (darker under the trees of the forest), dirt on the square, the roads
+  // and the forest path, cracked earth in the bandits' camp, flagstones in Valdoro and before its gate. Laid in world
+  // space at their real size.
   const G = {
     meadow: groundMat(renderer, "erba", { scale: 1.9, tint: "#f6ffe2" }), forest: groundMat(renderer, "erba", { scale: 1.9, tint: "#a2ae98", dry: 0.15 }),
-    square: groundMat(renderer, "terra", { scale: 3.2, tint: "#fff6e4", vary: 0.12, dry: 0 }), road: groundMat(renderer, "terra", { scale: 3.2, tint: "#f2e8d4", vary: 0.12, dry: 0 }),
-    path: groundMat(renderer, "terra", { scale: 3.2, tint: "#d8ccb8", vary: 0.15, dry: 0 }), camp: groundMat(renderer, "crepe", { scale: 2.6, tint: "#fff0dc", vary: 0.12, dry: 0 }),
+    square: groundMat(renderer, "terra", { scale: 2.6, tint: "#fff8ee", vary: 0.12, dry: 0 }), road: groundMat(renderer, "terra", { scale: 2.6, tint: "#f6eee2", vary: 0.12, dry: 0 }),
+    path: groundMat(renderer, "terra", { scale: 2.6, tint: "#ddd2c2", vary: 0.15, dry: 0 }), camp: groundMat(renderer, "crepe", { scale: 2.6, tint: "#fff0dc", vary: 0.12, dry: 0 }),
+    stone: groundMat(renderer, "pietra", { scale: 3.6, tint: "#ffffff", vary: 0.1, dry: 0, mix: 0 }),
   };
   const flat = (geo, m) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; return o; };
   const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), G.meadow);
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), G.square);
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
-  [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]].forEach(([x, z, w, d]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z));
+  const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]];   // [x, z, width, depth]
+  ROADS.forEach(([x, z, w, d]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z));
 
   // Houses: hinged doors, interiors, chests, beds
   // Roccanera (option A): our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
@@ -145,8 +149,10 @@ export function createGame(canvas, hooks, saved) {
 
   // Forest: wide area with a winding path, random trees, bandit hideouts behind trees
   put(flat(new THREE.BoxGeometry(66, 0.1, 76), G.forest), 0, FZ - 33);   // forest floor
+  const pathBoxes = [];   // [x, z, turn, length]
   PATH.slice(1).forEach((p, i) => {
     const a = PATH[i], dx = p[0] - a[0], dz = p[1] - a[1], L = Math.hypot(dx, dz);
+    pathBoxes.push([(a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz), L + 3]);
     put(flat(new THREE.BoxGeometry(7, 0.12, L + 3), G.path), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
   });
   // The bandits' camp: a clearing beside the road, three tents round the fire (with a ring of stones), a rack of
@@ -232,7 +238,8 @@ export function createGame(canvas, hooks, saved) {
     put(makeValdoroWalls(), 0, WZ);
   }
   rects.push(gateRect);
-  put(box(34, 0.13, 30, "#8a8478"), 0, WZ - 16);
+  put(flat(new THREE.BoxGeometry(34, 0.13, 30), G.stone), 0, WZ - 16);                    // Valdoro's flagstones
+  put(flat(new THREE.BoxGeometry(10, 0.14, 7), G.stone), 0, WZ + 2.5);                     // and before its gate
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r], i) => stall(x, z, r, i + 1));
   if (PROPS) { prop("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); propRect("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); }
@@ -300,8 +307,9 @@ export function createGame(canvas, hooks, saved) {
     const pathPt = () => { const i = 1 + Math.floor(nr() * (PATH.length - 1)), t = nr(), a = PATH[i - 1], b = PATH[i]; return [a[0] + (b[0] - a[0]) * t + (nr() - 0.5) * 7, a[1] + (b[1] - a[1]) * t + (nr() - 0.5) * 3]; };
     scatter("sasso_tondo", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
     scatter("sasso_quadro", 40, pathPt, (x, z) => pathDist(x, z) < 3.6 && pathDist(x, z) > 1.2, 0.8, 1.6);
+    // none on the flagstones before the gate (taken away afterwards: the random layout of everything else stays the same)
+    for (let i = items.length - 1; i >= 0; i--) if (/^sasso_/.test(items[i].id) && Math.abs(items[i].x) < 5.4 && items[i].z < WZ + 6.4) items.splice(i, 1);
     // Village surroundings (outside the square and the dirt roads)
-    const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]];
     const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
     const villageOk = (m) => (x, z) => !ROADS.some(([cx, cz, w, d]) => Math.abs(x - cx) < w / 2 + 1 && Math.abs(z - cz) < d / 2 + 1)
       && !HOUSES.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 4.3) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
@@ -351,10 +359,10 @@ export function createGame(canvas, hooks, saved) {
     });
   }
 
-  // ---- Paving (selciato) with the kit's flagstones (street_rock_1..6): round the well of Roccanera; in Valdoro before
-  // the gate, along the main street, round the fountain, on towards the keep and across the square. Laid on a grid with
-  // a little play, each stone turned by quarter turns and a little more, scaled to its cell, its top a few cm above
-  // the ground and a little higher or lower than the next one (no flicker where two overlap).
+  // ---- Paving (selciato) with the kit's flagstones (street_rock_1..6) round the well of Roccanera (Valdoro has its
+  // flagstone floor). Laid on a grid with a little play, each stone turned by quarter turns and a little more, scaled
+  // to its cell, its top a few cm above the ground and a little higher or lower than the next one (no flicker where two
+  // overlap).
   if (hasKit()) {
     let ps = 4242; const pr = () => { ps = (ps * 16807) % 2147483647; return (ps - 1) / 2147483646; };
     const stones = [1, 2, 3, 4, 5, 6].map((i) => { const id = `street_rock_${i}`, sz = kitSize(id); return sz && { id, size: Math.max(sz[0], sz[2]), h: sz[1] }; }).filter(Boolean);
@@ -366,14 +374,28 @@ export function createGame(canvas, hooks, saved) {
         if (inside(px, pz)) paving.push({ id: st.id, x: px, z: pz, ry, k, y });
       }
     };
-    const ring = (cx, cz, r0, r1) => (x, z) => { const d = Math.hypot(x - cx, z - cz); return d > r0 && d < r1; };
-    const rect = (x0, x1, z0, z1) => (x, z) => x > x0 && x < x1 && z > z0 && z < z1;
-    pave(-3.4, 3.4, -3.4, 3.4, ring(0, 0, 1.3, 3.3), 0.01);                                     // round the well
-    pave(-2.4, 2.4, WZ + 1.8, WZ + 4.6, () => true, 0.06);                                      // before the gate of Valdoro
-    const FC = WZ - 16, streets = [rect(-2.2, 2.2, WZ - 30, WZ - 1.6), ring(0, FC, 0, 4.8), rect(-12.8, 12.8, FC - 1.6, FC + 1.6)];
-    pave(-12.8, 12.8, WZ - 29.8, WZ - 1.8, (x, z) => streets.some((f) => f(x, z)) && Math.hypot(x, z - FC) > 2.15, 0.065);   // the square's streets
+    pave(-3.4, 3.4, -3.4, 3.4, (x, z) => { const d = Math.hypot(x, z); return d > 1.3 && d < 3.3; }, 0.01);   // round the well
     S_nature.paving = addNature(scene, paving, natureMeshes);
   }
+
+  // ---- Ground-cover leaves (leaves.js) where the dirt, the camp and the flagstones before the gate meet the meadow
+  const meadowY = (x, z) => (Math.abs(x) < 33 && z < FZ + 5 && z > FZ - 71 ? 0.05 : Math.hypot(x, z) < 79.5 ? 0 : -1);   // forest floor, meadow, nothing
+  const bare = [
+    circleShape(0, 0, 11, 0.01),                                                                // Roccanera's square
+    ...ROADS.map(([x, z, w, d]) => rectShape(x, z, w / 2, d / 2, 0, 0.01)),
+    ...pathBoxes.map(([x, z, ry, L]) => rectShape(x, z, 3.5, L / 2, ry, 0.06)),               // the forest path
+    rectShape(0, WZ + 2.5, 5, 3.5, 0, 0.07),                                                    // the flagstones before the gate
+    { ...rectShape(0, WZ - 16, 17, 15, 0, 0.065), len: 0 },                                     // Valdoro (its edges are under the walls)
+  ];
+  if (campKit) bare.push(ellipseShape(CX0 + 1.8, CZ0 - 1.6, 7.4, 6.6, 0.057));
+  const solids = rects.map((r) => ({ ...r, c: Math.cos(r.ry), s: Math.sin(r.ry), R: Math.hypot(r.hw, r.hd) + 0.05 }));
+  const leafSpot = (x, z) => meadowY(x, z) >= 0 && mountainHeight(x, z) < 0.02 && houseOf(x, z) < 0 && !(Math.abs(x + 10) < 3.3 && Math.abs(z + 4.8) < 2.8)   // (the field)
+    && !solids.some((r) => { const dx = x - r.cx, dz = z - r.cz; return Math.abs(dx) < r.R && Math.abs(dz) < r.R && Math.abs(r.c * dx - r.s * dz) < r.hw + 0.05 && Math.abs(r.s * dx + r.c * dz) < r.hd + 0.05; })
+    && !obstacles.some((o) => { const dx = x - o.x, dz = z - o.z, rr = o.r * 0.85; return Math.abs(dx) < rr && Math.abs(dz) < rr && dx * dx + dz * dz < rr * rr; });
+  let ls = 777; const lr = () => { ls = (ls * 16807) % 2147483647; return (ls - 1) / 2147483646; };
+  const t0 = performance.now(), leaves = addLeaves(scene, edgeSpots(bare, leafSpot, meadowY, { rnd: lr }));
+  console.info(`Foglie ai bordi: ${leaves.count} ciuffi, ${Math.round(leaves.tris)} triangoli in ${leaves.chunks} blocchi (${Math.round(performance.now() - t0)} ms)`);
+  if (import.meta.env.DEV) window.__leaves = { leaves, add: (spots) => addLeaves(scene, spots), bareAt: (x, z) => bare.some((b) => b.inside(x, z)), meadowY, leafSpot };   // dev only (tests)
 
   // Carriage (the coachman is an NPC that sits on it)
   const car = { i: 1, x: ROUTE[0].at[0], z: ROUTE[0].at[1], yaw: -0.6, wait: ROUTE[0].stop, msgT: 0, group: new THREE.Group(), stopped: false };
@@ -588,6 +610,7 @@ export function createGame(canvas, hooks, saved) {
       // Vegetation chunks hidden beyond the fog are not drawn at all.
       const reach = scene.fog.far + 6;
       natureMeshes.forEach((m) => { const c = m.geometry.boundingSphere; m.visible = Math.hypot(c.center.x - P.x, c.center.z - P.z) - c.radius < reach; });
+      leaves.update(P.x, P.z);
       const best = anchors.filter((a) => !a.night || lan > 0).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z)).slice(0, pool.length);
       pool.forEach((l, i) => { const a = best[i]; l.userData.a = a || null; if (a && l.userData.cur !== a) { l.userData.cur = a; l.position.set(a.x, a.y, a.z); l.color.set(a.color); l.distance = a.distance; l.intensity = 0; } });
     }

@@ -255,6 +255,7 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset }) {
               <p className="text-[#b8ab92]">La partita si salva da sola in questo browser ogni 5 secondi e quando chiudi o cambi app.</p>
               <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, Q uso rapido, I menu.</p>
               <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger flex items-center gap-1.5" onClick={onReset} data-testid="menu-reset"><RotateCw size={16} />Nuova partita…</button>
+              <p className="text-[14px] text-[#8a7d66]" data-testid="menu-credits">Crediti: lastricato di Valdoro, texture «Stone Ground 01» di Game industry veteran (skfb.ly/6VGCp), licenza CC BY 4.0.</p>
             </div>
           )}
         </div>
