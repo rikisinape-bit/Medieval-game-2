@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear, FlaskConical } from "lucide-react";
-import { createGame } from "@/game3d/engine";
+import { createGame, POWER_FPS } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
@@ -53,7 +53,7 @@ function QuickBtn({ hud, onPress }) {
 // Thin top bar: life, gold and a face showing how the Crown sees you. Everything else lives in the menu.
 // Frames per second (switched on in the menu, Partita): the frames the game really drew in the last second and the
 // longest wait between two of them, so the game's weight can be read on a real phone. Green at the game's own limit
-// (60, or 30 when saving the battery), yellow a little below, red when it struggles.
+// (60, or 45/30 when saving the battery), yellow a little below, red when it struggles.
 function FpsMeter({ getStats, cap }) {
   const [v, setV] = useState(null);
   useEffect(() => {
@@ -113,8 +113,9 @@ export default function Village3D() {
   const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
   const [fps, setFps] = useState(() => { try { return localStorage.getItem("rv-fps") === "1"; } catch { return false; } });
-  const [saving, setSaving] = useState(() => { try { return localStorage.getItem("rv-risparmio") === "1"; } catch { return false; } });
-  const savingRef = useRef(saving);
+  // battery saving: 0 off, 1 medium (45 FPS), 2 most (30 FPS, simpler graphics)
+  const [power, setPower] = useState(() => { try { return Math.max(0, Math.min(2, Number(localStorage.getItem("rv-risparmio")) || 0)); } catch { return 0; } });
+  const powerRef = useRef(power);
   const getStats = React.useCallback(() => gameRef.current?.stats(), []);
 
   useEffect(() => {
@@ -148,7 +149,7 @@ export default function Village3D() {
           setFloats((f) => [...f, { id, t, c, big }].slice(-2));
           setTimeout(() => setFloats((f) => f.filter((x) => x.id !== id)), 1100);
         },
-      }, saved, { saving: savingRef.current });
+      }, saved, { power: powerRef.current });
       gameRef.current = game;
       saveId = setInterval(save, 5000);
       document.addEventListener("visibilitychange", onHide);
@@ -226,10 +227,10 @@ export default function Village3D() {
             : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
         </div>
       </div>
-      {fps && <FpsMeter getStats={getStats} cap={saving ? 30 : 60} />}
+      {fps && <FpsMeter getStats={getStats} cap={POWER_FPS[power]} />}
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)}
         fps={fps} onFps={() => setFps((f) => { try { localStorage.setItem("rv-fps", f ? "0" : "1"); } catch { /* private mode */ } return !f; })}
-        saving={saving} onSaving={() => { const v = !saving; savingRef.current = v; setSaving(v); gameRef.current?.setPower(v); try { localStorage.setItem("rv-risparmio", v ? "1" : "0"); } catch { /* private mode */ } }} />}
+        power={power} onPower={(v) => { powerRef.current = v; setPower(v); gameRef.current?.setPower(v); try { localStorage.setItem("rv-risparmio", String(v)); } catch { /* private mode */ } }} />}
       {shop && <Shop hud={hud} shopId={shop.id} def={shop.def} onTrade={(k, id) => gameRef.current?.shop(k, shop.id, id)} onClose={() => setShop(null)} />}
       {loot && <LootPanel info={loot} onAct={(k, id, item) => gameRef.current?.loot(k, id, item)} onClose={() => { gameRef.current?.closeLoot(); setLoot(null); }} />}
       <InteractionDialog

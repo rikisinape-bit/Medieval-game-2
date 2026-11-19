@@ -226,7 +226,7 @@ function ReputationTab({ hud }) {
 }
 
 // ---- Menu shell ----------------------------------------------------------------
-export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps, saving = false, onSaving }) {
+export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps, power = 0, onPower }) {
   const [tab, setTab] = useState("inv");
   if (!hud) return null;
   const tabs = [["inv", "Inventario"], ["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
@@ -256,8 +256,14 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps =
               <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, Q uso rapido, I menu.</p>
               <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger flex items-center gap-1.5" onClick={onReset} data-testid="menu-reset"><RotateCw size={16} />Nuova partita…</button>
               <button type="button" data-ui="" className="inv-btn inv-btn-lg flex items-center gap-1.5" onClick={onFps} data-testid="menu-fps"><Gauge size={16} />Contatore FPS: {fps ? "acceso" : "spento"}</button>
-              <button type="button" data-ui="" className="inv-btn inv-btn-lg flex items-center gap-1.5" onClick={onSaving} data-testid="menu-saving"><BatteryMedium size={16} />Risparmio batteria: {saving ? "acceso" : "spento"}</button>
-              <p className="text-[15px] text-[#8a7d66]">Il risparmio batteria disegna 30 immagini al secondo invece di 60, a risoluzione normale e con ombre più semplici: il telefono scalda meno, il gioco è un po' meno fluido e nitido.</p>
+              <div className="flex flex-wrap items-center gap-1.5" data-testid="menu-saving">
+                <span className="flex items-center gap-1.5 text-[#e8dcc4] mr-1"><BatteryMedium size={16} />Risparmio batteria:</span>
+                {[["spento", "60 FPS"], ["medio", "45 FPS"], ["massimo", "30 FPS"]].map(([t, f], i) => (
+                  <button key={t} type="button" data-ui="" onClick={() => onPower(i)} data-testid={`menu-power-${i}`}
+                    className={`inv-btn inv-btn-lg ${power === i ? "!bg-[#c9a24a] !text-[#1b140e] !border-[#e8c050]" : ""}`}>{t} <span className="opacity-75">({f})</span></button>
+                ))}
+              </div>
+              <p className="text-[15px] text-[#8a7d66]">Medio: 45 immagini al secondo invece di 60, grafica uguale. Massimo: 30 al secondo, risoluzione normale e ombre più semplici. Meno immagini, meno calore; ma il gioco è un po' meno fluido.</p>
               <p className="text-[14px] text-[#8a7d66]" data-testid="menu-credits">Crediti: lastricato di Valdoro, texture «Stone Ground 01» di Game industry veteran (skfb.ly/6VGCp), licenza CC BY 4.0.</p>
             </div>
           )}

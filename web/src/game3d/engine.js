@@ -22,9 +22,11 @@ const solvedBlows = {};   // first-person blows, solved once (fparm.js): the pla
 const segDist = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
 const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z, PATH[i], p)));
 
-// opts.saving: battery saving (30 frames a second, screen resolution, hard-edged shadows; setPower switches it later)
+// opts.power: battery saving, 0 off (60 frames a second), 1 medium (45, same graphics), 2 most (30, screen resolution,
+// hard-edged shadows); setPower switches it later
+export const POWER_FPS = [60, 45, 30];
 export function createGame(canvas, hooks, saved, opts = {}) {
-  let saving = !!opts.saving;
+  let power = POWER_FPS[opts.power] ? opts.power : 0, saving = power === 2;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   setupPaladinEnv(renderer);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, saving ? 1 : 1.5));
@@ -1222,11 +1224,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const clock = new THREE.Clock();
   let raf = 0, time = 0, bobT = 0;
   // Frame pacing (heat and battery on phones): at most 60 frames a second whatever the screen (90/120 Hz screens
-  // would draw up to twice as many), 30 when saving the battery, 8 while the world is paused behind a menu.
+  // would draw up to twice as many), 45 or 30 when saving the battery, 8 while the world is paused behind a menu.
   let due = 0, lastDraw = 0, frames = 0, worstGap = 0;
   function frame(now) {
     raf = requestAnimationFrame(frame);
-    const gap = 1000 / (paused && !talk ? 8 : saving ? 30 : 60);
+    const gap = 1000 / (paused && !talk ? 8 : POWER_FPS[power]);
     if (now - due < gap * 0.75) return;
     due = Math.max(due + gap, now - gap);
     frames++; if (lastDraw) worstGap = Math.max(worstGap, now - lastDraw); lastDraw = now;
@@ -1442,8 +1444,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     // frames drawn so far and the longest wait between two of them since the last call (the FPS counter)
     stats: () => { const w = worstGap; worstGap = 0; return { frames, worst: w }; },
     setPower: (v) => {
-      if (saving === !!v) return;
-      saving = !!v;
+      power = POWER_FPS[v] ? v : 0;
+      if (saving === (power === 2)) return;
+      saving = power === 2;
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, saving ? 1 : 1.5)); resize();
       renderer.shadowMap.type = saving ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
       scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => { m.needsUpdate = true; }); });

@@ -223,8 +223,10 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiamate in più; simulato su schermi a 60/90/120/144 Hz: sempre 60), 8 al secondo a gioco in pausa dietro un menu (non
     nei dialoghi), le 6 luci puntiformi e quella della torcia spente tutte insieme quando nessuna luce è vicina (di giorno
     lontano da forgia, fuochi e miniera: `setLightsOn`, solo due stati di luci compilati all'avvio, cambiare non blocca);
-    **Risparmio batteria** (menu, Partita; `localStorage` "rv-risparmio", `setPower`): 30 immagini al secondo, risoluzione
-    1× invece di 1,5×, ombre semplici (PCF invece di PCF morbide);
+    **Risparmio batteria** (menu, Partita; `localStorage` "rv-risparmio" 0/1/2, `setPower`, `POWER_FPS`): spento 60
+    immagini al secondo; medio 45 con la stessa grafica (sullo schermo a 60 Hz il ritmo è irregolare, 1-1-2; a 90 Hz
+    regolare); massimo 30, risoluzione 1× invece di 1,5×, ombre semplici (PCF invece di PCF morbide). Prova sul telefono:
+    a 30 non scalda ma la grafica ne risente; 45 da provare;
   - **contatore FPS** (menu, scheda Partita; `FpsMeter` in `Village3D.jsx`, ricordato in `localStorage` "rv-fps"): fotogrammi al
     secondo davvero disegnati e attesa più lunga tra due nell'ultimo secondo (verde vicino al limite 60/30), per misurare il peso sul telefono vero; prova emulata (`phone2.cjs`:
     processore rallentato 4×): le foglioline ai bordi non cambiano il lavoro del processore (differenza dentro il rumore);
