@@ -11,7 +11,7 @@ import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
-import GRASS_TEX from "./erba.jpg";
+import { groundMat } from "./ground";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
 
@@ -52,16 +52,19 @@ export function createGame(canvas, hooks, saved) {
     treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
-  // The grass of the ground: a hand-painted grass (erba.jpg, tools/build-grass.py) repeated every GRASS_M metres, tinted
-  // (lighter in the village, darker under the trees of the forest).
-  const GRASS_M = 4.5, grassImg = new THREE.TextureLoader().load(GRASS_TEX);
-  grassImg.colorSpace = THREE.SRGBColorSpace; grassImg.wrapS = grassImg.wrapT = THREE.RepeatWrapping; grassImg.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
-  const grassMat = (w, d, tint) => { const t = grassImg.clone(); t.repeat.set(w / GRASS_M, d / GRASS_M); t.needsUpdate = true; return new THREE.MeshStandardMaterial({ map: t, color: tint, roughness: 1 }); };
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), grassMat(160, 160, "#ffffff"));
+  // The ground (ground.js): grass on the meadows (darker under the trees of the forest), dirt with stones on the square,
+  // the roads and the forest path, cracked earth in the bandits' camp. Laid in world space at their real size.
+  const G = {
+    meadow: groundMat(renderer, "erba", { scale: 1.9, tint: "#f6ffe2" }), forest: groundMat(renderer, "erba", { scale: 1.9, tint: "#a2ae98", dry: 0.15 }),
+    square: groundMat(renderer, "terra", { scale: 3.2, tint: "#fff6e4", vary: 0.12, dry: 0 }), road: groundMat(renderer, "terra", { scale: 3.2, tint: "#f2e8d4", vary: 0.12, dry: 0 }),
+    path: groundMat(renderer, "terra", { scale: 3.2, tint: "#d8ccb8", vary: 0.15, dry: 0 }), camp: groundMat(renderer, "crepe", { scale: 2.6, tint: "#fff0dc", vary: 0.12, dry: 0 }),
+  };
+  const flat = (geo, m) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; return o; };
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), G.meadow);
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
-  const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), new THREE.MeshStandardMaterial({ color: "#9a8a66", roughness: 1 }));
+  const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), G.square);
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
-  [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]].forEach(([x, z, w, d]) => put(box(w, 0.02, d, "#8a7a56"), x, z));
+  [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]].forEach(([x, z, w, d]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z));
 
   // Houses: hinged doors, interiors, chests, beds
   // Roccanera (option A): our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
@@ -141,10 +144,10 @@ export function createGame(canvas, hooks, saved) {
   });
 
   // Forest: wide area with a winding path, random trees, bandit hideouts behind trees
-  { const fg = new THREE.Mesh(new THREE.BoxGeometry(66, 0.1, 76), grassMat(66, 76, "#b0b8a8")); fg.receiveShadow = true; put(fg, 0, FZ - 33); }   // forest floor
+  put(flat(new THREE.BoxGeometry(66, 0.1, 76), G.forest), 0, FZ - 33);   // forest floor
   PATH.slice(1).forEach((p, i) => {
     const a = PATH[i], dx = p[0] - a[0], dz = p[1] - a[1], L = Math.hypot(dx, dz);
-    put(box(7, 0.12, L + 3, "#7a6a4a"), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
+    put(flat(new THREE.BoxGeometry(7, 0.12, L + 3), G.path), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
   });
   // The bandits' camp: a clearing beside the road, three tents round the fire (with a ring of stones), a rack of
   // spears, a palisade with a lookout tower closing it on the north and the east; the side of the road is open.
@@ -153,7 +156,7 @@ export function createGame(canvas, hooks, saved) {
   const [CX0, CZ0] = CAMP, campKit = hasKit() ? [] : null;
   const inCamp = (x, z) => !!campKit && ((x - CX0 - 1.8) / 8.2) ** 2 + ((z - CZ0 + 1.8) / 7.6) ** 2 < 1;   // the clearing: no trees
   if (campKit) {
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshStandardMaterial({ color: "#5c4e34", roughness: 1 }));
+    const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 28), G.camp);
     ground.rotation.x = -Math.PI / 2; ground.scale.set(7.4, 6.6, 1); ground.position.set(CX0 + 1.8, 0.057, CZ0 - 1.6); ground.receiveShadow = true; scene.add(ground);
     put(makeCamp(true, PROPS), CX0, CZ0, 0, 0.75);                                       // logs, crate, sack, the fire's light
     obstacles.push({ x: CX0 + 3.3, z: CZ0 - 0.4, r: 0.45 });

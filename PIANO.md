@@ -139,9 +139,15 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     (il lampione pende verso la piazza o la fontana), secchio al pozzo, tinozza alla forgia, fuoco del campo (pietre e legna
     del pacchetto, fiamme del kit), casse e carretto dei banditi, torce su palo in miniera (con fiamma), carretti a Roccanera
     e a Valdoro; senza il file restano gli oggetti fatti a codice; tutti uniti in poche mesh (meno disegni di prima)
-  - **erba del terreno**: texture d'erba dipinta a mano (originale in `assets/sorgenti/erba_dipinta/`, NON nel repository;
-    `npm run erba` = `tools/build-grass.py` con Pillow crea `src/game3d/erba.jpg`, 512 px, inserita nel codice come i dati
-    del paladino); ripetuta ogni 4,5 m sul prato del villaggio e, più scura, sul suolo del bosco (`grassMat` in `engine.js`)
+  - **terreno** (`ground.js`, `groundMat`): tre texture (prato, terra con sassi, terra crepata: originali in
+    `assets/sorgenti/terreno/`, NON nel repository; `npm run terreno` = `tools/build-ground.mjs` crea `src/game3d/terreno_*.jpg`,
+    colore 512 px con l'occlusione nelle cavità e il contrasto dipinto attenuato, mappa del rilievo 256 px; inserite nel codice
+    come i dati del paladino) posate in coordinate del mondo (continuano tra prato, piazza, strade e sentiero) alla loro
+    misura vera (prato 1,9 m, terra 3,2 m, crepe 2,6 m); il rilievo è illuminato dal sole (mappa delle normali); la
+    ripetizione è nascosta da una seconda copia più grande e girata e da chiazze larghe più chiare, più scure e più secche;
+    da lontano sfuma nel colore medio (niente sfarfallio). Prato sul villaggio e (più scuro) nel bosco, terra con sassi
+    su piazza, strade e sentiero, terra crepata nel campo dei banditi. (La vecchia erba dipinta è in
+    `assets/sorgenti/erba_dipinta/`, non più usata.)
   - i modelli GLB del pacchetto "Ultimate Modular Men" non sono più usati nel gioco; gli originali restano in `assets/models/personaggi/` (utili per Godot)
 
 ## 9. Dove siamo arrivati (per riprendere in una nuova sessione)
@@ -187,7 +193,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     accanto una finestra con l'effetto e i pulsanti (Usa, Equipaggia o Uso rapido, Togli, Lascia a terra), ritoccandolo si
     chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
     (pulsanti `inv-btn-lg`, testi 15–17 px);
-  - oggetti del villaggio del pacchetto Medieval Props e erba dipinta sul terreno (vedi sezione 7);
+  - oggetti del villaggio del pacchetto Medieval Props e terreno con texture (vedi sezione 7);
   - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
     (la casella indica solo cosa usare e quanti ne restano); il tasto rotondo a sinistra di Corri (o Q) ne consuma uno
     se non hai la vita piena; finito, il tasto resta sbiadito finché non ne trovi altri.

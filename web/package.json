@@ -12,7 +12,7 @@
     "kit": "node tools/convert-kit.mjs && node tools/build-kit.mjs",
     "corpi": "node tools/convert-bodies.mjs && node tools/build-bodies.mjs",
     "props": "node tools/build-props.mjs",
-    "erba": "python3 tools/build-grass.py"
+    "terreno": "node tools/build-ground.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",
