@@ -3,7 +3,7 @@ import { SWORD_DMG, SWORD_ITEM, SWORD_TIER } from "./items";
 export const FZ = -36;            // forest start
 export const WZ = FZ - 68;        // Valdoro wall
 export const CX = -45, CZ = 0;    // cave centre
-export const regionOf = (x, z) => (x < -31 && Math.abs(z) < 12 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
+export const regionOf = (x, z) => (x < CX + 17 && x > CX - 15 && Math.abs(z - CZ) < 13.6 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
 export const zoneOf = (x, z) => (regionOf(x, z) === "mine" ? "mine" : "out");
 export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const SWORDS = Object.fromEntries(Object.keys(SWORD_DMG).map((k) => [k, { dmg: SWORD_DMG[k], tier: SWORD_TIER[k], item: SWORD_ITEM[k] }]));
@@ -76,14 +76,24 @@ export const OBJECTS = [
 // [x, z, rotation]; index >= 6 are the stone houses of Valdoro
 export const HOUSES = [[-18, 10, 0.4], [-17, -9, 1.2], [17, 5, -1.4], [-4, 19, 3.1], [9, -16, 0], [21, -11, -0.6], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];
 export const CHESTS = [[["pane", 2], ["oro", 8]], [["cuoio", 1], ["torcia", 1]], [["acqua", 1], ["pane", 1], ["corda", 1]], [["oro", 15], ["libro", 1]], [["pozione", 1], ["cappuccio", 1]], [["spada_lunga", 1]], [["maglia", 1]], [["oro", 25], ["pozione", 1], ["gemma", 1]], [["carne", 1], ["vino", 2]], [["oro", 10], ["elmo_ferro", 1]]];
-export const ORES = [[CX - 6, 3], [CX + 5, 1], [CX - 4, -4], [CX + 6, -6], [CX, -8.5], [CX - 8, -8]];
+// The silver mine (mine.js): narrow tunnels from the portal in the rock face of the hill (CX + 17) going down and
+// branching into dead ends. Nodes [x, z, floor height]; tunnels [from, to, width]; silver veins on the walls
+// [from, to, how far along, side (1 left, -1 right)].
+export const MINE_NODES = {
+  E0: [CX + 17.8, CZ, 0.03], E1: [CX + 12, CZ, 0.03], J1: [CX + 4, CZ - 0.8, -2.2], N1: [CX + 2.5, CZ - 7.5, -3.4], N2: [CX - 3.5, CZ - 11, -4.6],
+  J2: [CX - 4.5, CZ + 1.5, -4.6], S1: [CX - 6.5, CZ + 8.5, -6.0], S2: [CX - 11.5, CZ + 11, -7.2], W1: [CX - 10.5, CZ - 2, -6.6], W2: [CX - 11, CZ - 8, -7.8],
+  T1: [CX + 5.5, CZ + 7, -3.0], T2: [CX + 2, CZ + 11.5, -3.6],
+};
+export const MINE_TUNNELS = [["E0", "E1", 3.0], ["E1", "J1", 2.7], ["J1", "N1", 2.5], ["N1", "N2", 2.6], ["J1", "J2", 2.7], ["J2", "S1", 2.5], ["S1", "S2", 2.6],
+  ["J2", "W1", 2.5], ["W1", "W2", 2.6], ["J1", "T1", 2.4], ["T1", "T2", 2.5]];
+export const MINE_ORES = [["N1", "N2", 0.8, 1], ["S1", "S2", 0.85, -1], ["W1", "W2", 0.82, 1], ["T1", "T2", 0.8, -1], ["J2", "W1", 0.45, -1], ["J1", "N1", 0.6, 1]];
 export const DUMMIES = [[11, 23], [14, 23]];
 // Items lying in the world. owned => taking them in front of a witness is theft.
 export const PICKUPS = [
   { id: "w1", item: "pane", x: -6.3, z: 9.6, owned: true }, { id: "w2", item: "ascia", x: 4.6, z: -12.8, owned: true },
   { id: "w3", item: "acqua", x: 1.3, z: 1.5 }, { id: "w4", item: "oro", qty: 6, x: 9.3, z: 7.4 },
   { id: "w5", item: "spada_corta", x: 2.6, z: -75.8 }, { id: "w6", item: "pane", x: -4.2, z: -45.5 }, { id: "w7", item: "cuoio", x: 3.2, z: -72.4 }, { id: "w13", item: "torcia", x: -0.6, z: -71.8 },
-  { id: "w8", item: "argento", x: CX - 2, z: 6 }, { id: "w9", item: "pozione", x: CX + 8, z: -8 }, { id: "w10", item: "acqua", x: CX + 9, z: 7 }, { id: "w14", item: "gemma", x: CX - 9, z: 9 },
+  { id: "w8", item: "argento", x: CX - 3.2, z: CZ - 10.4 }, { id: "w9", item: "pozione", x: CX + 2.4, z: CZ + 10.8 }, { id: "w10", item: "acqua", x: CX - 10.8, z: CZ - 7.2 }, { id: "w14", item: "gemma", x: CX - 10.9, z: CZ + 10.5 },   // at the ends of the mine's tunnels
   { id: "w11", item: "oro", qty: 12, x: 2.2, z: WZ - 18, owned: true }, { id: "w12", item: "pane", x: -6.6, z: WZ - 22, owned: true },
   { id: "w15", item: "pelliccia", x: -18, z: -70 }, { id: "w16", item: "mela", x: 16, z: -52 }, { id: "w17", item: "erbe", x: -20, z: -90 },
 ];

@@ -304,31 +304,6 @@ export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false, kit
 }
 
 // torches: false when the props pack puts torches on poles in their places (engine.js); the lights stay here.
-export const CAVE_TORCHES = [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]];
-export function makeCave(torches = true) {
-  const g = new THREE.Group();
-  const rock = "#4a443c";
-  add(g, at(box(26, 1.2, 26, rock), 0, 6.4, 0), at(box(1.2, 3.3, 6.6, "#45423c"), 16.45, 6.1, 0),   // roof slab; rock face above the portal (the mountain covers the rest)
-    at(box(26, 6, 1, rock), 0, 3, -12.5), at(box(26, 6, 1, rock), 0, 3, 12.5), at(box(1, 6, 26, rock), -12.5, 3, 0),
-    at(box(1, 6, 10.3, rock), 12.5, 3, -6.85), at(box(1, 6, 10.3, rock), 12.5, 3, 6.85), at(box(1, 2.5, 3.4, rock), 12.5, 4.75, 0),
-    at(box(5, 5, 1, rock), 14.5, 2.5, -2.2), at(box(5, 5, 1, rock), 14.5, 2.5, 2.2), at(box(5, 1, 5.4, rock), 14.5, 4, 0),
-    at(box(24, 0.1, 24, "#2a2420"), 0, 0.05, 0), at(box(5, 0.1, 3.4, "#2a2420"), 14.5, 0.05, 0),
-    at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, -1.6), at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, 1.6), at(box(0.3, 0.3, 3.6, "#5a3a1a"), 17, 3.55, 0),
-    at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, -0.5), at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, 0.5), at(box(1.2, 0.8, 1.6, "#4a3020"), 6, 0.5, -5));
-  // Mine timbering: frames against the walls with beams under the roof, a second frame in the entrance tunnel
-  const TIMBER = "#4a3018";
-  [-7.5, 0, 7.5].forEach((x) => add(g, at(box(0.3, 5.6, 0.3, TIMBER), x, 2.8, -11.8), at(box(0.3, 5.6, 0.3, TIMBER), x, 2.8, 11.8), at(box(0.34, 0.34, 23.9, TIMBER), x, 5.6, 0)));
-  [-7.5, 7.5].forEach((z) => add(g, at(box(0.3, 5.6, 0.3, TIMBER), -11.8, 2.8, z), at(box(23.9, 0.3, 0.3, TIMBER), 0, 5.75, z)));
-  add(g, at(box(0.22, 3.4, 0.22, TIMBER), 14.5, 1.7, -1.55), at(box(0.22, 3.4, 0.22, TIMBER), 14.5, 1.7, 1.55), at(box(0.26, 0.26, 3.4, TIMBER), 14.5, 3.4, 0));
-  // Rubble heaps along the walls and rough rock on them (no collisions: they hug the walls)
-  [[-10.6, -10.4, 1.5], [10.4, -10.6, 1.2], [-10.8, 10.2, 1.3], [10.6, 10.5, 1.6], [-11, -1, 1.1], [3, -11.2, 1.2], [-3, 11.2, 1.0], [11.2, -6, 0.9]].forEach(([x, z, r], i) => {
-    const m = mesh(new THREE.DodecahedronGeometry(r, 0), i % 2 ? "#3e3a34" : "#46413a"); m.scale.y = 0.75; g.add(at(m, x, r * 0.35, z, i));
-  });
-  CAVE_TORCHES.forEach(([x, z]) => { lightAnchor(g, "#ffb050", 8, 12, x, 3, z); if (torches) g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
-  lightAnchor(g, "#ffb050", 3, 6, 16.5, 3, 0);
-  return bake(g);
-}
-
 export function makeFountain() {
   const g = new THREE.Group();
   add(g, at(cyl(1.8, 1.9, 0.6, "#8a8478", 12), 0, 0.3, 0), at(cyl(1.6, 1.6, 0.1, "#2b4868", 12), 0, 0.62, 0), at(cyl(0.3, 0.4, 1.4, "#8a8478", 8), 0, 1.2, 0),
@@ -378,17 +353,6 @@ export function makeStall() {
     at(box(0.5, 0.35, 0.5, "#c9a24a"), -0.8, 1.07, 0), at(box(0.4, 0.3, 0.4, "#e8c890"), 0.3, 1.05, 0), at(box(0.6, 0.6, 0.6, "#7a5434"), 1.8, 0.3, 0.6));
   [[-1.5, 0.8], [1.5, 0.8], [-1.5, -0.8], [1.5, -0.8]].forEach(([x, z]) => g.add(at(box(0.1, 2.4, 0.1, "#3a2410"), x, 1.2, z)));
   return bake(g);
-}
-
-export function makeOreRock() {
-  const g = new THREE.Group();
-  g.add(mesh(new THREE.DodecahedronGeometry(0.8, 0), "#6a6258"));
-  const crystals = new THREE.Group();
-  [[0.3, 0.5, 0.4], [-0.4, 0.4, 0.3], [0, 0.7, -0.2]].forEach(([x, y, z]) => crystals.add(at(mesh(new THREE.OctahedronGeometry(0.22, 0), "#d8e4f0", "#6a8aa8"), x, y, z)));
-  g.add(crystals);
-  g.position.y = 0.5;
-  g.userData.crystals = crystals;
-  return g;
 }
 
 export function makeWell() {

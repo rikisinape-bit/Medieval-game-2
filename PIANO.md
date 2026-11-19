@@ -25,6 +25,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `items.js` | `ITEMS`, `SHOPS`, `LOOT_OF`, riduzione danni, prezzi |
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
+| `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
 | `ground.js`, `leaves.js` | Terreno con texture (`groundMat`) e foglioline 3D ai bordi tra terra e prato (`addLeaves`, `edgeSpots`) |
 | `dialogs.js` | Dialoghi con opzioni + `applyEffect` (tutte le conseguenze) |
 | `fx.js` | Particelle a cubetti (`burst`) |
@@ -48,7 +49,7 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 
 ### Costanti del mondo
 - Villaggio Roccanera al centro (0,0); foresta a nord (z negativo, da `FZ = -36`); mura di Valdoro a `WZ = FZ - 68 = -104`; miniera a ovest (`CX = -45`)
-- Regioni: `village`, `forest`, `mine`, `valdoro` (funzione `regionOf`)
+- Regioni: `village`, `forest`, `mine`, `valdoro` (funzione `regionOf`; `mine` = la zona dei cunicoli sotto la montagna)
 - Unità: 1 = 1 metro. Y verso l'alto. **Lo yaw usa +Z come "avanti"** (Godot usa -Z: `rot_y = yaw + PI`, vedi `Data.yaw_to_godot`)
 - Ciclo giorno: `DAY_LEN = 600` s; notte quando l'elevazione solare è sotto 0.05
 
@@ -138,7 +139,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     si accende di notte); `nature.js` lo carica come il kit (`hasProps`, `kitPartBox` per la posizione del vetro); in
     `engine.js` (`prop()`): bancarelle = tettoia + tavolo da mercato + casse di mele (`stall()`), catasta di legna, lampioni
     (il lampione pende verso la piazza o la fontana), secchio al pozzo, tinozza alla forgia, fuoco del campo (pietre e legna
-    del pacchetto, fiamme del kit), casse e carretto dei banditi, torce su palo in miniera (con fiamma), carretti a Roccanera
+    del pacchetto, fiamme del kit), casse e carretto dei banditi, carretti a Roccanera
     e a Valdoro; senza il file restano gli oggetti fatti a codice; tutti uniti in poche mesh (meno disegni di prima)
   - **terreno** (`ground.js`, `groundMat`): quattro texture: prato (`terreno/Vol_42_1`), terra (la roccia `rock_05` del
     file `rocce/rocks.blend`), terra crepata (`terreno/Vol_19_4`), lastricato (`pietra_castello/`, "Stone Ground 01"):
@@ -209,6 +210,23 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
     (pulsanti `inv-btn-lg`, testi 15–17 px);
   - oggetti del villaggio del pacchetto Medieval Props e terreno con texture (vedi sezione 7);
+  - **miniera a cunicoli** (`mine.js`, dati in `world.js`: `MINE_NODES`, `MINE_TUNNELS`, `MINE_ORES`; prima era una stanza
+    piana sotto la montagna): dal portale nella parete di roccia (`CX + 17`, telaio di legno, blocchi di roccia del colore
+    della montagna a chiudere la parete) un corridoio, poi gallerie strette (2,4–2,7 m) che scendono (fino a −7,8 m) e si
+    ramificano in un incrocio a quattro vie e cinque fondi ciechi. La roccia è la superficie di un campo di distanza (ogni
+    galleria: pavimento in pendenza da nodo a nodo, pareti dritte e volta, ruvide di rumore; mezzo largo oltre i nodi per
+    chiudere gli angoli) trasformata in triangoli con marching cubes all'avvio (~23 000 triangoli, ~0,1 s; ~0,3 s col
+    processore rallentato 4×); texture della roccia di `rocks.blend` posata dai tre assi (niente uv); armature di legno
+    ogni 4,5 m, torce a muro (una o due per galleria) con fiamma e luce, ~130 grappoli di minerali sulle pareti e sulle
+    volte (argento che brilla un po', rame, oro), 6 vene d'argento estraibili (cristalli grandi che spariscono per 45 s).
+    Camminare: `floorY` (altezza del pavimento, la più bassa dove due gallerie si sovrappongono) per giocatore, telecamera,
+    PNG, oggetti a terra e particelle; `constrain` tiene i corpi dentro le gallerie (il punto più vicino), i cavalli
+    restano fuori; la telecamera in terza persona resta sotto la volta (`roofY`) e lontana dalle pareti. Il prato ha un
+    buco sotto la montagna (forma con foro). Le parti profonde non si disegnano da lontano (una tenda nera a 7,5 m dal
+    portale). **Luce**: niente più atmosfera "miniera" per tutto il mondo; `mineSkyAt` (patch globale dei pezzi di
+    shader di three.js `lights_pars_begin`/`lights_fragment_begin`/`lights_fragment_end`, per posizione nel mondo) spegne
+    la luce del cielo e del sole dentro la montagna man mano che ci si allontana dal portale (minimo 8,5%), le torce
+    no: da dentro si vede il fuori illuminato com'è, e le braccia del giocatore e chi è nella miniera sono al buio;
   - **dialoghi a passi** (`dialogs.js`): ogni scelta compare solo quando ha senso; le domande portano alla risposta del
     personaggio (`next`) e le scelte in `CONTINUES` non chiudono il dialogo: la risposta (la riga di `applyEffect`)
     prende il posto del testo e le scelte seguono il nuovo stato (`getDialog(id, S, reply)`, `choose` in `engine.js`; la

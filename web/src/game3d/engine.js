@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, CAVE_TORCHES, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect, CONTINUES } from "./dialogs";
-import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
+import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
@@ -12,6 +12,7 @@ import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
+import { buildMine } from "./mine";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
@@ -67,11 +68,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     stone: groundMat(renderer, "pietra", { scale: 3.6, tint: "#ffffff", vary: 0.1, dry: 0, mix: 0 }),
   };
   const flat = (geo, m) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; return o; };
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), G.meadow);
+  // the meadow: a disc with a hole where the mine's tunnels go down under the mountain (the shape is turned flat: its
+  // y is the world's -z)
+  const meadow = new THREE.Shape().absarc(0, 0, 80, 0, Math.PI * 2, false), hole = new THREE.Path();
+  [[CX - 14, 13.6], [CX + 14, 13.6], [CX + 14, 2.6], [CX + 17, 2.6], [CX + 17, -2.6], [CX + 14, -2.6], [CX + 14, -13.6], [CX - 14, -13.6]].forEach(([x, z], i) => hole[i ? "lineTo" : "moveTo"](x, -(CZ + z)));
+  meadow.holes.push(hole);
+  const ground = new THREE.Mesh(new THREE.ShapeGeometry(meadow, 48), G.meadow);
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), G.square);
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
-  const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]];   // [x, z, width, depth]
+  const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-21, 0, 14, 3]];   // [x, z, width, depth] (the last one up to the mine)
   ROADS.forEach(([x, z, w, d]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z));
 
   // Houses: hinged doors, interiors, chests, beds
@@ -249,18 +255,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   if (PROPS) { prop("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); propRect("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); }
   put(makeBench(), -6, WZ - 25.2, 0.3);
   [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => { if (!(hasKit() && i < 2)) putTree(i % 2, x, z, i, 0.9); });   // by the gate: town houses instead
-  // Mine cave in the western hill
-  put(makeCave(!PROPS), CX, CZ);
-  if (PROPS) {                                                     // torches on poles in the mine, with a flame on top
-    const top = kitSize("props_torch_01")?.[1] || 2.26;
-    CAVE_TORCHES.forEach(([x, z]) => { prop("props_torch_01", CX + x, CZ + z); const f = makeFlame(1.15); f.position.set(CX + x, top + 0.04, CZ + z); scene.add(f); });
-  }
+  // The silver mine in the western hill (mine.js): tunnels going down from the portal, silver veins on the walls
+  const mine = buildMine(scene);
+  if (import.meta.env.DEV) window.__mine = mine;                    // dev only (tests)
   scene.add(makeMountain());                                   // the mountain that covers the mine
-  // Rock face on both sides of the portal: nobody walks into the slope
-  [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }));
-  [[CX, -12.5, 13, 0.5], [CX, 12.5, 13, 0.5], [CX - 12.5, 0, 0.5, 13], [CX + 12.5, -6.85, 0.5, 5.15], [CX + 12.5, 6.85, 0.5, 5.15], [CX + 14.5, -2.2, 2.5, 0.5], [CX + 14.5, 2.2, 2.5, 0.5]].forEach(([cx, cz, hw, hd]) => rects.push({ cx, cz, hw, hd, ry: 0 }));
-  obstacles.push({ x: CX + 6, z: -5, r: 1 });
-  const ores = ORES.map(([x, z]) => ({ x, z, mesh: put(makeOreRock(), x, z, x, 1), depletedUntil: 0 }));
+  // Rock face on both sides of the portal and the portal's own sides: nobody walks into the slope
+  [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }, { cx: CX + 16.45, cz: sd * 1.9, hw: 0.6, hd: 0.45, ry: 0 }));
+  const ores = mine.ores;
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2, d = 31 + (i * 7) % 9, x = Math.cos(a) * d, z = Math.sin(a) * d;
     if ((z < -27 && Math.abs(x) < 9) || (x < -27 && Math.abs(z) < 14)) continue;
@@ -584,20 +585,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // Day/night + region atmosphere
   const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 8, 48, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 30, 80, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 26, 70, 1.5, 0.9] };
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
-  const MINE = ["#050403", "#050403", 4, 24, 0.05, 0.15];
+  // (in the mine the world keeps the village's light: the dark is in the mountain only, see mine.js)
   const cA = new THREE.Color(), cB = new THREE.Color();
   const atmosphere = (dt) => {
     const el = -Math.cos(S.dayT * Math.PI * 2), dayK = clamp((el + 0.08) * 4, 0, 1), dusk = clamp(1 - Math.abs(el - 0.05) / 0.2, 0, 1);
     S.night = el < 0.05;
-    let bg, fog, near, far, si, hi;
-    if (region === "mine") [bg, fog, near, far, si, hi] = MINE;
-    else {
-      const d = DAYLOOK[region];
-      cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); bg = cA.clone();
-      cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); fog = cA.clone();
-      near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK; far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
-      si = d[4] * clamp(el * 2.2, 0, 1); hi = d[5] * (0.12 + 0.88 * dayK);
-    }
+    const d = DAYLOOK[region === "mine" ? "village" : region];
+    cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); const bg = cA.clone();
+    cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
+    const near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
+    const si = d[4] * clamp(el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dayK);
     const k = Math.min(1, dt * 2.5);
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
     scene.fog.near += (near - scene.fog.near) * k; scene.fog.far += (far - scene.fog.far) * k;
@@ -647,7 +644,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     makeNoise(P.x, P.z, NOISE.blow);                                                 // steel on steel, or a blow taken
     if (parryT > 0 && facing) {
       const perfect = parryT > (hasShield() ? 0.5 : 0.36);
-      fx.burst(P.x + Math.sin(P.yaw) * 0.6, 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
+      fx.burst(P.x + Math.sin(P.yaw) * 0.6, mine.floorY(P.x, P.z) + 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
       n.stagger = perfect ? 1.6 : 0.9; n.state = "idle"; n.cd = Math.max(n.cd, 0.6);
       sfx.clash(1); shake = 0.15;
       if (perfect) riposteT = 1.5;
@@ -659,7 +656,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
     P.hp -= dmg; shake = 0.35;
     sfx.hit(0.9);
-    fx.burst(P.x + Math.sin(P.yaw) * 0.5, 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
+    fx.burst(P.x + Math.sin(P.yaw) * 0.5, mine.floorY(P.x, P.z) + 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
     hooks.onFloat(`-${dmg}`, "#ff5252");
     if (n.spar && P.hp <= 15) {
       P.hp = 15; n.spar = false; n.hostile = false; n.hp = n.hpMax; n.actT = null;
@@ -696,7 +693,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const calm = !n.hostile && n.role !== "bandit";
     n.hp -= dmg; n.flash = 0.15; n.kb = 0.15; shake = Math.max(shake, 0.12);
     sfx.hit(1);
-    fx.burst(n.x, 1.3, n.z, "#b01c1c", 12, 3.5);
+    fx.burst(n.x, mine.floorY(n.x, n.z) + 1.3, n.z, "#b01c1c", 12, 3.5);
     hooks.onFloat(`-${dmg}`, "#f0c050");
     unmountNpc(n);
     if (n.spar) {
@@ -741,7 +738,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
     if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block) {
-      fx.burst(n.x - dx * 0.3, 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
+      fx.burst(n.x - dx * 0.3, mine.floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
       sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
       makeNoise(n.x, n.z, NOISE.blow);
       return;
@@ -900,7 +897,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const still = n.riding || n.ms === "seat" || n.sleepAt;
     if (!still) {                                                        // turn to the player, gesture while talking
       n.yaw += angDiff(T.want, n.yaw) * k;
-      at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0;
+      at(n.mesh, n.x, mine.floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0;
       n.mesh.userData.atk = null; poseHuman(n.mesh, T.t, false, "talk");
       showTool(n.mesh, null); n.mesh.userData.prop.visible = false;
     }
@@ -965,7 +962,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (c.kind === "horse") { P.mounted = c.id; P.sneak = false; note("Monti a cavallo."); return; }
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
-    if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, 1, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
+    if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, o.y, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
     if (c.kind === "steal") {
       const n = S.npcs[c.id], looking = !n.sleepAt && Math.abs(angDiff(Math.atan2(P.x - n.x, P.z - n.z), n.yaw)) < 1.0;
       if (looking) { caughtStealing(n); return; }                          // it is looking right at you
@@ -1015,7 +1012,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       dodgeDir = [fwx * -f[1] + rx * f[0], fwz * -f[1] + rz * f[0]];
       const l = Math.hypot(...dodgeDir) || 1; dodgeDir = [dodgeDir[0] / l, dodgeDir[1] / l];
       dodgeT = 0.3; iframe = 0.4; dodgeCd = 0.8;
-      fx.burst(P.x, 0.2, P.z, "#b8a47a", 8, 2.5); sfx.swing(0.35);
+      fx.burst(P.x, mine.floorY(P.x, P.z) + 0.2, P.z, "#b8a47a", 8, 2.5); sfx.swing(0.35);
     }
   }
 
@@ -1035,17 +1032,17 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     }
     return [x, z];
   };
-  // Is a camera point inside a wall? (houses, city walls, cave): keeps the 3rd-person camera out of walls.
-  const camBlocked = (x, z) => rects.some((r) => {
+  // Is a camera point inside a wall? (houses, city walls, the mine's rock): keeps the 3rd-person camera out of walls.
+  const camBlocked = (x, z) => (mine.inZone(x, z) && !mine.inside(x, z, 0.4)) || rects.some((r) => {
     if (r.off) return false;
     const dx = x - r.cx, dz = z - r.cz, c = Math.cos(r.ry), s2 = Math.sin(r.ry);
     return Math.abs(c * dx - s2 * dz) < r.hw + 0.15 && Math.abs(s2 * dx + c * dz) < r.hd + 0.15;
   });
   const collide = (x, z) => {
     [x, z] = pushOut(x, z);
+    if (mine.inZone(x, z)) return P.mounted ? [Math.max(x, CX + 17.7), z] : mine.constrain(x, z);   // in the tunnels (horses stay out)
     if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
     if (z < -24 && Math.abs(x) < 30.5) return [clamp(x, -30, 30), z];
-    if (x < -24 && (Math.abs(z) < 2.6 || x < -31)) return [Math.max(-56.5, x), clamp(z, -11, 11)];
     const r = Math.hypot(x, z);
     return r > 31 ? [(x / r) * 31, (z / r) * 31] : [x, z];
   };
@@ -1307,7 +1304,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         n.deathT = n.deathT == null ? 99 : n.deathT + dt;
         const p = Math.min(1, n.deathT / DEATH_TIME[kind]);
         if (n.poseP !== p) {
-          n.poseP = p; at(n.mesh, n.x, 0, n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null);
+          n.poseP = p; at(n.mesh, n.x, mine.floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null);
           if (p === 1) { n.mesh.updateMatrixWorld(true); const c = n.mesh.userData.body.localToWorld(_cv.set(0, 1.0, 0)); n.cx = c.x; n.cz = c.z; }   // middle of the body on the ground
         }
         return;
@@ -1316,6 +1313,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
+      if (mine.inZone(n.x, n.z)) [n.x, n.z] = mine.constrain(n.x, n.z);                // in the mine: along the tunnels
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
       // characters hidden in the fog are only moved, not posed (the pose of dozens of skeletons costs on a phone)
@@ -1324,7 +1322,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       else {
         n.mesh.userData.atk = n.atk;
         const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k)) : n.lastY ?? 0;
-        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y, n.z, n.yaw);
+        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + mine.floorY(n.x, n.z), n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
       }
@@ -1336,13 +1334,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     });
     fx.update(dt);
     ores.forEach((o) => { o.mesh.userData.crystals.visible = o.depletedUntil < time; });
-    picks.forEach((pk) => { pk.mesh.position.y = 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
+    picks.forEach((pk) => { pk.mesh.position.y = (pk.gy ??= mine.floorY(pk.x, pk.z)) + 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
 
     // Camera: first person (view model) or third person (behind and above the shoulders)
     const bob = moving ? Math.sin(bobT) * 0.045 : 0;
     const crouch = P.sneak && !P.mounted ? 0.45 : 0;
     const shk = shake ? (Math.random() - 0.5) * 0.1 : 0;
-    const eyeY = (P.mounted ? 2.55 : 1.62) - crouch + bob + shk;
+    const gy = mine.floorY(P.x, P.z);                                              // the floor under the player (the mine goes down)
+    const eyeY = gy + (P.mounted ? 2.55 : 1.62) - crouch + bob + shk;
     const lookX = Math.sin(P.yaw) * Math.cos(pitch), lookY = Math.sin(pitch), lookZ = Math.cos(P.yaw) * Math.cos(pitch);
     const sw = Math.sin(Math.min(1, k) * Math.PI);
     if (view === "third") {
@@ -1350,11 +1349,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const pm = playerMesh;
       pm.userData.atk = blow === "thrust" ? "thrust" : ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo, or a lunge
       const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : parryT > 0 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
-      at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : ny, P.z, P.yaw);
+      at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : gy + ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
       // Camera behind the right shoulder; pulled in if a wall is in the way.
-      const headY = (P.mounted ? 2.45 : 1.75) - crouch;
+      const headY = gy + (P.mounted ? 2.45 : 1.75) - crouch;
       const rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
       const want = P.mounted ? 4.2 : 3.0, side = 0.55;
       const bx = -lookX, by = 0.35 - lookY * 0.8, bz = -lookZ;
@@ -1364,7 +1363,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         if (camBlocked(cx, cz)) { dist = Math.max(0.35, t - 0.3); break; }
       }
       const f = dist / want;
-      const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cy = Math.max(0.4, headY + 0.7 + by * dist);
+      const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cg = mine.floorY(cx, cz);
+      let cy = Math.max(cg + 0.4, headY + 0.7 + by * dist);
+      if (mine.inZone(cx, cz)) cy = Math.min(cy, mine.roofY(cx, cz));              // under the tunnel's roof
       camera.position.set(cx + shk, cy, cz);
       camera.lookAt(P.x + rx * side * f + lookX * 4, headY + lookY * 4, P.z + rz * side * f + lookZ * 4);
     } else {
@@ -1384,6 +1385,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     }
 
     if (talk) updateTalk(dt);
+    mine.update(camera.position);
     if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);
     renderer.render(scene, camera);
