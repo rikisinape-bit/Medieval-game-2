@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, CAVE_TORCHES, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
@@ -10,7 +10,8 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
-import { hasNature, hasKit, addNature, kitObject, kitMaterial, kitHouseTop, kitSize } from "./nature";
+import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
+import GRASS_TEX from "./erba.jpg";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
 
@@ -51,7 +52,12 @@ export function createGame(canvas, hooks, saved) {
     treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
+  // The grass of the ground: a hand-painted grass (erba.jpg, tools/build-grass.py) repeated every GRASS_M metres, tinted
+  // (lighter in the village, darker under the trees of the forest).
+  const GRASS_M = 4.5, grassImg = new THREE.TextureLoader().load(GRASS_TEX);
+  grassImg.colorSpace = THREE.SRGBColorSpace; grassImg.wrapS = grassImg.wrapT = THREE.RepeatWrapping; grassImg.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+  const grassMat = (w, d, tint) => { const t = grassImg.clone(); t.repeat.set(w / GRASS_M, d / GRASS_M); t.needsUpdate = true; return new THREE.MeshStandardMaterial({ map: t, color: tint, roughness: 1 }); };
+  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), grassMat(160, 160, "#ffffff"));
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), new THREE.MeshStandardMaterial({ color: "#9a8a66", roughness: 1 }));
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
@@ -100,18 +106,42 @@ export function createGame(canvas, hooks, saved) {
 
   put(makeForge(), 14, -5, 0); obstacles.push({ x: 12.8, z: -6, r: 1 }, { x: 14.6, z: -4.6, r: 0.5 });
   const rack = put(makeSwordRack(), 15.6, -6.5, 0);
-  put(makeStall(), -8, 8, Math.PI, 1.6);
+  // ---- Village props of the Medieval Props pack (props.glb), each kept where the old one was. Without the file: the
+  // old ones made in code. A market stall is the pack's awning over its market table, with crates of apples.
+  const PROPS = hasProps(), propItems = [];
+  const prop = (id, x, z, ry = 0, k = 1, y = 0) => { propItems.push({ id, x, z, ry, k, y }); };
+  const propRect = (id, x, z, ry, k = 1, m = 0.05) => { const sz = kitSize(id); if (sz) rects.push({ cx: x, cz: z, hw: (sz[0] * k) / 2 - m, hd: (sz[2] * k) / 2 - m, ry }); };
+  const stall = (x, z, r, i) => {
+    if (!PROPS) { put(makeStall(), x, z, r, 1.6); return; }
+    prop(i % 2 ? "props_marketstall_A" : "props_marketstall_B", x, z, r);
+    prop("props_marketTable", ...toWorld(x, z, r, 0, -0.15), r);
+    prop(i % 3 ? "props_applecrate_A" : "props_applecrate_B", ...toWorld(x, z, r, -0.55, -0.15), r + 0.2, 1, 0.585);
+    prop("props_emptycrate_A", ...toWorld(x, z, r, 0.25, -0.12), r - 0.15, 1, 0.585);
+    prop(i % 2 ? "props_ironcrate" : "props_applecrate_B", ...toWorld(x, z, r, 1.3, 0.62), r + 0.5);
+    obstacles.push({ x, z, r: 1.6 });
+  };
+  stall(-8, 8, Math.PI, 0);
   put(makeWell(), 0, 0, 0, 1.2);
+  if (PROPS) { prop("props_waterbucket_01", 1.25, -0.95, 0.5); obstacles.push({ x: 1.25, z: -0.95, r: 0.3 }); prop("props_bucket", 12.6, -3.5, 0.3); obstacles.push({ x: 12.6, z: -3.5, r: 0.4 }); }   // bucket at the well, tub at the forge
   DUMMIES.forEach(([x, z]) => put(makeDummy(), x, z, 0, 0.4));
   put(makeBench(), 8.4, 6.75, 0);
-  put(makeWoodpile(), 5.5, -12, 0, 0.7);
+  if (PROPS) { prop("props_woodpile_01", 5.5, -12, 0.3); obstacles.push({ x: 5.5, z: -12, r: 0.9 }); prop("props_cart_02", 8.6, -10.4, 0.25); propRect("props_cart_02", 8.6, -10.4, 0.25); }
+  else put(makeWoodpile(), 5.5, -12, 0, 0.7);
   put(makeField(), -10, -4.8, 0);
   put(makeSignpost(), 3.2, -27, Math.PI);
   put(makeSignpost(), -27, -2.4, Math.PI / 2);
-  const lanterns = LANTERNS.map(([x, z]) => put(makeLantern(), x, z, 0, 0.3));
+  // lamp posts: the lamp hangs towards the square (in Valdoro: towards the fountain); its light and its glass (lit at night)
+  const lampGlass = PROPS && kitPartBox("props_lamppost_01", "Props_Light"), LAMP_K = 0.85, lampMat = lampGlass && kitMaterial("Props_Light");
+  const lanterns = lampGlass ? [] : LANTERNS.map(([x, z]) => put(makeLantern(), x, z, 0, 0.3));
+  if (lampGlass) LANTERNS.forEach(([x, z]) => {
+    const [tx, tz] = z < WZ ? [0, WZ - 16] : [0, 0], ry = Math.atan2(tx - x, tz - z), c = lampGlass.center;
+    prop("props_lamppost_01", x, z, ry, LAMP_K); obstacles.push({ x, z, r: 0.3 });
+    const [lx, lz] = toWorld(x, z, ry, c.x * LAMP_K, c.z * LAMP_K), a = new THREE.Object3D();
+    a.position.set(lx, c.y * LAMP_K - 0.1, lz); a.userData.anchor = { color: "#ffb050", intensity: 7, distance: 13, night: true }; scene.add(a);
+  });
 
   // Forest: wide area with a winding path, random trees, bandit hideouts behind trees
-  put(box(66, 0.1, 76, "#3e5a2a"), 0, FZ - 33);
+  { const fg = new THREE.Mesh(new THREE.BoxGeometry(66, 0.1, 76), grassMat(66, 76, "#b0b8a8")); fg.receiveShadow = true; put(fg, 0, FZ - 33); }   // forest floor
   PATH.slice(1).forEach((p, i) => {
     const a = PATH[i], dx = p[0] - a[0], dz = p[1] - a[1], L = Math.hypot(dx, dz);
     put(box(7, 0.12, L + 3, "#7a6a4a"), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
@@ -125,12 +155,19 @@ export function createGame(canvas, hooks, saved) {
   if (campKit) {
     const ground = new THREE.Mesh(new THREE.CircleGeometry(1, 28), new THREE.MeshStandardMaterial({ color: "#5c4e34", roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.scale.set(7.4, 6.6, 1); ground.position.set(CX0 + 1.8, 0.057, CZ0 - 1.6); ground.receiveShadow = true; scene.add(ground);
-    put(makeCamp(true), CX0, CZ0, 0, 0.75);                                              // logs, crate, sack, the fire's light
+    put(makeCamp(true, PROPS), CX0, CZ0, 0, 0.75);                                       // logs, crate, sack, the fire's light
     obstacles.push({ x: CX0 + 3.3, z: CZ0 - 0.4, r: 0.45 });
+    if (PROPS) {                                                                         // crates and the bandits' cart (props pack)
+      prop("props_ironcrate", CX0 + 3.3, CZ0 - 0.4, 0.3); prop("props_emptycrate_A", CX0 + 3.25, CZ0 - 0.38, -0.2, 1, 0.4);
+      prop("props_cart_01", CX0 + 5.0, CZ0 + 4.3, Math.PI / 2 + 0.15); propRect("props_cart_01", CX0 + 5.0, CZ0 + 4.3, Math.PI / 2 + 0.15);
+    }
     const kit = (id, dx, dz, ry = 0, k = 1, y = 0) => campKit.push({ id, x: CX0 + dx, z: CZ0 + dz, ry, k, y });
     const solid = (dx, dz, ry, hw, hd) => rects.push({ cx: CX0 + dx, cz: CZ0 + dz, hw, hd, ry });
-    kit("campfire_01", 0, 0, 0.4, 2.2);
-    for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; kit(i % 2 ? "street_rock_1" : "street_rock_5", Math.cos(a) * 0.72, Math.sin(a) * 0.72, -a, 0.32, -0.015); }
+    if (PROPS) { prop("props_campfire_01", CX0, CZ0, 0.4, 0.9); kit("campfire_01", 0, 0, 0.4, 1.9); }   // stones and logs of the props pack, flames of the kit's
+    else {
+      kit("campfire_01", 0, 0, 0.4, 2.2);
+      for (let i = 0; i < 10; i++) { const a = (i / 10) * Math.PI * 2; kit(i % 2 ? "street_rock_1" : "street_rock_5", Math.cos(a) * 0.72, Math.sin(a) * 0.72, -a, 0.32, -0.015); }
+    }
     [["tent_3", 4.4, -3.4, 0.5], ["tent_1", 5.3, 1.9, -0.25], ["tent_2", -0.3, -5.9, 0.05]].forEach(([id, dx, dz, ry]) => { kit(id, dx, dz, ry); obstacles.push({ x: CX0 + dx, z: CZ0 + dz, r: 1.3 }); });
     kit("weapon_holder_01", 2.3, 3.9, Math.PI + 0.5); obstacles.push({ x: CX0 + 2.3, z: CZ0 + 3.9, r: 0.65 });
     // palisade: east side (along z), north side (along x), a slanting piece and the lookout tower at the corner
@@ -194,11 +231,16 @@ export function createGame(canvas, hooks, saved) {
   rects.push(gateRect);
   put(box(34, 0.13, 30, "#8a8478"), 0, WZ - 16);
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
-  [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r]) => put(makeStall(), x, z, r, 1.6));
+  [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r], i) => stall(x, z, r, i + 1));
+  if (PROPS) { prop("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); propRect("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); }
   put(makeBench(), -6, WZ - 25.2, 0.3);
   [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => { if (!(hasKit() && i < 2)) putTree(i % 2, x, z, i, 0.9); });   // by the gate: town houses instead
   // Mine cave in the western hill
-  put(makeCave(), CX, CZ);
+  put(makeCave(!PROPS), CX, CZ);
+  if (PROPS) {                                                     // torches on poles in the mine, with a flame on top
+    const top = kitSize("props_torch_01")?.[1] || 2.26;
+    CAVE_TORCHES.forEach(([x, z]) => { prop("props_torch_01", CX + x, CZ + z); const f = makeFlame(1.15); f.position.set(CX + x, top + 0.04, CZ + z); scene.add(f); });
+  }
   scene.add(makeMountain());                                   // the mountain that covers the mine
   // Rock face on both sides of the portal: nobody walks into the slope
   [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }));
@@ -212,6 +254,7 @@ export function createGame(canvas, hooks, saved) {
   }
   [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
 
+  if (propItems.length) addNature(scene, propItems, natureMeshes);   // all the props in a few meshes (one material, by chunk)
   if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
   // ---- Vegetation ----
   if (hasNature()) {
@@ -535,6 +578,7 @@ export function createGame(canvas, hooks, saved) {
     sun.position.set(P.x + Math.sin(az) * 30, Math.max(4, el * 40), P.z + 12); sun.target.position.set(P.x, 0, P.z);
     const lan = S.night ? 7 : 0;
     lanterns.forEach((l) => { l.userData.glow.material.emissiveIntensity = S.night ? 1 : 0.1; });
+    if (lampMat) lampMat.emissiveIntensity = S.night ? 1.2 : 0.12;
     lightT -= dt;
     if (lightT <= 0) {
       lightT = 0.4;

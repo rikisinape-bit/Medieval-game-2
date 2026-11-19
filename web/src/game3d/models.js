@@ -196,7 +196,7 @@ export function makeField() {
 
 // The bandits' camp around its fire (centre). kit: the tents and the fire are pieces of the medieval kit (engine.js):
 // here only the logs to sit on, a crate, a sack and the fire's light.
-export function makeCamp(kit = false) {
+export function makeCamp(kit = false, props = false) {
   const g = new THREE.Group();
   if (!kit) {
     const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
@@ -204,9 +204,8 @@ export function makeCamp(kit = false) {
       at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
   } else {
     const log = (x, z, ry, len) => { const l = cyl(0.17, 0.19, len, "#4e3420", 7); l.rotation.set(0, ry, Math.PI / 2); return at(l, x, 0.17, z, ry); };
-    add(g, log(0.3, 2.0, 0, 1.5), log(-2.1, -1.4, Math.PI / 2, 1.5), log(2.6, 2.6, 0.5, 1.1),
-      at(box(0.6, 0.5, 0.6, "#6a4a2e"), 3.3, 0.25, -0.4), at(box(0.45, 0.4, 0.45, "#5a3e26"), 3.35, 0.7, -0.35),
-      at(cyl(0.22, 0.3, 0.55, "#5c5240", 6), -2.6, 0.27, 0.9));
+    add(g, log(0.3, 2.0, 0, 1.5), log(-2.1, -1.4, Math.PI / 2, 1.5), log(2.6, 2.6, 0.5, 1.1), at(cyl(0.22, 0.3, 0.55, "#5c5240", 6), -2.6, 0.27, 0.9));
+    if (!props) add(g, at(box(0.6, 0.5, 0.6, "#6a4a2e"), 3.3, 0.25, -0.4), at(box(0.45, 0.4, 0.45, "#5a3e26"), 3.35, 0.7, -0.35));   // (else: crates of the props pack)
   }
   lightAnchor(g, "#ff8a30", 5, 9, 0, 1.2, 0);
   return bake(g);
@@ -304,7 +303,9 @@ export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false, kit
   return bake(g);
 }
 
-export function makeCave() {
+// torches: false when the props pack puts torches on poles in their places (engine.js); the lights stay here.
+export const CAVE_TORCHES = [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]];
+export function makeCave(torches = true) {
   const g = new THREE.Group();
   const rock = "#4a443c";
   add(g, at(box(26, 1.2, 26, rock), 0, 6.4, 0), at(box(1.2, 3.3, 6.6, "#45423c"), 16.45, 6.1, 0),   // roof slab; rock face above the portal (the mountain covers the rest)
@@ -323,7 +324,7 @@ export function makeCave() {
   [[-10.6, -10.4, 1.5], [10.4, -10.6, 1.2], [-10.8, 10.2, 1.3], [10.6, 10.5, 1.6], [-11, -1, 1.1], [3, -11.2, 1.2], [-3, 11.2, 1.0], [11.2, -6, 0.9]].forEach(([x, z, r], i) => {
     const m = mesh(new THREE.DodecahedronGeometry(r, 0), i % 2 ? "#3e3a34" : "#46413a"); m.scale.y = 0.75; g.add(at(m, x, r * 0.35, z, i));
   });
-  [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]].forEach(([x, z]) => { lightAnchor(g, "#ffb050", 8, 12, x, 3, z); g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
+  CAVE_TORCHES.forEach(([x, z]) => { lightAnchor(g, "#ffb050", 8, 12, x, 3, z); if (torches) g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
   lightAnchor(g, "#ffb050", 3, 6, 16.5, 3, 0);
   return bake(g);
 }
@@ -424,6 +425,8 @@ export function makeCityWall() {
 
 const FLAME_MAT = new THREE.MeshStandardMaterial({ color: "#ffb048", emissive: "#ff7a18", emissiveIntensity: 1.6, flatShading: true });
 const FLAME_GEO = new THREE.ConeGeometry(0.055, 0.16, 5);
+// a flame on its own (on the torches on poles of the props pack): k = how big
+export const makeFlame = (k = 1) => { const f = new THREE.Mesh(FLAME_GEO, FLAME_MAT); f.scale.setScalar(k); f.castShadow = false; return f; };
 export function makeTorch(lit = true) {
   const g = new THREE.Group();
   add(g, at(cyl(0.022, 0.027, 0.5, "#3a2618", 6), 0, 0, 0), at(cyl(0.048, 0.038, 0.11, "#2a2420", 7), 0, 0.29, 0), at(cyl(0.05, 0.05, 0.02, "#8a7650", 7), 0, 0.25, 0));

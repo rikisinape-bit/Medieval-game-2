@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react()],
   base: "./",
   resolve: { alias: { "@": path.resolve(__dirname, "src") } },
-  // the paladin armour's texture goes inside the code as a data: URL (the published page loads no image files)
-  build: { chunkSizeWarningLimit: 2000, assetsInlineLimit: (file) => (/paladin_albedo/.test(file) ? true : undefined) },
+  // the paladin armour's texture and the grass go inside the code as data: URLs (the published page loads no image files)
+  build: { chunkSizeWarningLimit: 2000, assetsInlineLimit: (file) => (/paladin_albedo|erba\.jpg/.test(file) ? true : undefined) },
 });
