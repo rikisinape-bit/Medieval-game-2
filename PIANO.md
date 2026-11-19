@@ -209,6 +209,9 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
     (pulsanti `inv-btn-lg`, testi 15–17 px);
   - oggetti del villaggio del pacchetto Medieval Props e terreno con texture (vedi sezione 7);
+  - **contatore FPS** (menu, scheda Partita; `FpsMeter` in `Village3D.jsx`, ricordato in `localStorage` "rv-fps"): fotogrammi al
+    secondo e fotogramma più lento dell'ultimo secondo, per misurare il peso sul telefono vero; prova emulata (`phone2.cjs`:
+    processore rallentato 4×): le foglioline ai bordi non cambiano il lavoro del processore (differenza dentro il rumore);
   - lastricato di pietra nel cortile di Valdoro e davanti al portone (al posto delle lastre del kit), terra con la texture
     della roccia di `rocks.blend`, foglioline 3D ai bordi tra terra e prato (vedi sezione 7);
   - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
