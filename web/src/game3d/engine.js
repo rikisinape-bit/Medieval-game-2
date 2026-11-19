@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeOreRock, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeCave, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, CAVE_TORCHES, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
-import { getDialog, applyEffect } from "./dialogs";
+import { getDialog, applyEffect, CONTINUES } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, ORES, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
@@ -975,6 +975,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   }
 
   function choose(id, effect) {
+    if (effect !== "close" && CONTINUES.has(effect)) {
+      // the talk goes on: the character's reply in the panel, the choices for what is true now (the line also in the diary)
+      const reply = applyEffect(effect, S, api(id)), d = getDialog(id, S, reply);
+      if (d) { note(reply); hooks.openDialog(id, d); return; }
+      dialogOpen = false; endTalk(); say(reply); return;
+    }
     dialogOpen = false; endTalk();
     if (effect === "close") {
       if (enc.state === "talk") { api(id).forest("fight"); say(`Capo Morn: "Niente risposta? Allora parlerà la spada!"`); }

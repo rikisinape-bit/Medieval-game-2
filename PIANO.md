@@ -209,6 +209,15 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiude (anche toccando altrove); la finestra non copre mai l'oggetto né, se c'è posto, il personaggio; tutto più grande
     (pulsanti `inv-btn-lg`, testi 15–17 px);
   - oggetti del villaggio del pacchetto Medieval Props e terreno con texture (vedi sezione 7);
+  - **dialoghi a passi** (`dialogs.js`): ogni scelta compare solo quando ha senso; le domande portano alla risposta del
+    personaggio (`next`) e le scelte in `CONTINUES` non chiudono il dialogo: la risposta (la riga di `applyEffect`)
+    prende il posto del testo e le scelte seguono il nuovo stato (`getDialog(id, S, reply)`, `choose` in `engine.js`; la
+    riga va anche nel diario). Alaric: dazio e lusinghe solo finché non hai pagato, "Hai qualche incarico per me?" → la
+    missione di Capo Morn → "Va bene, ti aiuto io" / "No, non fa per me", poi "Dove trovo Capo Morn?", "Ecco la testa"
+    solo con la testa, la taglia solo con banditi uccisi da riscuotere; Torin: "Cosa ti succede?" → la febbre del figlio →
+    "Te lo porterò io" (`flags.torinQuest`) → "Ecco 3 pezzi d'argento" solo con l'argento; Bruno: "Puoi forgiarmi una
+    spada?" → cosa serve, le forgiature solo se hai il necessario; cavalieri del portone: la corruzione solo dopo aver
+    chiesto come entrare; soldati: l'allenamento solo se non ti disprezzano;
   - **calore del telefono** (giocando un po' scaldava, anche a 60+ FPS): il gioco disegnava quante immagini permetteva lo
     schermo (fino a 120 sui telefoni a 90/120 Hz). Ora: al massimo 60 al secondo (`frame()` in `engine.js` salta le
     chiamate in più; simulato su schermi a 60/90/120/144 Hz: sempre 60), 8 al secondo a gioco in pausa dietro un menu (non

@@ -12,8 +12,16 @@ const CHATTER = {
   valdoro: ["Valdoro non apre a chiunque. Qui contano le notizie che portano i messaggeri.", "Mastro Aldo forgia armature per i cavalieri del Re.", "Dicono che il Concilio si riunirà alla prossima luna."],
 };
 
-export function getDialog(id, S) {
+// Conversations: each choice shows up only when it makes sense (an errand once it has been offered and taken, its
+// reward once it is done), questions lead to the character's answer, and the effects in CONTINUES do not end the talk:
+// the character's reply (applyEffect's line) takes the place of the text and the choices follow the new state.
+export const CONTINUES = new Set(["pay_tax", "flatter", "morn_quest", "morn_decline", "ask_morn", "morn_deliver", "bounty",
+  "torin_give", "torin_accept", "torin_decline", "torin_tips", "forge_sword", "forge_master", "bribe_soldier", "pay_tithe", "bribe_gate"]);
+
+// reply: the line just said by the character (instead of the greeting)
+export function getDialog(id, S, reply) {
   const d = buildDialog(id, S);
+  if (d && reply) d.text = reply;
   const npc = S.npcs[id];
   if (d && npc?.alive && SHOPS[id]) d.options.unshift({ label: `Commercia — ${SHOPS[id].title}`, effect: "shop" });
   return d;
@@ -55,25 +63,38 @@ function buildDialog(id, S) {
   const bounty = Object.values(S.npcs).filter((n) => n.role === "bandit" && !n.boss && !n.alive).length - (S.flags.bountyClaimed || 0);
   const morn = S.npcs.bandit3;
   switch (id) {
-    case "torin": return {
-      title: "Torin — Minatore anziano",
-      text: S.flags.torinHelped ? `"Mio figlio respira meglio. Non dimenticherò ciò che hai fatto."` : `"Straniero... mio figlio ha la febbre. Mi servono 3 pezzi d'argento per pagare il guaritore. La miniera è nella collina a ovest."`,
-      options: [
-        { label: "Dagli 3 minerali per il figlio (+Villaggio)", effect: "torin_give", disabled: p.ore < 3 || S.flags.torinHelped },
-        { label: "Chiedi consigli", effect: "torin_tips" },
-        { label: "Ruba i suoi risparmi mentre non guarda", effect: "torin_steal", danger: true, disabled: S.flags.torinRobbed },
-        { label: "Addio", effect: "close" },
-      ],
-    };
-    case "bruno": return {
-      title: "Bruno — Fabbro",
-      text: `"Il ferro non mente. Portami argento e ti forgio una lama degna, oppure compra al banco."`,
-      options: [
-        { label: "Forgia spada lunga con 3 argento", effect: "forge_sword", disabled: p.ore < 3 },
-        { label: "Forgia la Lama di Roccanera (6 argento + 20 oro)", effect: "forge_master", disabled: p.ore < 6 || p.gold < 20 || p.sword === "di Roccanera" },
-        { label: "Esci dalla forgia", effect: "close" },
-      ],
-    };
+    case "torin": {
+      const title = "Torin — Minatore anziano", f = S.flags, give = { label: "Ecco 3 pezzi d'argento per tuo figlio", effect: "torin_give" };
+      const tail = [{ label: "Chiedi consigli", effect: "torin_tips" }, ...(f.torinRobbed ? [] : [{ label: "Ruba i suoi risparmi mentre non guarda", effect: "torin_steal", danger: true }]), { label: "Addio", effect: "close" }];
+      if (f.torinHelped) return { title, text: `"Mio figlio respira meglio. Non dimenticherò ciò che hai fatto."`, options: tail };
+      return {
+        title,
+        text: !f.torinQuest ? `"Straniero... hai un momento per un vecchio?"` : p.ore >= 3 ? `"Hai trovato l'argento? Sono i Santi che ti mandano!"` : `"Hai trovato l'argento? La miniera è nella collina a ovest... ti prego, fai presto."`,
+        options: [
+          ...(f.torinQuest && p.ore >= 3 ? [give] : []),
+          ...(f.torinQuest ? [] : [{ label: "Cosa ti succede?", next: {
+            title, text: `"Mio figlio ha la febbre alta. Il guaritore vuole 3 pezzi d'argento, e io sono troppo vecchio per scendere in miniera. Nella collina a ovest l'argento c'è... ma non per me."`,
+            options: [p.ore >= 3 ? { label: "Ho dell'argento: eccone 3 per tuo figlio", effect: "torin_give" } : { label: "Te lo porterò io, l'argento", effect: "torin_accept" }, { label: "Mi dispiace, non posso aiutarti", effect: "torin_decline" }],
+          } }]),
+          ...tail,
+        ],
+      };
+    }
+    case "bruno": {
+      const title = "Bruno — Fabbro", master = p.sword === "di Roccanera" || has(S, "spada_roccanera");
+      const forge = [...(p.ore >= 3 ? [{ label: "Forgiami una spada lunga (3 argento)", effect: "forge_sword" }] : []), ...(!master && p.ore >= 6 && p.gold >= 20 ? [{ label: "Forgiami la Lama di Roccanera (6 argento + 20 oro)", effect: "forge_master" }] : [])];
+      return {
+        title,
+        text: `"Il ferro non mente. Portami argento e ti forgio una lama degna, oppure compra al banco."`,
+        options: [
+          { label: "Puoi forgiarmi una spada?", next: {
+            title, text: `"Con 3 pezzi d'argento ti faccio una spada lunga.${master ? "" : " Con 6 d'argento e 20 monete, la Lama di Roccanera: la migliore mai uscita da questa forgia."} ${forge.length ? "Hai quello che serve: cosa forgio?" : `Tu ne hai ${p.ore}: torna quando ne avrai abbastanza. La miniera è nella collina a ovest.`}"`,
+            options: [...forge, { label: forge.length ? "Ci penso" : "Tornerò con l'argento", effect: "close" }],
+          } },
+          { label: "Esci dalla forgia", effect: "close" },
+        ],
+      };
+    }
     case "lena": return {
       title: "Lena — Mercante",
       text: S.rep.village < MARKUP_REP ? `"Per te i prezzi sono più alti della metà. Sappiamo cosa hai fatto."` : `"Pane fresco, acqua di fonte, torce e pozioni. Compro argento e roba usata."`,
@@ -81,27 +102,36 @@ function buildDialog(id, S) {
         { label: "Arrivederci", effect: "close" },
       ],
     };
-    case "alaric": return {
-      title: "Ser Alaric — Capitano dei Cavalieri",
-      text: has(S, "testa_morn") ? `"Per tutti i Santi... è la testa di Capo Morn! La valle ti deve molto."` : S.flags.mornQuest && morn.alive ? `"Capo Morn è ancora vivo. Portami la sua testa e avrai il doppio della taglia."` : S.flags.taxPaid ? `"Sei in regola con la Corona. Circola."` : `"Ogni forestiero paga 10 monete di dazio. Paghi, o assaggi l'acciaio?"`,
-      options: [
-        { label: "Consegna la testa di Capo Morn (40 oro, +Corona)", effect: "morn_deliver", disabled: !has(S, "testa_morn") },
-        { label: "Accetta l'incarico: la testa di Capo Morn (ricompensa doppia: 40 oro)", effect: "morn_quest", disabled: !!S.flags.mornQuest || !morn.alive || S.flags.mornDone },
-        { label: "Paga il dazio (10 oro, +Corona)", effect: "pay_tax", disabled: p.gold < 10 || S.flags.taxPaid },
-        { label: "Lusingalo per evitare il dazio", effect: "flatter", disabled: S.flags.taxPaid },
-        { label: `Riscuoti la taglia sui banditi (${Math.max(0, bounty) * 20} oro; Capo Morn vale solo con la testa)`, effect: "bounty", disabled: bounty <= 0 },
-        { label: "Rifiuta e sfidalo a duello", effect: "duel_alaric", danger: true },
-        { label: "Congedati", effect: "close" },
-      ],
-    };
+    case "alaric": {
+      const title = "Ser Alaric — Capitano dei Cavalieri", f = S.flags, head = has(S, "testa_morn");
+      const hunting = f.mornQuest && morn.alive && !head, offer = !f.mornQuest && morn.alive && !f.mornDone && !head;
+      return {
+        title,
+        text: !f.taxPaid ? `"Ogni forestiero paga 10 monete di dazio. Paghi, o assaggi l'acciaio?"`
+          : hunting ? `"Capo Morn è ancora vivo. Portami la sua testa e avrai la tua ricompensa."`
+          : f.mornDone ? `"Il sentiero è tranquillo, grazie a te. La valle non lo dimentica."` : `"Sei in regola con la Corona. Ti serve qualcosa?"`,
+        options: [
+          ...(head ? [{ label: "Ecco la testa di Capo Morn", effect: "morn_deliver" }] : []),
+          ...(bounty > 0 ? [{ label: `Ho ucciso ${bounty === 1 ? "un bandito" : `${bounty} banditi`}: riscuoto la taglia`, effect: "bounty" }] : []),
+          ...(f.taxPaid ? [] : [{ label: "Pago il dazio (10 oro)", effect: "pay_tax", disabled: p.gold < 10 }, { label: "Lusingalo per evitare il dazio", effect: "flatter" }]),
+          ...(offer ? [{ label: "Hai qualche incarico per me?", next: {
+            title, text: `"Sì. Capo Morn e i suoi tagliagole infestano il sentiero del bosco, a nord: chiedono un pedaggio ai viandanti, e chi non paga lo sgozzano. Portami la sua testa e ti darò 40 monete, il doppio della taglia."`,
+            options: [{ label: "Va bene, ti aiuto io", effect: "morn_quest" }, { label: "No, non fa per me", effect: "morn_decline" }],
+          } }] : []),
+          ...(hunting ? [{ label: "Dove trovo Capo Morn?", effect: "ask_morn" }] : []),
+          { label: "Sfidalo a duello", effect: "duel_alaric", danger: true },
+          { label: "Congedati", effect: "close" },
+        ],
+      };
+    }
     case "soldier1": case "soldier2": case "hal": case "rolf": {
       const rep = npc.valdoro ? S.known.crown : S.rep.crown;
       return {
         title: `${npc.name} — ${npc.valdoro ? "Guardia di Valdoro" : "Soldato"}`,
         text: rep < -10 ? `"Ti teniamo d'occhio, canaglia."` : npc.valdoro ? `"Benvenuto a Valdoro. I messaggeri hanno parlato bene di te."` : `"Turno lungo. Il Capitano vuole il dazio da tutti."`,
         options: [
-          { label: "Allenati con lui (duello di prova)", effect: "spar", disabled: rep < -10 },
-          { label: "Corrompilo (5 oro, +Corona)", effect: "bribe_soldier", disabled: p.gold < 5 },
+          ...(rep < -10 ? [] : [{ label: "Allenati con lui (duello di prova)", effect: "spar" }]),
+          { label: "Corrompilo (5 oro)", effect: "bribe_soldier", disabled: p.gold < 5 },
           { label: "Insultalo", effect: "insult_soldier", danger: true },
           { label: "Vai", effect: "close" },
         ],
@@ -111,7 +141,7 @@ function buildDialog(id, S) {
       title: "Silas — Esattore della Corona",
       text: `"Il Re esige la decima sull'argento. Il mio forziere è sulla carrozza — e le mie guardie sono attente."`,
       options: [
-        { label: "Paga la decima (15 oro, +Corona)", effect: "pay_tithe", disabled: p.gold < 15 },
+        { label: "Pago la decima (15 oro)", effect: "pay_tithe", disabled: p.gold < 15 },
         { label: "Minaccialo", effect: "threaten_silas", danger: true },
         { label: "Inchinati e vai", effect: "close" },
       ],
@@ -155,8 +185,8 @@ function buildDialog(id, S) {
           : `"Alt! Le mura di Valdoro sono chiuse ai vagabondi. Qui sappiamo solo ciò che i messaggeri a cavallo riferiscono da Roccanera: finora, il tuo nome non dice nulla. Torna quando la Corona ti conoscerà... a meno che la tua borsa non parli per te."`,
         options: [
           { label: "Chiedi dei banditi", next: { title: npc.name, text: left ? `"Capo Morn e i suoi tagliagole infestano il sentiero. A volte chiedono un pedaggio, a volte sgozzano e basta."` : `"Il sentiero è sicuro grazie a te. Ser Alaric saprà ricompensarti."`, options: [{ label: "Grazie", effect: "close" }] } },
-          { label: "Chiedi come entrare", next: { title: npc.name, text: `"Paga il dazio e la decima, riscuoti taglie, allenati con i soldati: ogni gesto arriva qui con i messaggeri a cavallo. Quando il tuo nome varrà abbastanza (Corona ≥ 30), le porte si apriranno. Oppure..." abbassa la voce "...${GATE_BRIBE} monete, e quella notte non ti abbiamo visto."`, options: [{ label: "Capito", effect: "close" }] } },
-          ...(open || bribed ? [] : [{ label: `Corrompi le guardie per entrare (${GATE_BRIBE} oro)`, effect: "bribe_gate", disabled: p.gold < GATE_BRIBE || known < -25 }]),
+          ...(open || bribed ? [] : [{ label: "Chiedi come entrare", next: { title: npc.name, text: `"Paga il dazio e la decima, riscuoti taglie, allenati con i soldati: ogni gesto arriva qui con i messaggeri a cavallo. Quando il tuo nome varrà abbastanza (Corona ≥ 30), le porte si apriranno.${known < -25 ? "" : `" Abbassa la voce: "Oppure... ${GATE_BRIBE} monete, e quella notte non ti abbiamo visto.`}"`,
+            options: [...(known < -25 ? [] : [{ label: `Ecco ${GATE_BRIBE} monete: aprite`, effect: "bribe_gate", disabled: p.gold < GATE_BRIBE }]), { label: "Capito", effect: "close" }] } }]),
           { label: "Sfida il cavaliere", effect: "duel_knight", danger: true },
           { label: "Vai", effect: "close" },
         ],
@@ -181,29 +211,33 @@ export function applyEffect(e, S, api) {
       if (api.crime(true)) { rep("village", -15); return `Svuoti il baule (${names(items)})... ma qualcuno ti ha visto!`; }
       return `Svuoti il baule: ${names(items)}. Nessuno se n'è accorto.`;
     }
-    case "torin_give": p.ore -= 3; rep("village", 20); S.flags.torinHelped = true; p.gold += 5; return "Torin piange di gioia. Il villaggio ti guarda con rispetto. (+5 oro di ringraziamento)";
-    case "torin_tips": return "Torin: \"Le vene d'argento brillano di azzurro, nella grotta a ovest. Schiva quando il nemico alza la spada, e di notte muoviti furtivo: ti vedranno meno.\"";
+    case "torin_give": p.ore -= 3; rep("village", 20); S.flags.torinHelped = true; p.gold += 5; return `Torin stringe l'argento e piange di gioia: "Che i Santi ti benedicano! Prendi queste monete, è tutto quello che ho." (+5 oro; il villaggio ti guarda con rispetto)`;
+    case "torin_accept": S.flags.torinQuest = true; return `"Davvero? Che i Santi ti benedicano! Le vene d'argento brillano d'azzurro, nella grotta della collina a ovest. Ne bastano 3. Ti aspetto qui."`;
+    case "torin_decline": return `Torin abbassa lo sguardo: "Capisco... chi aiuterebbe un vecchio minatore?"`;
+    case "torin_tips": return `"Le vene d'argento brillano d'azzurro, nella grotta a ovest. Schiva quando il nemico alza la spada, e di notte muoviti furtivo: ti vedranno meno."`;
     case "torin_steal": {
       p.gold += 40; S.flags.torinRobbed = true;
       if (Math.random() < 0.35) { rep("village", -35); api.scream("torin", "Al ladro! I miei risparmi!"); return "Prendi 40 monete... ma Torin se ne accorge!"; }
       if (api.crime(true)) { rep("village", -35); return "Prendi 40 monete, ma qualcuno ti ha visto."; }
       return "Prendi 40 monete. Nessuno se n'è accorto.";
     }
-    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga"); rep("village", 3); return "Il martello canta. Bruno forgia una spada lunga col tuo argento.";
-    case "forge_master": p.ore -= 6; p.gold -= 20; api.give("spada_roccanera", 1); api.equip("spada_roccanera"); rep("village", 5); return "Bruno lavora tutta la notte: la Lama di Roccanera brilla d'azzurro. Danno massimo.";
-    case "bounty": { const n = Object.values(S.npcs).filter((x) => x.role === "bandit" && !x.boss && !x.alive).length - (S.flags.bountyClaimed || 0); p.gold += n * 20; S.flags.bountyClaimed = (S.flags.bountyClaimed || 0) + n; rep("crown", n * 5); return `Alaric ti consegna ${n * 20} oro: "La valle è più sicura grazie a te."`; }
-    case "morn_quest": S.flags.mornQuest = true; rep("crown", 2); return `Alaric: "Capo Morn si nasconde nel bosco a nord, al campo oltre i primi alberi. Portami la sua testa e avrai 40 monete, il doppio della taglia."`;
-    case "morn_deliver": api.take("testa_morn", 1); p.gold += 40; rep("crown", 15); S.flags.mornDone = true; return `Alaric alza la testa di Capo Morn davanti ai soldati: "Il flagello del sentiero è finito!" +40 oro, la Corona ti è grata.`;
+    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga"); rep("village", 3); return `Il martello canta per un'ora. Bruno ti porge una spada lunga ancora calda: "Ecco. Bilanciata come si deve."`;
+    case "forge_master": p.ore -= 6; p.gold -= 20; api.give("spada_roccanera", 1); api.equip("spada_roccanera"); rep("village", 5); return `Bruno lavora tutta la notte. All'alba ti porge la Lama di Roccanera, che brilla d'azzurro: "Non ne farò mai una migliore."`;
+    case "bounty": { const n = Object.values(S.npcs).filter((x) => x.role === "bandit" && !x.boss && !x.alive).length - (S.flags.bountyClaimed || 0); p.gold += n * 20; S.flags.bountyClaimed = (S.flags.bountyClaimed || 0) + n; rep("crown", n * 5); return `"Ben fatto. La valle è più sicura grazie a te. Ecco la taglia: ${n * 20} monete." (+${n * 20} oro)`; }
+    case "morn_quest": S.flags.mornQuest = true; rep("crown", 2); return `"Bene. Il suo campo è nel bosco a nord, oltre i primi alberi, accanto al sentiero. Quando avrai la sua testa, torna da me."`;
+    case "morn_decline": return `"Come vuoi. L'incarico resta valido, se cambi idea."`;
+    case "ask_morn": return `"Nel bosco a nord, poco oltre i primi alberi, accanto al sentiero: un campo con tende e una palizzata. Ha tre tagliagole con sé, e di notte i suoi colpiscono più duro."`;
+    case "morn_deliver": api.take("testa_morn", 1); p.gold += 40; rep("crown", 15); S.flags.mornDone = true; return `Alaric solleva la testa davanti ai soldati: "Per tutti i Santi, è Capo Morn! Il flagello del sentiero è finito. Ben fatto, viandante: ecco la tua ricompensa." (+40 oro, la Corona ti è grata)`;
     case "spar": api.spar(api.targetId); return `${S.npcs[api.targetId].name} sguaina la spada: "In guardia! Il primo che cede perde."`;
     case "fight_bandits": api.hostile(Object.values(S.npcs).filter((x) => x.role === "bandit" && Math.hypot(x.x - p.x, x.z - p.z) < 15).map((x) => x.id)); return "I banditi sguainano le lame!";
-    case "pay_tax": p.gold -= 10; rep("crown", 10); S.flags.taxPaid = true; return "Alaric annuisce. Sei in regola con la Corona.";
+    case "pay_tax": p.gold -= 10; rep("crown", 10); S.flags.taxPaid = true; return `Alaric conta le monete e annuisce: "Sei in regola con la Corona. Ti serve qualcosa?" (−10 oro)`;
     case "flatter":
-      if (Math.random() < 0.45) { S.flags.taxPaid = true; rep("crown", 2); return "Alaric ride: \"Lingua d'argento! Passa, per oggi.\""; }
-      rep("crown", -5); return "\"Le lusinghe non pagano il dazio.\" Alaric ti guarda storto.";
+      if (Math.random() < 0.45) { S.flags.taxPaid = true; rep("crown", 2); return `Alaric ride: "Lingua d'argento! Per oggi passi senza pagare."`; }
+      rep("crown", -5); return `Alaric ti guarda storto: "Le lusinghe non pagano il dazio."`;
     case "duel_alaric": api.hostile(["alaric"]); rep("crown", -15); return "Alaric sguaina la spada: \"Che sia l'acciaio a decidere!\"";
-    case "bribe_soldier": p.gold -= 5; rep("crown", 4); return "Il soldato intasca la moneta e chiude un occhio.";
+    case "bribe_soldier": p.gold -= 5; rep("crown", 4); return `Il soldato intasca la moneta e chiude un occhio: "Non ti ho visto." (−5 oro)`;
     case "insult_soldier": api.hostile([api.targetId]); rep("crown", -10); return "\"Come osi?!\" Il soldato ti attacca!";
-    case "pay_tithe": p.gold -= 15; rep("crown", 12); return "Silas registra il tuo nome nel libro della Corona.";
+    case "pay_tithe": p.gold -= 15; rep("crown", 12); return `Silas registra il tuo nome nel libro della Corona: "Il Re ricorderà la tua lealtà." (−15 oro)`;
     case "threaten_silas": rep("crown", -25); api.scream("silas", "Guardie! Mi minacciano!"); return "Silas scappa strillando.";
     case "rob_carriage": p.gold += 60; S.flags.carriageRobbed = true;
       if (api.robCarriage()) { rep("crown", -40); return "Scassini il forziere: +60 oro! Ti hanno visto: il corno d'allarme suona."; }
