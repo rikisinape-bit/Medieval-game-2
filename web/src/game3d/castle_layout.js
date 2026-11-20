@@ -22,7 +22,7 @@ export const AREAS = [];
 export const SOLIDS = [];   // { x, z, r } in the way (pillars, furniture)
 export const LIGHTS = [];   // { x, y, z, color, intensity, distance }
 export const FLAMES = [];   // { x, y, z, k } a fire's flame
-export const SPAWN = { x: 0, z: 2.4, yaw: Math.PI };    // just inside the gate, facing north
+export const SPAWN = { x: 0, z: -0.8, yaw: Math.PI };   // in the entrance hall, facing north (beyond the reach of the gate, 3 m)
 export const EXIT = { x: 0, z: 3.0 };                   // where "Esci dal castello" is offered
 
 const put = (room, id, x, y, z, q = 0, o = {}) => PIECES.push({ room, id, x, y, z, q, ...o });

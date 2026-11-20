@@ -1030,7 +1030,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     await new Promise((r) => setTimeout(r, 350));
     if (inside) { try { await buildCastle(scene); } catch (e) { console.error("castello:", e); } }
     if (!keepSpot) {
-      const to = inside ? castleSpawn : { x: 0, z: WZ - 29.0, yaw: 0 };
+      const to = inside ? castleSpawn : { x: 0, z: WZ - 26.8, yaw: 0 };
       P.x = to.x; P.z = to.z; P.yaw = to.yaw;
     }
     pitch = 0; lightT = 0; region = regionOf(P.x, P.z);
