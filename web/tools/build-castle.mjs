@@ -5,7 +5,7 @@
 // Usage: node tools/build-castle.mjs
 import { NodeIO } from "@gltf-transform/core";
 import { ALL_EXTENSIONS, EXTMeshoptCompression } from "@gltf-transform/extensions";
-import { dedup, prune, meshopt, weld } from "@gltf-transform/functions";
+import { dedup, getBounds, prune, meshopt, weld } from "@gltf-transform/functions";
 import { MeshoptEncoder } from "meshoptimizer";
 import fs from "node:fs";
 import { PIECES } from "../src/game3d/castle_layout.js";
@@ -23,6 +23,18 @@ for (const node of scene.listChildren()) {
   kept++;
   for (const p of node.getMesh()?.listPrimitives() || []) tris += (p.getIndices()?.getCount() ?? p.getAttribute("POSITION").getCount()) / 3;
 }
+// a few small props of the pack lie far from their own origin (the books, the inkwell, the skull, the bucket...: 2.6–5 m
+// away, one book 2.3 m up): moved onto it, centred and standing at y 0, as the layout places them (the tiles and walls keep
+// theirs: it is on purpose, the grid)
+const moved = [];
+for (const node of scene.listChildren()) {
+  const b = getBounds(node), cx = (b.min[0] + b.max[0]) / 2, cz = (b.min[2] + b.max[2]) / 2;
+  if (Math.hypot(cx, cz) < Math.max(b.max[0] - b.min[0], b.max[2] - b.min[2])) continue;
+  const t = node.getTranslation();
+  node.setTranslation([t[0] - cx, t[1] - (Math.abs(b.min[1]) > 0.5 ? b.min[1] : 0), t[2] - cz]);
+  moved.push(node.getName());
+}
+if (moved.length) console.log("ricentrati:", moved.join(", "));
 const missing = [...used].filter((id) => !scene.listChildren().some((n) => n.getName() === id));
 if (missing.length) console.warn("mancano nel pacchetto:", missing.join(", "));
 await doc.transform(prune(), weld(), dedup(), meshopt({ encoder: MeshoptEncoder, level: "medium" }));

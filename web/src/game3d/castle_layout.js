@@ -139,17 +139,22 @@ const candle = (room, x, y, z, side) => {
   put(r, "Dungeon_Big_Window", -16, Y, 0, SIDE.N); put(r, "Dungeon_Big_Window", -16, Y, 0, SIDE.S); put(r, "Dungeon_Big_Wall", -16, Y, 0, SIDE.W);
   for (const z of [-2.2, 0, 2.2]) put(r, "Shelf", -19.45, Y, z);         // (open side towards +x: the room)
   solid(-19.4, -1.1, 0.9); solid(-19.4, 1.1, 0.9);
-  // books standing on the boards (0.80, 1.42, 1.86 m), in rows of a few, some gaps
+  // books standing on the boards (0.80, 1.42, 1.86 m), in rows of a few side by side, some gaps; the middle shelf is low
+  // (0.44 m): no big books there
+  const thick = (id) => (/Big/.test(id) ? 0.16 : /Small/.test(id) ? 0.06 : 0.11);
   const books = ["Book_Big_Brown", "Book_Red", "Book_Green", "Book_Big_DeepRed", "Book_Brown", "Book_Small_Green", "Book_DeepRed", "Book_Big_Green", "Book_Small_Red", "Book_Small_Brown", "Book_Big_Red", "Book_Small_DeepRed"];
   let bi = 0;
   for (const sz of [-2.2, 0, 2.2]) for (const [k, by] of [0.8, 1.42, 1.86].entries()) {
     const n = 3 + ((bi * 7 + k) % 4); let z = sz - 0.75 + ((bi * 13) % 5) * 0.08;
-    for (let i = 0; i < n; i++, bi++) { put(r, books[bi % books.length], -19.45, Y + by, z); z += 0.125; }
+    for (let i = 0; i < n; i++, bi++) {
+      const id = k === 1 ? books[bi % books.length].replace("Big_", "") : books[bi % books.length];
+      z += thick(id) / 2; put(r, id, -19.45, Y + by, z); z += thick(id) / 2 + 0.012;
+    }
   }
   put(r, "Desk", -16, Y, -3.34); put(r, "Chair", -16, Y, -2.45, 2); solid(-16, -3.2, 1.0);
-  put(r, "Chandelier_Triple", -15.3, Y + 0.95, -3.55); put(r, "Scroll_Stack", -16.6, Y + 0.02, -2.9);
+  put(r, "Chandelier_Triple", -15.3, Y + 0.95, -3.55); put(r, "Scroll_Stack", -16.55, Y + 0.95, -3.45);
   put(r, "Table_Small", -13.9, Y, 2.0, 1); put(r, "Stool_round", -13.9, Y, 3.1);
-  put(r, "CrystalBall_Stand", -13.9, Y + 0.83, 2.0); put(r, "CrystalBall", -13.9, Y + 0.98, 2.0);
+  put(r, "CrystalBall_Stand", -13.9, Y + 0.83, 2.0); put(r, "CrystalBall", -13.9, Y + 1.15, 2.0);
   put(r, "Beaker_Full_Var1", -14.9, Y + 0.83, 1.85); put(r, "Beaker_Full_Var2", -14.6, Y + 0.83, 2.2); put(r, "Flask", -13.1, Y + 0.83, 1.8);
   put(r, "Potion_Red", -12.8, Y + 0.83, 2.25); put(r, "Potion_Blue", -12.65, Y + 0.83, 1.95); put(r, "Potion_Green", -15.2, Y + 0.83, 2.3);
   solid(-13.9, 2.0, 1.15); solid(-15.0, 2.0, 0.8); solid(-12.8, 2.0, 0.8);
