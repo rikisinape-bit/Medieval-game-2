@@ -34,6 +34,7 @@ export const ITEMS = {
   gemma: { name: "Gemma grezza", kind: "misc", price: 25 },
   libro: { name: "Libro di preghiere", kind: "misc", price: 6 },
   testa_morn: { name: "Testa di Capo Morn", kind: "quest", desc: "Prova per Ser Alaric" },
+  chiave_celle: { name: "Chiave delle celle", kind: "misc", price: 4, desc: "Apre le celle delle prigioni del castello" },
 };
 // Danno e oggetto di ogni spada derivano da ITEMS (prima erano duplicati a mano).
 const SWORD_ENTRIES = Object.entries(ITEMS).filter(([, it]) => it.kind === "sword");

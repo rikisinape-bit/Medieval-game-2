@@ -178,7 +178,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `bodyview.html` (corpo base),
   `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore), `window.__S` (stato del mondo, `S.npcs`), `window.__ai`,
   `window.__atk = { t, combo, blow }` (ferma un colpo; `blow`: 1, 2, 3 o "thrust"), `window.__fp` (braccio in prima persona: `solveKey`, `FP_BLOWS`),
-  `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__npcs` (i personaggi), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
+  `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__npcs` (i personaggi), `window.__castle` (aree e porte del castello), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
   giocatore restano nascosti dalla nebbia: spostare anche `__P`).
 - **Fatto di recente**: case di Roccanera col kit; personaggi rifatti sul corpo base (ginocchia, volti, 15 acconciature,
   9 barbe, armature); 4 colpi, guardia, parata, 4 morti animate; dialoghi in primo piano; bottino a doppio menu, corpi
@@ -279,7 +279,22 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     Modelli: pacchetto "interno del castello" (FBX + palette `Mage_Room.png` 33×33, fuori da git in
     `assets/sorgenti/interno_castello/`) → `tools/castle-export.py` (Python di Blender: un oggetto per pezzo, materiali
     in palette, fiamme, cristallo) → `npm run castello` (`tools/build-castle.mjs`: solo i pezzi usati, meshopt). In gioco
-    i pezzi sono fusi per stanza e materiale (13 gruppi, ~200 mila triangoli in tutto);
+    i pezzi sono fusi per stanza e materiale (12 gruppi, ~200 mila triangoli in tutto);
+    alcuni oggetti del pacchetto hanno l'origine lontana dal modello (libri, calamaio, teschio, secchio...): `build-castle.mjs`
+    li ricentra;
+  - **prigioni del castello**: i muri tra le celle sono doppi (un muro del pacchetto ha una faccia sola: da dietro era
+    trasparente); porte a sbarre delle celle (`Basement_Door_Left`, `CELLS` in `castle_layout.js`) che girano sui cardini,
+    chiuse all'inizio (`S.flags.cells`, true = aperta): il passaggio di una cella è un'area calpestabile solo a porta aperta
+    (anche per le strade dei personaggi); si aprono e chiudono solo con la **chiave delle celle** (oggetto `chiave_celle`):
+    una sul tavolo del carceriere (`PICKUPS`, "chiave_tavolo": rubarla sotto i suoi occhi è un furto) e una in tasca al
+    carceriere (`carries` nel personaggio: si può sfilare da furtivo attraverso le sbarre, o prendere dal corpo).
+    **KO nel castello** (se il carceriere è vivo; altrimenti come prima, al pozzo): schermo nero "Le guardie ti hanno messo
+    KO...", ti risvegli nella cella di mezzo chiusa (`S.flags.jail`), vita 60, le chiavi che avevi tornate al carceriere e
+    sul tavolo; il carceriere passa avanti e indietro davanti alle celle: parlandogli attraverso le sbarre, **riscatto**
+    di 30 monete (`RANSOM` in `dialogs.js`), o se non le hai si prende tutto il tuo oro e ti fa uscire; oppure gli rubi la
+    chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
+    Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
+    lento un passo lungo saltava la porta chiusa;
   - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
     (la casella indica solo cosa usare e quanti ne restano); il tasto rotondo a sinistra di Corri (o Q) ne consuma uno
     se non hai la vita piena; finito, il tasto resta sbiadito finché non ne trovi altri.

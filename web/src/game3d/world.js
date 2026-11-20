@@ -80,8 +80,10 @@ export const NPC_DEFS = [
     routine: [R(KX - 2.75, KZ - 16.9, "look", 12, { face: [KX - 2.75, KZ - 8] })] },
   { id: "guardia_reale2", name: "Guardia Reale Elio", role: "soldier", look: "knight", pos: [KX + 2.75, KZ - 16.9], hp: 120, dmg: 14, loot: 20, weapon: "long", guard: true, fights: true, valdoro: true,
     routine: [R(KX + 2.75, KZ - 16.9, "look", 12, { face: [KX + 2.75, KZ - 8] })] },
-  { id: "carceriere", name: "Carceriere Mauro", role: "soldier", look: "soldier", pos: [KX + 22, KZ + 2], hp: 90, dmg: 11, loot: 15, weapon: "short", guard: true, fights: true, valdoro: true,
-    routine: [R(KX + 22, KZ + 2, "look", 8, { face: [KX + 26, KZ + 2] }), R(KX + 22, KZ - 3.5, "look", 6, { face: [KX + 26, KZ - 4] }), R(KX + 21.7, KZ + 3.1, "eat", 5, { face: [KX + 21.1, KZ + 4] })] },
+  // the jailer walks up and down in front of the cells (through the bars: talk to him, pay him, or pickpocket his key)
+  { id: "carceriere", name: "Carceriere Mauro", role: "soldier", look: "soldier", pos: [KX + 22.9, KZ], hp: 90, dmg: 11, loot: 15, weapon: "short", guard: true, fights: true, valdoro: true, carries: ["chiave_celle"],
+    routine: [R(KX + 22.9, KZ - 4, "look", 6, { face: [KX + 26, KZ - 4] }), R(KX + 22.9, KZ, "look", 6, { face: [KX + 26, KZ] }), R(KX + 22.9, KZ + 4, "look", 6, { face: [KX + 26, KZ + 4] }),
+      R(KX + 21.7, KZ + 3.1, "eat", 6, { face: [KX + 21.1, KZ + 4] }), R(KX + 22.9, KZ, "look", 5, { face: [KX + 26, KZ] }), R(KX + 21.4, KZ - 3.8, "look", 6, { face: [KX + 21.2, KZ - 5.3] })] },
 ];
 
 export const OBJECTS = [
@@ -112,6 +114,7 @@ export const PICKUPS = [
   { id: "w5", item: "spada_corta", x: 2.6, z: -75.8 }, { id: "w6", item: "pane", x: -4.2, z: -45.5 }, { id: "w7", item: "cuoio", x: 3.2, z: -72.4 }, { id: "w13", item: "torcia", x: -0.6, z: -71.8 },
   { id: "w8", item: "argento", x: CX - 3.2, z: CZ - 10.4 }, { id: "w9", item: "pozione", x: CX + 2.4, z: CZ + 10.8 }, { id: "w10", item: "acqua", x: CX - 10.8, z: CZ - 7.2 }, { id: "w14", item: "gemma", x: CX - 10.9, z: CZ + 10.5 },   // at the ends of the mine's tunnels
   { id: "w11", item: "oro", qty: 12, x: 2.2, z: WZ - 18, owned: true }, { id: "w12", item: "pane", x: -6.6, z: WZ - 22, owned: true },
+  { id: "chiave_tavolo", item: "chiave_celle", x: KX + 21.0, z: KZ + 3.6, gy: -4.22, owned: true },   // on the jailer's table (gy: the table top)
   { id: "w15", item: "pelliccia", x: -18, z: -70 }, { id: "w16", item: "mela", x: 16, z: -52 }, { id: "w17", item: "erbe", x: -20, z: -90 },
 ];
 

@@ -8,14 +8,14 @@ import { ALL_EXTENSIONS, EXTMeshoptCompression } from "@gltf-transform/extension
 import { dedup, getBounds, prune, meshopt, weld } from "@gltf-transform/functions";
 import { MeshoptEncoder } from "meshoptimizer";
 import fs from "node:fs";
-import { PIECES } from "../src/game3d/castle_layout.js";
+import { PIECES, DOOR_PIECE } from "../src/game3d/castle_layout.js";
 
 const SRC = new URL("../../assets/sorgenti/interno_castello/castello_raw.glb", import.meta.url).pathname;
 const OUT = new URL("../public/models/castello.glb", import.meta.url).pathname;
 await MeshoptEncoder.ready;
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({ "meshopt.encoder": MeshoptEncoder });
 const doc = await io.read(SRC);
-const used = new Set(PIECES.map((p) => p.id));
+const used = new Set([...PIECES.map((p) => p.id), DOOR_PIECE]);   // (the cells' doors move: castle.js builds them apart)
 const scene = doc.getRoot().listScenes()[0];
 let kept = 0, tris = 0;
 for (const node of scene.listChildren()) {

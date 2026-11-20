@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
-import { getDialog, applyEffect, CONTINUES } from "./dialogs";
+import { getDialog, applyEffect, CONTINUES, RANSOM } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
@@ -13,7 +13,7 @@ import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
-import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn } from "./castle";
+import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleCells, castleJail } from "./castle";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
@@ -286,7 +286,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // first time one goes in. The floor under any point: the castle's, the mine's (0 elsewhere).
   castleAnchors(scene); obstacles.push(...castleSolids);
   const floorY = (x, z) => (castle.inZone(x, z) ? castle.floorY(x, z) : mine.floorY(x, z));
-  if (import.meta.env.DEV) window.__mine = mine;                    // dev only (tests)
+  if (import.meta.env.DEV) { window.__mine = mine; window.__castle = castle; }   // dev only (tests)
   scene.add(makeMountain());                                   // the mountain that covers the mine
   // Rock face on both sides of the portal and the portal's own sides: nobody walks into the slope
   [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }, { cx: CX + 16.45, cz: sd * 1.9, hw: 0.6, hd: 0.45, ry: 0 }));
@@ -510,6 +510,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (L.shield) add(L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro");
     if (SHOPS[d.id]) { const st = SHOPS[d.id].sells; for (let i = 0; i < 3; i++) add(st[Math.floor(r() * st.length)]); }
     if (d.boss) add("testa_morn");
+    (d.carries || []).forEach(add);                                      // its own things (the jailer: the cells' key)
     return inv;
   };
   // A body shows only what is still on it: armour, helmet, shield and sword taken by the player disappear from it.
@@ -555,6 +556,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const addPick = (p) => { const m = makeItem(p.item, ITEMS[p.item]?.color); at(m, p.x, 0.05, p.z, p.x * 1.7); scene.add(m); picks.push({ ...p, mesh: m }); };
   PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...p }); });
   S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }));
+  castleCells.forEach((c) => castle.setDoor(c.id, !!S.flags.cells?.[c.id]));   // the prison cells: shut, unless opened
 
   const input = { x: 0, y: 0 };
   const keys = {};
@@ -693,8 +695,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       return;
     }
     if (P.hp <= 0) {
-      P.hp = 60; P.gold = Math.floor(P.gold / 2); P.x = 0; P.z = 4;
+      const jail = castle.inZone(P.x, P.z) && S.npcs.carceriere?.alive;   // KO in the castle: into a cell (if there is a jailer)
+      P.hp = 60;
       dismount(); npcs.forEach((x) => { Object.assign(x, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, state: "idle" }); }); graceT = 10;
+      if (jail) { toJail(); return; }
+      P.gold = Math.floor(P.gold / 2); P.x = 0; P.z = 4;
       say("Sei stato sconfitto. Ti risvegli accanto al pozzo, derubato di metà dell'oro.");
     }
   };
@@ -854,6 +859,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     picks.forEach((pk) => { if (near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""}` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
     ores.forEach((o, i) => { if (o.depletedUntil < time && near(o.x, o.z, 2.6)) list.push({ kind: "ore", id: i, x: o.x, z: o.z, label: "Estrai argento" }); });
+    if (castle.inZone(P.x, P.z)) castleCells.forEach((c) => {           // a cell's door: with the key it opens and shuts
+      if (!near(c.x, c.z, 1.8)) return;
+      const open = castle.doorOpen(c.id);
+      if (P.inv.chiave_celle) list.push({ kind: "cell", id: c.id, x: c.x, z: c.z, label: open ? "Chiudi la cella" : "Apri la cella" });
+      else if (!open) list.push({ kind: "cell", id: c.id, x: c.x, z: c.z, w: 2, label: "Cella chiusa a chiave" });   // (the jailer first, if he is near)
+    });
     if (P.mounted) list.push({ kind: "dismount", id: "d", x: P.x, z: P.z, label: "Smonta da cavallo" });
     const score = (c) => Math.hypot(c.x - P.x, c.z - P.z) + (c.w || 0) + (c.kind === "dismount" ? 0 : Math.abs(angDiff(Math.atan2(c.x - P.x, c.z - P.z), P.yaw)) > 1.1 ? 3 : 0);
     return list.sort((a, b) => score(a) - score(b))[0] || null;
@@ -863,6 +874,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     targetId, hostile: makeHostile, equip: equipItem, give, take,
     equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else note(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
     heal: (v) => { P.hp = Math.min(100, P.hp + v); },
+    free: () => { const j = S.flags.jail; if (j) { setCell(j.cell, true); S.flags.jail = null; } },   // the ransom is paid
     crime: (theft, victimId) => ai.crime(S.npcs[victimId] || null, theft),
     scream: (id, text) => { const n = S.npcs[id]; if (n?.alive) ai.scream(n, P.x, P.z, text); },
     spar: (id) => { const n = S.npcs[id]; Object.assign(n, { spar: true, hostile: true, hp: n.hpMax, state: "idle", cd: 1 }); },
@@ -998,6 +1010,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return;
     }
     if (c.kind === "obj" && (c.id === "castello" || c.id === "castello_uscita")) { goThrough(c.id === "castello"); return; }
+    if (c.kind === "cell") {
+      if (!P.inv.chiave_celle) { note("La cella è chiusa a chiave: ci vuole la chiave delle celle. Ce l'ha il carceriere."); return; }
+      const open = !castle.doorOpen(c.id);
+      setCell(c.id, open);
+      if (open && S.flags.jail?.cell === c.id) {                          // out of your own cell: if the jailer sees you...
+        S.flags.jail = null;
+        const j = S.npcs.carceriere;
+        if (j?.alive && ai.sees(j, P.x, P.z, 12)) { j.hostile = true; j.actT = null; say(`${j.name}: "Ehi! Chi ti ha aperto? Torna dentro!"`); }
+        else note("La serratura scatta: sei fuori dalla cella.");
+      } else note(open ? "Giri la chiave: la cella si apre." : "Chiudi la cella a chiave.");
+      return;
+    }
     if (c.kind === "npc" && !S.npcs[c.id].alive) { dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return; }
     const d = getDialog(c.id, S);
     if (d) { dialogOpen = true; startTalk(c.id); hooks.openDialog(c.id, d); }
@@ -1022,6 +1046,30 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // moved (the castle's models are downloaded and built the first time), a moment for the lights and the shaders,
   // then the screen comes back. keepSpot: a game saved inside the castle starts where it was.
   let transit = false;
+  // The prison cells: their doors (saved in S.flags.cells: true = open). A KO in the castle: the guards carry you into a
+  // cell and shut it (S.flags.jail); the jailer lets you out for a ransom (dialogs.js), or the key opens it: his own
+  // (pickpocketed through the bars) or the one on his table. The keys you had are taken back.
+  const setCell = (id, open, quiet = false) => {
+    castle.setDoor(id, open); S.flags.cells = { ...(S.flags.cells || {}), [id]: open };
+    if (!quiet) sfx.creak(0.9);
+  };
+  async function toJail() {
+    transit = true; running = false;
+    hooks.onLoading?.("Le guardie ti hanno messo KO...");
+    if (P.inv.chiave_celle) {
+      take("chiave_celle", P.inv.chiave_celle);
+      const j = S.npcs.carceriere; if (j?.alive && !j.inv.chiave_celle) j.inv.chiave_celle = 1;
+      if (S.flags.taken?.chiave_tavolo && !picks.some((pk) => pk.id === "chiave_tavolo")) {
+        delete S.flags.taken.chiave_tavolo; addPick({ qty: 1, ...PICKUPS.find((p) => p.id === "chiave_tavolo") });
+      }
+    }
+    setCell(castleJail.cell, false, true);
+    S.flags.jail = { cell: castleJail.cell };
+    P.x = castleJail.x; P.z = castleJail.z; P.yaw = castleJail.yaw; pitch = 0;
+    await new Promise((r) => setTimeout(r, 1800));
+    transit = false; hooks.onLoading?.(null);
+    say(`Ti risvegli in una cella delle prigioni. Il carceriere vuole ${RANSOM} monete d'oro per farti uscire: parlagli quando passa davanti alle sbarre.`);
+  }
   async function goThrough(inside, keepSpot = false) {
     if (transit) return;
     transit = true; running = false;
@@ -1093,7 +1141,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   });
   const collide = (x, z) => {
     [x, z] = pushOut(x, z);
-    if (castle.inZone(x, z)) return castle.constrain(x, z);                         // in the castle's rooms
+    if (castle.inZone(x, z)) return castle.inZone(P.x, P.z) ? castle.move(P.x, P.z, x, z) : castle.constrain(x, z);   // in the castle's rooms (step by step)
     if (mine.inZone(x, z)) return P.mounted ? [Math.max(x, CX + 17.7), z] : mine.constrain(x, z);   // in the tunnels (horses stay out)
     if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
     if (z < -24 && Math.abs(x) < 30.5) return [clamp(x, -30, 30), z];
@@ -1238,6 +1286,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   }
 
   function updateDoorsAndGate(dt) {
+    if (castle.inZone(P.x, P.z)) castle.updateDoors(dt);
+    if (S.flags.jail) npcs.forEach((n) => {                             // in a cell: whoever is angry with you gives up after a while
+      if (!n.hostile || !castle.inZone(n.x, n.z)) { n.jailAnger = 0; return; }
+      n.jailAnger = (n.jailAnger || 0) + dt;
+      if (n.jailAnger > 8) { n.jailAnger = 0; Object.assign(n, { hostile: false, alert: 0, actT: null, state: "idle" }); say(`${n.name}: "Marcisci lì dentro."`); }
+    });
     houses.forEach((h) => {
       const near = Math.hypot(P.x - h.dx, P.z - h.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo) && Math.hypot(n.x - h.dx, n.z - h.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
       const target = near ? 1.9 : 0;
@@ -1365,10 +1419,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       }
       n.cd -= dt; n.stagger -= dt; n.flash -= dt; n.blockT = (n.blockT || 0) - dt;
       if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
+      const ox = n.x, oz = n.z;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (mine.inZone(n.x, n.z)) [n.x, n.z] = mine.constrain(n.x, n.z);                // in the mine: along the tunnels
-      else if (castle.inZone(n.x, n.z)) [n.x, n.z] = castle.constrain(n.x, n.z);       // in the castle: in its rooms
+      else if (castle.inZone(n.x, n.z)) [n.x, n.z] = castle.inZone(ox, oz) ? castle.move(ox, oz, n.x, n.z) : castle.constrain(n.x, n.z);   // in the castle: in its rooms
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
       // characters hidden in the fog are only moved, not posed (the pose of dozens of skeletons costs on a phone)

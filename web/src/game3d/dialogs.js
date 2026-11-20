@@ -3,6 +3,7 @@ import { ITEMS, SHOPS, MARKUP_REP } from "./items";
 // NPC & object dialogs for the open world, with consequences.
 const has = (S, id) => S.player.inv[id] || 0;
 export const GATE_BRIBE = 150; // gold to bribe the knights at the gate of Valdoro
+export const RANSOM = 30;      // gold to get out of a cell of the castle's prison (after a KO in the castle)
 const names = (list) => list.map(([id, q]) => (id === "oro" ? `${q} oro` : q > 1 ? `${ITEMS[id].name} x${q}` : ITEMS[id].name)).join(", ");
 
 const CHATTER = {
@@ -124,7 +125,18 @@ function buildDialog(id, S) {
         ],
       };
     }
-    case "soldier1": case "soldier2": case "hal": case "rolf": case "guardia_castello1": case "guardia_castello2": case "guardia_reale1": case "guardia_reale2": case "carceriere": {
+    case "carceriere":
+      if (S.flags.jail) return {                                   // you are in a cell: the ransom (through the bars)
+        title: `${npc.name} — Carceriere`,
+        text: p.gold >= RANSOM ? `"Sveglio, finalmente? Chi alza le mani nel castello del Re finisce qui. Vuoi uscire? ${RANSOM} monete d'oro."`
+          : `"Vuoi uscire? Sono ${RANSOM} monete d'oro... ma le tue tasche mi sembrano piuttosto leggere."`,
+        options: [
+          p.gold >= RANSOM ? { label: `Pago il riscatto (${RANSOM} oro)`, effect: "ransom" } : { label: `Non ho ${RANSOM} monete...`, effect: "ransom_poor" },
+          { label: "Ci penso", effect: "close" },
+        ],
+      };
+    // falls through (out of the cells: a soldier like the others)
+    case "soldier1": case "soldier2": case "hal": case "rolf": case "guardia_castello1": case "guardia_castello2": case "guardia_reale1": case "guardia_reale2": {
       const rep = npc.valdoro ? S.known.crown : S.rep.crown;
       return {
         title: `${npc.name} — ${npc.valdoro ? "Guardia di Valdoro" : "Soldato"}`,
@@ -230,6 +242,8 @@ export function applyEffect(e, S, api) {
     case "morn_deliver": api.take("testa_morn", 1); p.gold += 40; rep("crown", 15); S.flags.mornDone = true; return `Alaric solleva la testa davanti ai soldati: "Per tutti i Santi, è Capo Morn! Il flagello del sentiero è finito. Ben fatto, viandante: ecco la tua ricompensa." (+40 oro, la Corona ti è grata)`;
     case "spar": api.spar(api.targetId); return `${S.npcs[api.targetId].name} sguaina la spada: "In guardia! Il primo che cede perde."`;
     case "fight_bandits": api.hostile(Object.values(S.npcs).filter((x) => x.role === "bandit" && Math.hypot(x.x - p.x, x.z - p.z) < 15).map((x) => x.id)); return "I banditi sguainano le lame!";
+    case "ransom": p.gold -= RANSOM; api.free(); return `Il carceriere conta le monete e gira la chiave: "Fuori. E che non ti riveda quaggiù." (−${RANSOM} oro)`;
+    case "ransom_poor": { const g = p.gold; p.gold = 0; api.free(); return `Il carceriere ti rovescia le tasche${g ? ` e si tiene tutto (−${g} oro)` : ""}: "Meglio di niente. Fuori, prima che cambi idea."`; }
     case "pay_tax": p.gold -= 10; rep("crown", 10); S.flags.taxPaid = true; return `Alaric conta le monete e annuisce: "Sei in regola con la Corona. Ti serve qualcosa?" (−10 oro)`;
     case "flatter":
       if (Math.random() < 0.45) { S.flags.taxPaid = true; rep("crown", 2); return `Alaric ride: "Lingua d'argento! Per oggi passi senza pagare."`; }

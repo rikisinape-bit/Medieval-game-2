@@ -4,13 +4,14 @@
 // the first time one goes in, behind the "Caricamento..." screen (engine.js: through the castle's gate).
 // Layout, floors, obstacles and lights: castle_layout.js. The walking rules are plain data, ready before the models:
 // a body is kept inside the walkable areas (the floor of the first one that holds it: flat, a dais, the stairs' ramps),
-// and the characters find their way from room to room through the places where two areas overlap (the doors).
+// and the characters find their way from room to room through the places where two areas overlap (the doors). The
+// prison cells' doors turn on their hinges; a cell's doorway is walkable only while its door is open (setDoor).
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/addons/libs/meshopt_decoder.module.js";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CASTLE } from "./world";
-import { PIECES, AREAS, SOLIDS, LIGHTS, FLAMES, SPAWN, EXIT } from "./castle_layout";
+import { PIECES, AREAS, SOLIDS, LIGHTS, FLAMES, SPAWN, EXIT, CELLS, DOOR_PIECE, JAIL } from "./castle_layout";
 import { makeFlame } from "./models";
 
 const [OX, OZ] = CASTLE;
@@ -21,7 +22,9 @@ const floorOf = (a, x, z) => {
   const [axis, v0, v1, y0, y1] = a.ramp, t = Math.min(1, Math.max(0, ((axis === "x" ? x : z) - v0) / (v1 - v0)));
   return y0 + (y1 - y0) * t;
 };
-const holds = (a, x, z, m = 0) => x > a.x0 - m && x < a.x1 + m && z > a.z0 - m && z < a.z1 + m;
+const opened = new Set();                                    // the cells whose door is open
+const ok = (a) => !a.door || opened.has(a.door);               // (a cell's doorway: only while open)
+const holds = (a, x, z, m = 0) => ok(a) && x > a.x0 - m && x < a.x1 + m && z > a.z0 - m && z < a.z1 + m;
 const near = (a, x, z) => [Math.min(a.x1, Math.max(a.x0, x)), Math.min(a.z1, Math.max(a.z0, z))];
 
 // The doors: where two areas overlap (the middle of the overlap); a graph of areas for the characters' way
@@ -38,6 +41,8 @@ export const castleSpawn = { x: SPAWN.x + OX, z: SPAWN.z + OZ, yaw: SPAWN.yaw };
 export const castleExit = { x: EXIT.x + OX, z: EXIT.z + OZ };
 export const castleSolids = SOLIDS.map((s) => ({ x: s.x + OX, z: s.z + OZ, r: s.r }));
 export const inCastle = (x, z) => Math.abs(x - OX) < 60 && Math.abs(z - OZ) < 40;
+export const castleCells = CELLS.map((c) => ({ id: c.id, x: c.x + OX, z: c.z + OZ }));      // the middle of each doorway
+export const castleJail = { x: JAIL.x + OX, z: JAIL.z + OZ, yaw: JAIL.yaw, cell: JAIL.cell };
 
 // Light anchors for the engine's pool of lights (they exist before the models: the engine gathers them at the start)
 export function castleAnchors(scene) {
@@ -50,7 +55,7 @@ export const castle = {
   floorY(x, z) {
     for (const a of A) if (holds(a, x, z, 0.05)) return floorOf(a, x, z);
     let best = A[0], bd = Infinity;
-    for (const a of A) { const [px, pz] = near(a, x, z), d = Math.hypot(px - x, pz - z); if (d < bd) { bd = d; best = a; } }
+    for (const a of A) { if (!ok(a)) continue; const [px, pz] = near(a, x, z), d = Math.hypot(px - x, pz - z); if (d < bd) { bd = d; best = a; } }
     return floorOf(best, ...near(best, x, z));
   },
   roofY(x, z) {
@@ -60,8 +65,16 @@ export const castle = {
   constrain(x, z) {
     if (A.some((a) => holds(a, x, z))) return [x, z];
     let bx = x, bz = z, bd = Infinity;
-    for (const a of A) { const [px, pz] = near(a, x, z), d = Math.hypot(px - x, pz - z); if (d < bd) { bd = d; bx = px; bz = pz; } }
+    for (const a of A) { if (!ok(a)) continue; const [px, pz] = near(a, x, z), d = Math.hypot(px - x, pz - z); if (d < bd) { bd = d; bx = px; bz = pz; } }
     return [bx, bz];
+  },
+  // a move from where one is, in steps of at most 0.2 m: a long step (a slow frame, a dodge) must not jump over a shut
+  // cell door (the doorway between the corridor and a cell is 0.8 m)
+  move(x0, z0, x1, z1) {
+    const n = Math.max(1, Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.2));
+    let x = x0, z = z0;
+    for (let i = 0; i < n; i++) [x, z] = this.constrain(x + (x1 - x0) / n, z + (z1 - z0) / n);
+    return [x, z];
   },
   // the next door on the way from (x, z) to (tx, tz), or null (same room, or one of them is not in the castle)
   route(x, z, tx, tz) {
@@ -78,11 +91,18 @@ export const castle = {
         for (const p of way) if (Math.hypot(p[0] - x, p[1] - z) > 0.5) return p;
         return null;
       }
-      for (const [j, p] of LINKS[i]) if (!prev.has(j)) { prev.set(j, { from: i, at: p }); queue.push(j); }
+      for (const [j, p] of LINKS[i]) if (!prev.has(j) && ok(A[j])) { prev.set(j, { from: i, at: p }); queue.push(j); }
     }
     return null;
   },
+  // the prison cells' doors
+  setDoor(id, open) { if (open) opened.add(id); else opened.delete(id); },
+  doorOpen: (id) => opened.has(id),
+  updateDoors(dt) {                                            // (turning towards open or shut)
+    for (const c of CELLS) { const g = doors[c.id]; if (g) g.rotation.y += ((opened.has(c.id) ? 0 : Math.PI / 2) - g.rotation.y) * Math.min(1, dt * 4); }
+  },
 };
+const doors = {};
 
 // ---- The models (downloaded once, the first time one goes in) ----
 let built = null;
@@ -159,6 +179,13 @@ export async function buildCastle(scene) {
       scene.add(mesh); tris += geo.attributes.position.count / 3;
     });
     FLAMES.forEach((f) => { const fl = makeFlame(f.k); fl.position.set(f.x + OX, f.y, f.z + OZ); scene.add(fl); });
+    // the cells' barred doors, apart (they turn): about the hinge, shut across the doorway or open into the cell
+    for (const c of CELLS) {
+      const g = new THREE.Group();
+      (lib[DOOR_PIECE] || []).forEach((part) => g.add(new THREE.Mesh(part.geometry, part.material)));
+      g.position.set(c.hinge[0] + OX, c.y, c.hinge[1] + OZ); g.rotation.y = opened.has(c.id) ? 0 : Math.PI / 2;
+      scene.add(g); doors[c.id] = g;
+    }
     console.info(`Castello: ${PIECES.length} pezzi, ${Math.round(tris)} triangoli in ${buckets.size} gruppi`);
     return true;
   })();

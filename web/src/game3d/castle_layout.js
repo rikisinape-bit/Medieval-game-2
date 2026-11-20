@@ -24,9 +24,14 @@ export const LIGHTS = [];   // { x, y, z, color, intensity, distance }
 export const FLAMES = [];   // { x, y, z, k } a fire's flame
 export const SPAWN = { x: 0, z: -0.8, yaw: Math.PI };   // in the entrance hall, facing north (beyond the reach of the gate, 3 m)
 export const EXIT = { x: 0, z: 3.0 };                   // where "Esci dal castello" is offered
+// The prison cells' barred doors (shut at first; the key: on the jailer's table, or the jailer's own): { id, x, y, z: the
+// middle of the doorway, hinge: [x, z] (the door turns about it: closed across the doorway, open into the cell) }
+export const CELLS = [];
+export const DOOR_PIECE = "Basement_Door_Left";
+export const JAIL = { x: 25.6, z: 0.1, yaw: -Math.PI / 2, cell: "c" };   // where one wakes up after a KO in the castle
 
 const put = (room, id, x, y, z, q = 0, o = {}) => PIECES.push({ room, id, x, y, z, q, ...o });
-const area = (x0, x1, z0, z1, y, ceil, ramp) => AREAS.push({ x0, x1, z0, z1, y, ceil, ramp });
+const area = (x0, x1, z0, z1, y, ceil, ramp, door) => AREAS.push({ x0, x1, z0, z1, y, ceil, ramp, door });   // door: walkable only while that cell is open
 const solid = (x, z, r) => SOLIDS.push({ x, z, r });
 const light = (x, y, z, intensity = 6, distance = 10, color = "#ffb060") => LIGHTS.push({ x, y, z, color, intensity, distance });
 const SIDE = { N: 0, W: 1, S: 2, E: 3 };
@@ -189,16 +194,18 @@ const candle = (room, x, y, z, side) => {
   put(r, "Basement_Wall_Var1", 22, Y, 4, SIDE.S); put(r, "Basement_Wall_Var3", 26, Y, 4, SIDE.S);
   put(r, "Basement_Wall_Var2", 26, Y, -4, SIDE.E); put(r, "Basement_Wall_Var1", 26, Y, 0, SIDE.E); put(r, "Basement_Wall_Var2", 26, Y, 4, SIDE.E);
   for (const z of [-4, 0, 4]) put(r, "Basement_Passage_Prison", 24, Y, z, 1);      // bars between corridor and cells
-  put(r, "Basement_Wall_Var1", 26, Y, 0, SIDE.N); put(r, "Basement_Wall_Var1", 26, Y, 4, SIDE.N);   // between the cells
+  put(r, "Basement_Wall_Var1", 26, Y, 0, SIDE.N); put(r, "Basement_Wall_Var1", 26, Y, 4, SIDE.N);   // between the cells,
+  put(r, "Basement_Wall_Var3", 26, Y, -4, SIDE.S); put(r, "Basement_Wall_Var3", 26, Y, 0, SIDE.S);   // back to back (a wall of the pack has one face)
   // the wooden posts of the ceilings (at the tiles' corners)
   for (const x of [20.25, 23.75, 24.25, 27.75]) for (const z of [-5.75, -2.25, 2.25, 5.75]) solid(x, z, 0.25);
-  put(r, "Table_Small", 21.1, Y, 4.0); put(r, "Stool_square", 22.1, Y, 4.0); put(r, "Key_Rusty", 21.0, Y + 0.84, 3.6, 1);
+  put(r, "Table_Small", 21.1, Y, 4.0); put(r, "Stool_square", 22.1, Y, 4.0);   // (the key on the table: world.js, PICKUPS)
   put(r, "Chest_Closed", 21.2, Y, -5.25); solid(21.1, 4.0, 1.0); solid(21.2, -5.25, 0.6);
   put(r, "Bucket", 27.2, Y, -5.2); put(r, "Skull", 26.6, Y, 0.6); put(r, "Bone", 27.0, Y, -0.4, 1); put(r, "Bag", 27.1, Y, 5.0);
   torch(r, 20.2, Y, -3.2, "W"); torch(r, 20.2, Y, 3.2, "W"); torch(r, 27.8, Y, 0, "E");
   const ceil = Y + 3.3;
   area(19.4, 20.6, -0.22, 0.22, Y, Y + 2.2);                // the door from the stairs
   area(20.45, 23.6, -5.55, 5.55, Y, ceil);                   // corridor
-  for (const z of [-4, 0, 4]) area(23.4, 24.6, z - 0.2, z + 0.2, Y, ceil);   // gaps in the bars
+  // the cells' doors, hinged on the north post of the doorway in the bars, and the doorways (walkable while open)
+  [["n", -4], ["c", 0], ["s", 4]].forEach(([id, z]) => { CELLS.push({ id, x: 24, y: Y, z, hinge: [24, z + 0.62] }); area(23.4, 24.6, z - 0.2, z + 0.2, Y, ceil, null, id); });
   area(24.4, 27.55, -5.55, -2.4, Y, ceil); area(24.4, 27.55, -1.4, 1.6, Y, ceil); area(24.4, 27.55, 2.6, 5.55, Y, ceil);
 }
