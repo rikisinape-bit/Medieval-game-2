@@ -83,13 +83,13 @@ function buildDialog(id, S) {
     }
     case "bruno": {
       const title = "Bruno — Fabbro", master = p.sword === "di Roccanera" || has(S, "spada_roccanera");
-      const forge = [...(p.ore >= 3 ? [{ label: "Forgiami una spada lunga (3 argento)", effect: "forge_sword" }] : []), ...(!master && p.ore >= 6 && p.gold >= 20 ? [{ label: "Forgiami la Lama di Roccanera (6 argento + 20 oro)", effect: "forge_master" }] : [])];
+      const forge = [...(p.ore >= 3 ? [{ label: "Forgiami uno spadone (3 argento)", effect: "forge_sword" }] : []), ...(!master && p.ore >= 6 && p.gold >= 20 ? [{ label: "Forgiami la Lama di Roccanera (6 argento + 20 oro)", effect: "forge_master" }] : [])];
       return {
         title,
         text: `"Il ferro non mente. Portami argento e ti forgio una lama degna, oppure compra al banco."`,
         options: [
           { label: "Puoi forgiarmi una spada?", next: {
-            title, text: `"Con 3 pezzi d'argento ti faccio una spada lunga.${master ? "" : " Con 6 d'argento e 20 monete, la Lama di Roccanera: la migliore mai uscita da questa forgia."} ${forge.length ? "Hai quello che serve: cosa forgio?" : `Tu ne hai ${p.ore}: torna quando ne avrai abbastanza. La miniera è nella collina a ovest.`}"`,
+            title, text: `"Con 3 pezzi d'argento ti faccio uno spadone, da tenere a due mani.${master ? "" : " Con 6 d'argento e 20 monete, la Lama di Roccanera: la migliore mai uscita da questa forgia."} ${forge.length ? "Hai quello che serve: cosa forgio?" : `Tu ne hai ${p.ore}: torna quando ne avrai abbastanza. La miniera è nella collina a ovest.`}"`,
             options: [...forge, { label: forge.length ? "Ci penso" : "Tornerò con l'argento", effect: "close" }],
           } },
           { label: "Esci dalla forgia", effect: "close" },
@@ -183,7 +183,7 @@ function buildDialog(id, S) {
     };
     case "rack": return {
       title: "Rastrelliera del fabbro",
-      text: (S.flags.rackTaken || 0) >= 3 ? "La rastrelliera è vuota." : `${["Tre spade lunghe", "Due spade lunghe", "Una spada lunga"][S.flags.rackTaken || 0]} appena affilat${(S.flags.rackTaken || 0) === 2 ? "a brilla" : "e brillano"} alla luce della forgia.`,
+      text: (S.flags.rackTaken || 0) >= 3 ? "La rastrelliera è vuota." : `${["Tre spadoni", "Due spadoni", "Uno spadone"][S.flags.rackTaken || 0]} appena affilat${(S.flags.rackTaken || 0) === 2 ? "o brilla" : "i brillano"} alla luce della forgia.`,
       options: [{ label: "Ruba una spada", effect: "steal_sword", danger: true, disabled: (S.flags.rackTaken || 0) >= 3 }, { label: "Lascia stare", effect: "close" }],
     };
     case "brann": case "oswin": {
@@ -233,7 +233,7 @@ export function applyEffect(e, S, api) {
       if (api.crime(true)) { rep("village", -35); return "Prendi 40 monete, ma qualcuno ti ha visto."; }
       return "Prendi 40 monete. Nessuno se n'è accorto.";
     }
-    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga"); rep("village", 3); return `Il martello canta per un'ora. Bruno ti porge una spada lunga ancora calda: "Ecco. Bilanciata come si deve."`;
+    case "forge_sword": p.ore -= 3; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga"); rep("village", 3); return `Il martello canta per un'ora. Bruno ti porge uno spadone ancora caldo: "Ecco. Pesa, ma è bilanciato come si deve: tienilo con due mani."`;
     case "forge_master": p.ore -= 6; p.gold -= 20; api.give("spada_roccanera", 1); api.equip("spada_roccanera"); rep("village", 5); return `Bruno lavora tutta la notte. All'alba ti porge la Lama di Roccanera, che brilla d'azzurro: "Non ne farò mai una migliore."`;
     case "bounty": { const n = Object.values(S.npcs).filter((x) => x.role === "bandit" && !x.boss && !x.alive).length - (S.flags.bountyClaimed || 0); p.gold += n * 20; S.flags.bountyClaimed = (S.flags.bountyClaimed || 0) + n; rep("crown", n * 5); return `"Ben fatto. La valle è più sicura grazie a te. Ecco la taglia: ${n * 20} monete." (+${n * 20} oro)`; }
     case "morn_quest": S.flags.mornQuest = true; rep("crown", 2); return `"Bene. Il suo campo è nel bosco a nord, oltre i primi alberi, accanto al sentiero. Quando avrai la sua testa, torna da me."`;
@@ -257,8 +257,8 @@ export function applyEffect(e, S, api) {
       if (api.robCarriage()) { rep("crown", -40); return "Scassini il forziere: +60 oro! Ti hanno visto: il corno d'allarme suona."; }
       rep("crown", -5); return "Scassini il forziere senza un rumore: +60 oro. Nessuno ti ha visto.";
     case "steal_sword": S.flags.rackTaken = (S.flags.rackTaken || 0) + 1; api.give("spada_lunga", 1); api.equipIfBetter("spada_lunga");
-      if (api.crime(true, "bruno")) { rep("village", -15); return "Afferri una spada lunga... ma qualcuno ti ha visto!"; }
-      return "Afferri una spada lunga. Nessuno se n'è accorto.";
+      if (api.crime(true, "bruno")) { rep("village", -15); return "Afferri uno spadone... ma qualcuno ti ha visto!"; }
+      return "Afferri uno spadone. Nessuno se n'è accorto.";
     case "drink": api.heal(10); return "Bevi. +10 vita.";
     case "toll_pay": p.gold -= Math.min(30, p.gold); api.forest("paid"); return `Capo Morn intasca le monete: "Passa pure. Per oggi."`;
     case "toll_intimidate": {

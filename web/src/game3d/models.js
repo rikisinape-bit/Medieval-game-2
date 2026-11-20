@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { ITEMS, SWORD_TIER } from "./items";
+import { ITEMS, SWORD_TIER, TWO_HANDED } from "./items";
 import { BODY_MAT, PALADIN_MAT, bodyGeometries, variantOf } from "./body";
 import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
 import { itemModel, toolModel, hasItemModel } from "./items3d";
@@ -152,7 +152,8 @@ export function makeHuman(look, weapon, seed) {
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.position.sub(wristR); t.visible = false; B.handR.add(t); tools[id] = t; });
   g.userData = { hipL: B.thighL, hipR: B.thighR, kneeL: B.shinL, kneeR: B.shinR, armL: B.upperArmL, armR: B.upperArmR, head: B.head, B, mesh, wristR, wristL,
-    skirt: { FR: B.skirtFR, BR: B.skirtBR, FL: B.skirtFL, BL: B.skirtBL, KR: B.skirtKR, KL: B.skirtKL }, shield: !!look.shield, sword, prop, tools, tool: null, variant: v, geo, body };
+    skirt: { FR: B.skirtFR, BR: B.skirtBR, FL: B.skirtFL, BL: B.skirtBL, KR: B.skirtKR, KL: B.skirtKL }, shield: !!look.shield, sword, prop, tools, tool: null, variant: v, geo, body,
+    twoHand: TWO_HANDED.has(weapon) };   // (a two-handed sword: anim.js puts both hands on it; the NPCs' "long" is held in one)
   return g;
 }
 export const showTool = (g, id) => {

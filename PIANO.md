@@ -175,7 +175,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   Per aggiornarla, confrontare TUTTI i file di `web/dist` con quelli pubblicati (impronte sha256) e caricare ogni file cambiato:
   anche il CSS cambia nome quando cambia il codice (una volta è rimasto quello vecchio: pagina senza stile).
 - **Pagine di prova** (con `npm run dev`): `lineup.html` (personaggi; `?eq=1` equipaggiamenti, `?faces=hair|beard|female`
-  volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `bodyview.html` (corpo base),
+  volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `?two=1` gli spadoni a due mani (con `globalThis.__twoDbg = []` prima del caricamento: di quanto mani e lama si scostano dal voluto), `bodyview.html` (corpo base),
   `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore), `window.__S` (stato del mondo, `S.npcs`), `window.__ai`,
   `window.__atk = { t, combo, blow }` (ferma un colpo; `blow`: 1, 2, 3 o "thrust"), `window.__fp` (braccio in prima persona: `solveKey`, `FP_BLOWS`),
   `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__npcs` (i personaggi), `window.__castle` (aree e porte del castello), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
@@ -295,6 +295,21 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
     Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
     lento un passo lungo saltava la porta chiusa;
+  - **spadoni a due mani** (`two` in `ITEMS`, `TWO_HANDED`): la Spada lunga è diventata lo **Spadone** (danno 34, prima 24;
+    impugnatura per due mani e lama più lunga in `weapons.js`, la mano destra vicino all'elsa, la sinistra `LEFT_BELOW`
+    = 11 cm più in basso) e lo **Spadone di Valdoro** (danno 42, prima 30) è a due mani anche lui. Colpi più lenti
+    (`SLOW_2H` = 0,62: un colpo dura ~0,73 s invece di 0,45), più difficili da parare (×0,6) e il nemico colpito barcolla
+    (0,3 s, spinta doppia). Niente scudo né torcia con lo spadone: equipaggiandolo tornano nello zaino, e il menu non li
+    fa equipaggiare finché lo hai in mano. I cavalieri restano con spada a una mano e scudo (scelta dell'utente: il
+    loro "long" è lo stesso modello, tenuto con una mano). Testi di Bruno e della rastrelliera: "spadone".
+    **Prima persona** (`engine.js`, `FP_HOLD2`, `FP_BLOWS2`): pose del braccio destro risolte come gli altri colpi
+    (guardia davanti al petto, parata con la lama di traverso, colpi caricati sopra la spalla / sopra la testa), quelle del
+    sinistro risolte dalla destra (pugno sull'impugnatura, `fparm.js fistFrame`); ogni fotogramma il braccio sinistro è
+    rimesso esattamente sull'impugnatura (`reach`) e la spalla sinistra segue quando l'impugnatura è troppo lontana (come il
+    busto che gira); risolte una volta sola (~0,16 s, al primo uso). **Terza persona** (`anim.js`, `TWO`, `attack2`):
+    entrambe le mani sull'impugnatura con `armIK` (la mano girata sulla lama, l'avambraccio che ruota su sé stesso per
+    aiutare il polso), a riposo la punta in avanti e in basso, guardia, parata, e ogni colpo caricato prima (`TWO_WIND`)
+    con il busto che gira e si piega col colpo; anche nell'anteprima del menu;
   - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
     (la casella indica solo cosa usare e quanti ne restano); il tasto rotondo a sinistra di Corri (o Q) ne consuma uno
     se non hai la vita piena; finito, il tasto resta sbiadito finché non ne trovi altri.

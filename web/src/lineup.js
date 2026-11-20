@@ -37,6 +37,11 @@ if (q.get("eq")) {
    { hand: "spadone", body: "piastre", head: "elmo_piastre", off: "scudo_ferro" }, { hand: "ascia", body: "maglia", head: "cappuccio" }, { hand: "di Roccanera", body: "cuoio", head: "elmo_piastre", off: "scudo_ferro" }]
     .forEach((eq, i) => list.push(["playerEq", "p" + i, eq]));
 }
+// ?two=1: the player with the two two-handed swords (both hands on the grip), then one with a one-handed sword
+if (q.get("two")) {
+  list.length = 0;
+  list.push(["playerEq", "t1", { hand: "lunga", body: "maglia", head: null }], ["playerEq", "t2", { hand: "spadone", body: "piastre", head: null }], ["playerEq", "t3", { hand: "corta", body: "cuoio", head: null }]);
+}
 // ?faces=hair|beard|female: a row of heads with every hairstyle / beard (close camera on the heads)
 const faces = q.get("faces");
 if (faces) {
@@ -89,3 +94,4 @@ if (faces) {                                         // one close frame per head
 } else r.render(scene, cam);
 let tris = 0, calls = 0; scene.traverse((o) => { if (o.isMesh && o.visible && o.parent.visible) { calls++; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
 window.STATS = { tris: Math.round(tris), calls }; window.DONE = true;
+window.SCENE = scene;   // (tests: the figures)

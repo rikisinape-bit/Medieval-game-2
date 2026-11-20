@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { X, Heart, Pause, RotateCw, Gauge, BatteryMedium, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical } from "lucide-react";
-import { ITEMS, SWORD_ITEM, dmgReduction, sellPrice } from "@/game3d/items";
+import { ITEMS, SWORD_ITEM, TWO_HANDED, dmgReduction, sellPrice } from "@/game3d/items";
 import CharacterPreview from "@/components/CharacterPreview";
 import ItemPic from "@/components/ItemPic";
 import RepFace from "@/components/RepFace";
@@ -30,13 +30,13 @@ function effectOf(id, hud) {
     case "food": return [it.heal >= 100 ? "Ti rimette tutta la vita." : `Ti rimette ${it.heal} di vita.`, `Ne hai ${hud.inv?.[id] || 0}.`];
     case "sword": {
       const cur = ITEMS[SWORD_ITEM[eq.hand]];
-      return [`Danno ${it.dmg}`, cur && cur !== it ? `La tua arma ora: danno ${cur.dmg}` : null];
+      return [`Danno ${it.dmg}`, it.two ? "A due mani: colpi lenti e pesanti, niente scudo né torcia" : null, cur && cur !== it ? `La tua arma ora: danno ${cur.dmg}` : null];
     }
     case "armor": case "helm": {
       const cur = ITEMS[eq[SLOT_OF_KIND[it.kind]]];
       return [`Ferma il ${pct(it.red)} dei danni`, cur && cur !== it ? `Quella che porti: ${pct(cur.red)}` : null];
     }
-    case "offhand": return it.block ? [`Parate più facili`, `Ferma il ${pct(it.block)} dei colpi da davanti`] : [it.desc || ""];
+    case "offhand": return [...(it.block ? [`Parate più facili`, `Ferma il ${pct(it.block)} dei colpi da davanti`] : [it.desc || ""]), TWO_HANDED.has(eq.hand) ? "Non con lo spadone in mano: serve un'arma a una mano" : null];
     case "quest": return [it.desc || "Serve per una missione."];
     default: return [it.desc, it.price ? `Un mercante te lo paga ${sellPrice(id)} oro.` : null];
   }
@@ -95,7 +95,7 @@ function ItemWindow({ pop, hud, onAct, onClose, root, area }) {
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5">
         {it.kind === "food" && (inv[pop.id] || 0) > 0 && <button type="button" data-ui="" className="inv-btn inv-btn-lg" disabled={hud.hp >= 100} onClick={() => act("use", pop.id)} data-testid="detail-use">{hud.hp >= 100 ? "Vita piena" : "Usa"}</button>}
-        {!worn && !inQuick && SLOT_OF_KIND[it.kind] && <button type="button" data-ui="" className="inv-btn inv-btn-lg" onClick={() => act("equip", pop.id)} data-testid="detail-equip">{it.kind === "food" ? "Uso rapido" : "Equipaggia"}</button>}
+        {!worn && !inQuick && SLOT_OF_KIND[it.kind] && <button type="button" data-ui="" className="inv-btn inv-btn-lg" disabled={it.kind === "offhand" && TWO_HANDED.has(eq.hand)} onClick={() => act("equip", pop.id)} data-testid="detail-equip">{it.kind === "food" ? "Uso rapido" : "Equipaggia"}</button>}
         {(worn || inQuick) && pop.slot !== "hand" && <button type="button" data-ui="" className="inv-btn inv-btn-lg" onClick={() => act("unequip", worn ? pop.slot : "quick")} data-testid="detail-unequip">Togli</button>}
         {!worn && it.kind !== "quest" && (pop.id === "oro" || pop.id === "argento" || (inv[pop.id] || 0) > 0) && (
           <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger" onClick={() => act("drop", pop.id)} data-testid="detail-drop">

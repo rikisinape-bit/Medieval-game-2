@@ -73,9 +73,31 @@ export function solveKey(rig, shoulder, key) {
   for (let tau = -1.6; tau <= 1.6 + 1e-9; tau += 0.1) for (let phi = -1.1; phi <= 1.1 + 1e-9; phi += 0.1) tryOne(tau, phi, Math.PI, 0.1);
   const c = best;                                                                    // then finer, around the best
   for (let tau = c.tau - 0.1; tau <= c.tau + 0.1 + 1e-9; tau += 0.025) for (let phi = c.phi - 0.1; phi <= c.phi + 0.1 + 1e-9; phi += 0.025) tryOne(tau, phi, 0.12, 0.02, c.sw);
-  return { q: new THREE.Quaternion().setFromAxisAngle(D, best.sw).multiply(best.q1), beta: best.beta, tau: best.tau, phi: best.phi };
+  return { q: new THREE.Quaternion().setFromAxisAngle(D, best.sw).multiply(best.q1), beta: best.beta, tau: best.tau, phi: best.phi, score: best.score };
 }
 
+// Where the fist of a posed arm is and where what it holds points (camera space; shoulder: the arm group's position):
+// pos, blade (the held thing's +Z) and edge.
+export function fistFrame(rig, shoulder, pose) {
+  const qt = foreQ(rig, pose.beta, pose.tau, new THREE.Quaternion()).multiply(handQ(rig, pose.phi, new THREE.Quaternion()));
+  const turn = (v) => v.applyQuaternion(qt).applyQuaternion(HALF).applyQuaternion(pose.q);
+  return {
+    pos: fistAt(rig, pose.beta, pose.tau, pose.phi, new THREE.Vector3()).applyQuaternion(HALF).applyQuaternion(pose.q).add(V(shoulder)),
+    blade: turn(rig.b0.clone()), edge: turn(rig.e0.clone()),
+  };
+}
+// The pose changed as little as it can so that its fist is at T (from the shoulder, camera space): the elbow bends
+// for the distance, then the whole arm turns onto T's direction (the other hand on a two-handed grip, every frame).
+const _y = new THREE.Vector3(), _qr = new THREE.Quaternion();
+export function reach(rig, pose, T) {
+  pose.beta = bendFor(rig, pose.tau, pose.phi, T.length());
+  const F = fistAt(rig, pose.beta, pose.tau, pose.phi, _x).applyQuaternion(HALF).applyQuaternion(pose.q).normalize();
+  pose.q.premultiply(_qr.setFromUnitVectors(F, _y.copy(T).normalize()));
+  return pose;
+}
+
+// how far the fist gets from the shoulder (the arm as straight as it goes)
+export const armReach = (rig) => fistAt(rig, -rig.bend0 + 0.03, 0, 0, new THREE.Vector3()).length();
 export const restPose = (rx) => ({ q: new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, 0, 0)), beta: 0, tau: 0, phi: 0 });
 // joint by joint from a to b (t = 0..1)
 export function mixPose(a, b, t, out) {

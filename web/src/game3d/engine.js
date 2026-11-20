@@ -3,24 +3,25 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect, CONTINUES, RANSOM } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE } from "./world";
-import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
+import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF, TWO_HANDED, SLOW_2H } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
-import { SHIELD_KIND } from "./weapons";
+import { SHIELD_KIND, LEFT_BELOW } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
 import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleCells, castleJail } from "./castle";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
-import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
+import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
 const solvedBlows = {};   // first-person blows, solved once (fparm.js): the player's arm is the same whatever it wears
+const solved2 = {};       // the same for the two-handed swords (both arms)
 const segDist = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = clamp(((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1), 0, 1); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
 const pathDist = (x, z) => Math.min(...PATH.slice(1).map((p, i) => segDist(x, z, PATH[i], p)));
 
@@ -456,6 +457,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   };
   const P = S.player;
   if (!SWORDS[P.eq.hand]) P.eq.hand = "corta";
+  if (TWO_HANDED.has(P.eq.hand) && P.eq.off) { P.inv[P.eq.off] = (P.inv[P.eq.off] || 0) + 1; P.eq.off = null; }   // (a save from before: two hands on the sword)
   ["body", "head", "off"].forEach((k) => { if (P.eq[k] && !ITEMS[P.eq[k]]) P.eq[k] = null; });
   if (!P.inv || typeof P.inv !== "object") P.inv = {};
   P.mounted = null; delete P.zone; delete P.sword; delete P.armor;
@@ -771,7 +773,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (!target) return;
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
-    if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block) {
+    const two = TWO_HANDED.has(P.eq.hand);                                       // a two-handed blow: harder to block, it staggers
+    if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block * (two ? 0.6 : 1)) {
       fx.burst(n.x - dx * 0.3, floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
       sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
       makeNoise(n.x, n.z, NOISE.blow);
@@ -782,6 +785,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (combo === 3) dmg = Math.round(dmg * 1.5);
     if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
     hitNpc(n, unaware ? n.hp : dmg);
+    if (two && n.alive) { n.kb = 0.3; n.stagger = Math.max(n.stagger, 0.3); }
     makeNoise(n.x, n.z, unaware ? 3 : NOISE.blow);                                  // a blow from behind is quiet
     if (unaware && !n.alive) hooks.onFloat("COLPO ALLE SPALLE", "#ff5a4a");
   };
@@ -799,8 +803,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const it = ITEMS[id]; if (!it || !P.inv[id]) return;
     // the quick-use slot (button next to Corri, key Q) only points at a kind of food or drink: it stays in the pack
     if (it.kind === "food") { P.eq.quick = id; sfx.pick(0.6); note(`Uso rapido: ${it.name}.`); return; }
-    if (it.kind === "sword") { P.inv[SWORD_ITEM[P.eq.hand]] = (P.inv[SWORD_ITEM[P.eq.hand]] || 0) + 1; take(id); P.eq.hand = it.sword; }
-    else if (it.kind === "armor" || it.kind === "helm" || it.kind === "offhand") { const slot = it.kind === "armor" ? "body" : it.kind === "helm" ? "head" : "off"; if (P.eq[slot]) P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; take(id); P.eq[slot] = id; }
+    if (it.kind === "offhand" && TWO_HANDED.has(P.eq.hand)) { say(`${ITEMS[SWORD_ITEM[P.eq.hand]].name} si impugna a due mani: per ${it.name} prendi prima un'arma a una mano.`); return; }
+    if (it.kind === "sword") {
+      P.inv[SWORD_ITEM[P.eq.hand]] = (P.inv[SWORD_ITEM[P.eq.hand]] || 0) + 1; take(id); P.eq.hand = it.sword;
+      if (it.two && P.eq.off) { say(`${it.name} si impugna a due mani: ${ITEMS[P.eq.off].name} torna nello zaino.`); P.inv[P.eq.off] = (P.inv[P.eq.off] || 0) + 1; P.eq.off = null; }
+    } else if (it.kind === "armor" || it.kind === "helm" || it.kind === "offhand") { const slot = it.kind === "armor" ? "body" : it.kind === "helm" ? "head" : "off"; if (P.eq[slot]) P.inv[P.eq[slot]] = (P.inv[P.eq[slot]] || 0) + 1; take(id); P.eq[slot] = id; }
     else return;
     equip(); sfx.pick(0.8); note(`Equipaggi: ${it.name}.`);
   };
@@ -907,6 +914,62 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (!solvedBlows[c]) { const K = FP_BLOWS[c], rig = fpRig(); solvedBlows[c] = { w: solveKey(rig, VM_REST.R.pos, K.w), e: solveKey(rig, VM_REST.R.pos, K.e), ph: K.ph || [0.25, 0.65] }; }
     return solvedBlows[c];
   };
+  // Two-handed swords: both fists on the grip, the sword in front of the chest. The right arm's keys (the guard, the
+  // parry, the blows: wider and heavier, both hands together) are solved like the others; the left arm's are solved
+  // from them (its fist LEFT_BELOW lower on the grip, holding along the blade) and, every frame, the left arm is put
+  // exactly on the grip where the right arm has it (fparm.js reach).
+  const FP_HOLD2 = {
+    rest: { hand: [0.07, -0.12, -0.38], blade: [0.15, 0.85, -0.5], cut: [0, -0.5, -0.85], pole: [0.6, -1, 0.2] },
+    block: { hand: [0.02, 0.0, -0.36], blade: [0.95, 0.3, -0.05], cut: [0, 1, 0], pole: [0.8, -0.8, 0.2] },   // the blade across (the point to the right), edge up
+  };
+  const FP_BLOWS2 = {
+    1: { w: { hand: [0.3, 0.14, -0.34], blade: [0.25, 0.75, 0.6], cut: [-0.7, -0.6, -0.3], pole: [1, -0.2, 0.2] },   // over the right shoulder
+      e: { hand: [-0.14, -0.3, -0.42], blade: [-0.55, -0.45, -0.7], cut: [-0.5, -0.5, 0.7], pole: [0.4, -1, 0] }, ph: [0.34, 0.66] },
+    2: { w: { hand: [-0.1, 0.1, -0.34], blade: [-0.45, 0.75, 0.45], cut: [0.7, -0.6, -0.3], pole: [0.2, -1, 0.4] },   // over the left shoulder
+      e: { hand: [0.26, -0.3, -0.42], blade: [0.55, -0.45, -0.7], cut: [0.5, -0.5, 0.7], pole: [1, -0.6, 0] }, ph: [0.34, 0.66] },
+    3: { w: { hand: [0.16, 0.36, -0.08], blade: [0.0, 0.2, 0.98], cut: [0, 1, -0.2], pole: [1, 0.2, -0.1] },          // raised over the head
+      e: { hand: [0.02, -0.32, -0.48], blade: [0, -0.5, -0.85], cut: [0, -1, 0.15], pole: [0.6, -0.8, 0.2] }, ph: [0.36, 0.66] },
+    thrust: { w: { hand: [0.12, -0.3, -0.14], blade: [0, 0.02, -1], cut: [0, -1, 0], pole: [0.3, -0.6, 1] },
+      e: { hand: [0.04, -0.16, -0.58], blade: [0, 0.04, -1], cut: [0, -1, 0], pole: [0.6, -1, 0.2] }, ph: [0.34, 0.54] },
+  };
+  const fpRigL = () => vm.rigL || (vm.rigL = armRig(vm.bonesL, vm.fistL));
+  const fp2 = () => {
+    if (solved2.rest) return solved2;
+    const rigR = fpRig(), rigL = fpRigL(), R = VM_REST.R, L = VM_REST.L;
+    const left = (pose, high) => {                                   // the left fist on the grip, under the right one
+      const f = fistFrame(rigR, R.pos, pose);
+      const key = (sign) => ({ hand: f.pos.clone().addScaledVector(f.blade, -LEFT_BELOW).toArray(), blade: f.blade.toArray(), cut: f.edge.clone().multiplyScalar(sign).toArray(), pole: high ? [-1, 0.2, -0.1] : [-0.8, -0.8, 0.2] });
+      if (solved2.sign === undefined) { const a = solveKey(rigL, L.pos, key(1)), b = solveKey(rigL, L.pos, key(-1)); solved2.sign = a.score >= b.score ? 1 : -1; return solved2.sign > 0 ? a : b; }
+      return solveKey(rigL, L.pos, key(solved2.sign));
+    };
+    const both = (K, high = false) => { const r = solveKey(rigR, R.pos, K); return [r, left(r, high)]; };
+    const t0 = performance.now();
+    [solved2.restR, solved2.restL] = both(FP_HOLD2.rest);
+    [solved2.blockR, solved2.blockL] = both(FP_HOLD2.block);
+    for (const c of Object.keys(FP_BLOWS2)) { const K = FP_BLOWS2[c], [w, wl] = both(K.w, K.w.hand[1] > 0), [e, el] = both(K.e); solved2[c] = { w, wl, e, el, ph: K.ph }; }
+    solved2.rest = true;
+    if (import.meta.env.DEV) console.info(`spadone: colpi a due mani risolti in ${Math.round(performance.now() - t0)} ms`);
+    return solved2;
+  };
+  const _r2 = restPose(0), _l2 = restPose(0);
+  const fpTwoHands = (k, g, bobR, bobL) => {
+    const S2 = fp2(), R = VM_REST.R, L = VM_REST.L;
+    if (atkT >= 0) {                                                 // rest -> wind-up -> end of the blow -> rest, both arms
+      const c = S2[blow] || S2[1], [p1, p2] = c.ph, p = Math.min(1, k);
+      const [a, b, al, bl, t] = p < p1 ? [S2.restR, c.w, S2.restL, c.wl, smooth01(p / p1)] : p < p2 ? [c.w, c.e, c.wl, c.el, smooth01((p - p1) / (p2 - p1))] : [c.e, S2.restR, c.el, S2.restL, smooth01((p - p2) / (1 - p2))];
+      mixPose(a, b, t, _r2); mixPose(al, bl, t, _l2);
+    } else { mixPose(S2.restR, S2.blockR, g, _r2); mixPose(S2.restL, S2.blockL, g, _l2); }   // guard, or the parry
+    vm.armR.position.set(R.pos[0], R.pos[1] + bobR, R.pos[2]);
+    applyPose(fpRig(), vm.armR, vm.bonesR, _r2);
+    // the left shoulder comes along when the grip is out of its reach (the trunk turns into the wind-up)
+    const f = fistFrame(fpRig(), vm.armR.position.toArray(), _r2), G = f.pos.addScaledVector(f.blade, -LEFT_BELOW);
+    vm.armL.position.set(L.pos[0], L.pos[1] + bobL, L.pos[2]);
+    const T = G.clone().sub(vm.armL.position), far = T.length() - 0.97 * (vm.reachL ??= armReach(fpRigL()));
+    if (far > 0) { vm.armL.position.addScaledVector(T.normalize(), Math.min(far, 0.35)); T.copy(G).sub(vm.armL.position); }
+    reach(fpRigL(), _l2, T);
+    applyPose(fpRigL(), vm.armL, vm.bonesL, _l2);
+    if (import.meta.env.DEV) { const got = fistFrame(fpRigL(), [0, 0, 0], _l2).pos; window.__fp.leftErr = Math.max(window.__fp.leftErr || 0, got.distanceTo(T)); }   // dev: the left fist off the grip
+  };
   // The arm's pose at swing phase p of blow c: rest -> wind-up -> end of the blow -> rest, joint by joint.
   const _fpPose = restPose(0);
   const fpArm = (p, c) => {
@@ -914,7 +977,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const [a, b, t] = p < p1 ? [rest, k.w, smooth01(p / p1)] : p < p2 ? [k.w, k.e, smooth01((p - p1) / (p2 - p1))] : [k.e, rest, smooth01((p - p2) / (1 - p2))];
     return mixPose(a, b, t, _fpPose);
   };
-  if (import.meta.env.DEV) window.__fp = { get vm() { return vm; }, camera, solvedBlows, FP_BLOWS, fpKeys, fpRig, solveKey };   // dev only: the first-person arm (tests)
+  if (import.meta.env.DEV) window.__fp = { get vm() { return vm; }, camera, solvedBlows, FP_BLOWS, fpKeys, fpRig, solveKey, FP_BLOWS2, FP_HOLD2, solved2, fp2 };   // dev only: the first-person arm (tests)
   // The blows are solved one at a time shortly after the start (a few ms each), not at the first swing of each.
   { const todo = Object.keys(FP_BLOWS); const next = () => { if (!todo.length) return; fpKeys(todo.shift()); setTimeout(next, 150); }; setTimeout(next, 2000); }
   function startTalk(id) {
@@ -1387,11 +1450,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     let k = 0;
     if (import.meta.env.DEV && window.__atk) { atkT = window.__atk.t - dt; combo = window.__atk.combo; blow = window.__atk.blow || combo; queued = false; }   // dev only: freeze a blow (tests)
     if (atkT >= 0) {
-      const prev = atkT; atkT += dt; k = atkT / 0.4;
+      const slow = TWO_HANDED.has(P.eq.hand) ? SLOW_2H : 1;                     // a two-handed sword: slower blows
+      const prev = atkT; atkT += dt * slow; k = atkT / 0.4;
       if (prev < 0.18 && atkT >= 0.18) playerAttack();
       if (import.meta.env.DEV && window.__atk) atkT = window.__atk.t;
       // the thrust is a lunge: a short step forward while the arm shoots out
-      if (blow === "thrust" && !P.mounted && k > 0.3 && k < 0.52 && !(import.meta.env.DEV && window.__atk)) [P.x, P.z] = collide(P.x + Math.sin(P.yaw) * 2.4 * dt, P.z + Math.cos(P.yaw) * 2.4 * dt);
+      if (blow === "thrust" && !P.mounted && k > 0.3 && k < 0.52 && !(import.meta.env.DEV && window.__atk)) [P.x, P.z] = collide(P.x + Math.sin(P.yaw) * 2.4 * dt * slow, P.z + Math.cos(P.yaw) * 2.4 * dt * slow);
       if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; blow = nextBlow(); sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
@@ -1485,13 +1549,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       // The blows (FP_BLOWS): the arm turns so the edge leads, the elbow bends, the wrist bends; the sword never turns in the fist.
       const R = VM_REST.R, L = VM_REST.L;
       const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
-      if (atkT >= 0) applyPose(fpRig(), vm.armR, vm.bonesR, fpArm(Math.min(1, k), blow));
-      else { vm.armR.rotation.set(R.rx, 0, 0); vm.bonesR.fore.quaternion.identity(); vm.bonesR.hand.quaternion.identity(); }
-      if (g > 0) vm.armR.quaternion.premultiply(_pq.setFromAxisAngle(_fwd, FP_PARRY.turn * g));    // parry: the blade turns across the screen
-      vm.armR.position.set(R.pos[0] + FP_PARRY.dx * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + FP_PARRY.dy * g, R.pos[2] + FP_PARRY.dz * g);
-      const sg = hasShield() ? g : 0;
-      vm.armL.rotation.set(L.rx + 0.25 * sg, -0.55 * sg, 0);                                                       // shield to the middle
-      vm.armL.position.set(L.pos[0] + 0.16 * sg, L.pos[1] + Math.cos(bobT * 0.5) * 0.01 + 0.05 * sg, L.pos[2]);
+      if (TWO_HANDED.has(P.eq.hand)) fpTwoHands(k, g, Math.sin(bobT * 0.5) * 0.01, Math.sin(bobT * 0.5) * 0.01);   // both hands on the grip
+      else {
+        if (atkT >= 0) applyPose(fpRig(), vm.armR, vm.bonesR, fpArm(Math.min(1, k), blow));
+        else { vm.armR.rotation.set(R.rx, 0, 0); vm.bonesR.fore.quaternion.identity(); vm.bonesR.hand.quaternion.identity(); }
+        if (g > 0) vm.armR.quaternion.premultiply(_pq.setFromAxisAngle(_fwd, FP_PARRY.turn * g));    // parry: the blade turns across the screen
+        vm.armR.position.set(R.pos[0] + FP_PARRY.dx * g, R.pos[1] + Math.sin(bobT * 0.5) * 0.01 + FP_PARRY.dy * g, R.pos[2] + FP_PARRY.dz * g);
+        const sg = hasShield() ? g : 0;
+        vm.armL.rotation.set(L.rx + 0.25 * sg, -0.55 * sg, 0);                                                       // shield to the middle
+        vm.armL.position.set(L.pos[0] + 0.16 * sg, L.pos[1] + Math.cos(bobT * 0.5) * 0.01 + 0.05 * sg, L.pos[2]);
+      }
       vm.g.position.y = bob * 0.5 - (P.sneak && !P.mounted ? 0.03 : 0);
     }
 

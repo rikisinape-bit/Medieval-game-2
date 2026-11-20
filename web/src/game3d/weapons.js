@@ -36,11 +36,11 @@ const BUILDERS = {
     P.cone(0.025, 0.1, IRON, -0.07, 0.66, 0, 0, Math.PI / 2, 4);                               // back spike
     P.cone(0.018, 0.06, IRON, 0, 0.73, 0, 0, 0, 4);                                            // top spike
   },
-  // Spada lunga: steel, longer grip, angled quillons, wheel pommel
+  // Spadone (the old long sword): steel, a grip for two hands, angled quillons, wheel pommel (the knights hold it in one)
   lunga: (P) => {
-    grip(P, 0.2, LEATHER, "#2a1a10"); P.tube(0.04, 0.04, -0.055, -0.025, STEEL, 0, 0, 8, 0.45);
-    P.box(0.14, 0.026, 0.032, STEEL, 0.065, 0.215, 0, 0, 0, 0.2); P.box(0.14, 0.026, 0.032, STEEL, -0.065, 0.215, 0, 0, 0, -0.2);
-    blade(P, 0.88, 0.054, BRIGHT, 0.23, "#6e7278");
+    grip(P, 0.3, LEATHER, "#2a1a10"); P.tube(0.04, 0.04, -0.055, -0.025, STEEL, 0, 0, 8, 0.45);
+    P.box(0.15, 0.026, 0.032, STEEL, 0.07, 0.315, 0, 0, 0, 0.2); P.box(0.15, 0.026, 0.032, STEEL, -0.07, 0.315, 0, 0, 0, -0.2);
+    blade(P, 0.98, 0.058, BRIGHT, 0.33, "#6e7278");
   },
   // Spadone di Valdoro: two-handed, ricasso, wide brass guard with quillon blocks, big pommel
   spadone: (P) => {
@@ -59,7 +59,9 @@ const BUILDERS = {
   },
 };
 // Where the hand holds each weapon, measured from the old origin (base of the grip) along the blade.
-const GRIP_AT = { pugnale: 0.05, corta: 0.065, ascia: 0.07, lunga: 0.1, spadone: 0.2, "di Roccanera": 0.13 };
+// (two-handed: the right hand by the guard, the left one 0.11 m lower, LEFT_BELOW)
+const GRIP_AT = { pugnale: 0.05, corta: 0.065, ascia: 0.07, lunga: 0.2, spadone: 0.2, "di Roccanera": 0.13 };
+export const LEFT_BELOW = 0.11;
 const cache = new Map();
 const ALIAS = { short: "corta", long: "lunga" };
 // Weapon by sword key ("pugnale", "corta", "ascia", "lunga", "spadone", "di Roccanera").

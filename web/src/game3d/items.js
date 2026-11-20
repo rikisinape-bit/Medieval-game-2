@@ -1,5 +1,6 @@
 // Item catalogue: inventory entries, world pickups, shops and NPC daily tools.
 // kind: food | gold | ore | sword | armor | helm | offhand | tool | quest | misc. price = buy price; selling gives 50%.
+// two: a two-handed sword (both hands on the grip: slower, heavier blows; no shield or torch in the other hand).
 export const ITEMS = {
   pane: { name: "Pane", kind: "food", heal: 15, price: 3, desc: "+15 vita" },
   formaggio: { name: "Formaggio", kind: "food", heal: 10, price: 2, desc: "+10 vita" },
@@ -15,8 +16,8 @@ export const ITEMS = {
   pugnale: { name: "Pugnale", kind: "sword", sword: "pugnale", dmg: 9, price: 8, desc: "Danno 9, veloce" },
   spada_corta: { name: "Spada corta", kind: "sword", sword: "corta", dmg: 14, price: 15, desc: "Danno 14" },
   ascia_guerra: { name: "Ascia da guerra", kind: "sword", sword: "ascia", dmg: 20, price: 22, desc: "Danno 20" },
-  spada_lunga: { name: "Spada lunga", kind: "sword", sword: "lunga", dmg: 24, price: 25, desc: "Danno 24" },
-  spadone: { name: "Spadone di Valdoro", kind: "sword", sword: "spadone", dmg: 30, price: 60, desc: "Danno 30" },
+  spada_lunga: { name: "Spadone", kind: "sword", sword: "lunga", dmg: 34, price: 30, two: true, desc: "Danno 34, a due mani" },
+  spadone: { name: "Spadone di Valdoro", kind: "sword", sword: "spadone", dmg: 42, price: 75, two: true, desc: "Danno 42, a due mani" },
   spada_roccanera: { name: "Lama di Roccanera", kind: "sword", sword: "di Roccanera", dmg: 34, price: 120, desc: "Danno 34" },
   cuoio: { name: "Armatura di cuoio", kind: "armor", red: 0.2, color: "#6a4426", price: 20, desc: "-20% danni" },
   maglia: { name: "Cotta di maglia", kind: "armor", red: 0.35, color: "#8a8a94", price: 45, desc: "-35% danni" },
@@ -41,6 +42,9 @@ const SWORD_ENTRIES = Object.entries(ITEMS).filter(([, it]) => it.kind === "swor
 export const SWORD_DMG = Object.fromEntries(SWORD_ENTRIES.map(([, it]) => [it.sword, it.dmg]));
 export const SWORD_ITEM = Object.fromEntries(SWORD_ENTRIES.map(([id, it]) => [it.sword, id]));
 export const SWORD_TIER = { pugnale: 0, corta: 0, ascia: 1, lunga: 1, spadone: 2, "di Roccanera": 2 };
+// the two-handed swords (sword keys); their blows take longer (SLOW_2H: the swing's clock runs at this rate)
+export const TWO_HANDED = new Set(SWORD_ENTRIES.filter(([, it]) => it.two).map(([, it]) => it.sword));
+export const SLOW_2H = 0.62;
 export const SLOT_OF = { sword: "hand", armor: "body", helm: "head", offhand: "off" };
 export const dmgReduction = (eq) => Math.min(0.7, (ITEMS[eq.body]?.red || 0) + (ITEMS[eq.head]?.red || 0));
 // Rincaro per chi ha reputazione di villaggio sotto -20: unico punto di calcolo (prima in 3 posti).
