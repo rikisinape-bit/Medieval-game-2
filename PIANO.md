@@ -26,6 +26,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
 | `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
+| `castle.js`, `castle_layout.js` | Interno del castello di Valdoro, "stanza a parte" lontana dal mondo (`CASTLE`): pezzi, aree calpestabili, ostacoli e luci (`castle_layout.js`, solo dati); caricamento dei modelli alla prima entrata, pavimenti, strade da stanza a stanza (`castle.js`) |
 | `ground.js`, `leaves.js` | Terreno con texture (`groundMat`) e foglioline 3D ai bordi tra terra e prato (`addLeaves`, `edgeSpots`) |
 | `dialogs.js` | Dialoghi con opzioni + `applyEffect` (tutte le conseguenze) |
 | `fx.js` | Particelle a cubetti (`burst`) |
@@ -49,7 +50,8 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 
 ### Costanti del mondo
 - Villaggio Roccanera al centro (0,0); foresta a nord (z negativo, da `FZ = -36`); mura di Valdoro a `WZ = FZ - 68 = -104`; miniera a ovest (`CX = -45`)
-- Regioni: `village`, `forest`, `mine`, `valdoro` (funzione `regionOf`; `mine` = la zona dei cunicoli sotto la montagna)
+- Regioni: `village`, `forest`, `mine`, `valdoro`, `castello` (funzione `regionOf`; `mine` = la zona dei cunicoli sotto la montagna;
+  `castello` = l'interno del castello, a `CASTLE = [1000, 0]`, un chilometro a est di tutto: `x > CASTLE[0] - 100`)
 - Unità: 1 = 1 metro. Y verso l'alto. **Lo yaw usa +Z come "avanti"** (Godot usa -Z: `rot_y = yaw + PI`, vedi `Data.yaw_to_godot`)
 - Ciclo giorno: `DAY_LEN = 600` s; notte quando l'elevazione solare è sotto 0.05
 
@@ -176,7 +178,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `bodyview.html` (corpo base),
   `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore), `window.__S` (stato del mondo, `S.npcs`), `window.__ai`,
   `window.__atk = { t, combo, blow }` (ferma un colpo; `blow`: 1, 2, 3 o "thrust"), `window.__fp` (braccio in prima persona: `solveKey`, `FP_BLOWS`),
-  `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
+  `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__npcs` (i personaggi), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
   giocatore restano nascosti dalla nebbia: spostare anche `__P`).
 - **Fatto di recente**: case di Roccanera col kit; personaggi rifatti sul corpo base (ginocchia, volti, 15 acconciature,
   9 barbe, armature); 4 colpi, guardia, parata, 4 morti animate; dialoghi in primo piano; bottino a doppio menu, corpi
@@ -260,13 +262,31 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     processore rallentato 4×): le foglioline ai bordi non cambiano il lavoro del processore (differenza dentro il rumore);
   - lastricato di pietra nel cortile di Valdoro e davanti al portone (al posto delle lastre del kit), terra con la texture
     della roccia di `rocks.blend`, foglioline 3D ai bordi tra terra e prato (vedi sezione 7);
+  - **interno del castello di Valdoro, "stanza a parte"** (`castle.js`, `castle_layout.js`): in fondo alla piazza di Valdoro
+    un portone con due guardie (Tebaldo, Ivo) e "Entra nel castello" → schermo nero "Caricamento...", poi dentro. Il castello
+    sta lontano nel mondo (`CASTLE = [1000, 0]`, oltre la portata della telecamera, 220 m): dentro non si disegna niente del
+    fuori e viceversa (dentro 2–19 chiamate di disegno e 40–185 mila triangoli, contro ~375 chiamate fuori nel villaggio);
+    i modelli (`public/models/castello.glb`, 1,2 MB) si scaricano solo la prima volta che si entra; uscendo ("Esci dal
+    castello" al portone) si torna nella piazza; ricaricando la partita dentro si resta dentro. Stanze: ingresso con
+    portone, sala del trono (colonnato, pedana, trono, tappeti rossi, scrivano) con **Re Edric** (non ha più una casa
+    fuori: siede sul trono, guarda la sala, va a mangiare nella sala dei banchetti e torna) tra due guardie reali
+    (Corrado, Elio); sala dei banchetti (camino acceso, tavola lunga lungo il lato sud, il passaggio da porta a porta
+    libero); scale su per lo studio del mago (scaffali di libri, scrivania, sfera di cristallo, pozioni, calderone); scale
+    giù per le prigioni (tre celle con sbarre, carceriere Mauro). Camminare: aree rettangolari calpestabili (pavimento piano,
+    pedana o rampa delle scale), il corpo resta dentro la più vicina, porte dove due aree si sovrappongono, i personaggi
+    trovano la strada di stanza in stanza (`castle.route`, in ampiezza sul grafo delle aree); niente cielo né sole dentro
+    (`mineSkyAt` dà 0,3), torce e candele con le 6 luci; `walk` in una routine = secondi concessi per arrivare (prima 20).
+    Modelli: pacchetto "interno del castello" (FBX + palette `Mage_Room.png` 33×33, fuori da git in
+    `assets/sorgenti/interno_castello/`) → `tools/castle-export.py` (Python di Blender: un oggetto per pezzo, materiali
+    in palette, fiamme, cristallo) → `npm run castello` (`tools/build-castle.mjs`: solo i pezzi usati, meshopt). In gioco
+    i pezzi sono fusi per stanza e materiale (13 gruppi, ~200 mila triangoli in tutto);
   - **uso rapido** (`P.eq.quick`): una casella dell'equipaggiamento per un cibo, l'acqua o una pozione; resta nello zaino
     (la casella indica solo cosa usare e quanti ne restano); il tasto rotondo a sinistra di Corri (o Q) ne consuma uno
     se non hai la vita piena; finito, il tasto resta sbiadito finché non ne trovi altri.
 - **Pubblicare come app (idee, non fatto)**: subito una PWA (manifest, icona, offline; sito gratuito: GitHub Pages / Netlify /
   itch.io); poi Android con Capacitor (APK costruito da GitHub Actions, Google Play 25 $ una tantum); iPhone con Capacitor + Mac/Xcode
   (99 $/anno). Prima: verificare le licenze del kit "Lowpoly Medieval Asset", del modello del paladino, del corpo base, del
-  pacchetto "Medieval Props Minipack 4", delle texture del terreno (Vol_42_1, Vol_19_4) e della foglia di `rocks.blend`
+  pacchetto "Medieval Props Minipack 4", del pacchetto dell'interno del castello (licenza non indicata nei file), delle texture del terreno (Vol_42_1, Vol_19_4) e della foglia di `rocks.blend`
   (uso commerciale, attribuzione; `rock_05` è di Poly Haven, CC0; il lastricato "Stone Ground 01" di Game industry veteran,
   skfb.ly/6VGCp, è CC BY 4.0: citato nel menu, scheda Partita), salvataggi più sicuri (Capacitor Preferences), informativa privacy, prove su un telefono economico.
 - **Prossimi passi possibili**: direzione dark fantasy (sezione 6); pubblicare come app (sopra). Piccole idee: i dormienti

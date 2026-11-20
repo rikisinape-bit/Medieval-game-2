@@ -3,16 +3,19 @@ import { SWORD_DMG, SWORD_ITEM, SWORD_TIER } from "./items";
 export const FZ = -36;            // forest start
 export const WZ = FZ - 68;        // Valdoro wall
 export const CX = -45, CZ = 0;    // cave centre
-export const regionOf = (x, z) => (x < CX + 17 && x > CX - 15 && Math.abs(z - CZ) < 13.6 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
-export const zoneOf = (x, z) => (regionOf(x, z) === "mine" ? "mine" : "out");
+// The castle of Valdoro, inside (castle.js): a "room" a kilometre away, where nothing of the world is in sight
+export const CASTLE = [1000, 0];
+export const regionOf = (x, z) => (x > CASTLE[0] - 100 ? "castello" : x < CX + 17 && x > CX - 15 && Math.abs(z - CZ) < 13.6 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
+export const zoneOf = (x, z) => { const r = regionOf(x, z); return r === "mine" || r === "castello" ? r : "out"; };
 export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const SWORDS = Object.fromEntries(Object.keys(SWORD_DMG).map((k) => [k, { dmg: SWORD_DMG[k], tier: SWORD_TIER[k], item: SWORD_ITEM[k] }]));
 // Winding path through the forest (centre line); walkable area is the whole forest.
 export const PATH = [[0, -30], [5, -42], [-5, -54], [-11, -66], [-3, -78], [7, -88], [2, -98], [0, WZ + 1]];
 export const CAMP = [1, -74];
-export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14.5, -8.5], [6.8, -14.5], [-6, 12], [12, 20], [2, -29], [0, WZ - 7], [-8, WZ - 20], [9.8, WZ - 17.2], [0, WZ - 28], [CX + 18.6, 3.4]];
+export const LANTERNS = [[3.2, 3.2], [-3.2, -3.2], [9.5, 10.5], [-10, -1.5], [14.5, -8.5], [6.8, -14.5], [-6, 12], [12, 20], [2, -29], [0, WZ - 7], [-8, WZ - 20], [9.8, WZ - 17.2], [-3.4, WZ - 26.5], [CX + 18.6, 3.4]];
 
 const R = (x, z, act, dur, extra = {}) => ({ at: [x, z], act, dur, ...extra });
+const [KX, KZ] = CASTLE;
 
 export const NPC_DEFS = [
   { id: "torin", name: "Torin", role: "miner", look: "miner", old: true, pos: [-11, -20], hp: 40, dmg: 5, loot: 6, home: 1,
@@ -65,13 +68,27 @@ export const NPC_DEFS = [
     routine: [R(-6, WZ - 27, "sell", 7, { face: [-6, WZ - 24] }), R(-7.5, WZ - 26, "carry", 4, { carry: true }), R(-6, WZ - 27, "drink", 3, { face: [-6, WZ - 24] })] },
   { id: "osric", name: "Mercante Osric", role: "trader", look: "merchant", pos: [4, WZ - 28], hp: 40, dmg: 4, loot: 35, valdoro: true, home: 9,
     routine: [R(4, WZ - 28, "sell", 8, { face: [4, WZ - 25] }), R(1.5, WZ - 19, "talk", 4, { face: [0, WZ - 16] }), R(4, WZ - 28, "eat", 3, { face: [4, WZ - 25] })] },
-  { id: "king", name: "Re Edric", role: "noble", look: "king", pos: [-5, WZ - 21], hp: 50, dmg: 3, loot: 50, valdoro: true, home: 9,
-    routine: [R(-5, WZ - 21, "read", 7), R(-1.8, WZ - 16, "water", 4, { face: [0, WZ - 16] }), R(-6, WZ - 25, "eat", 4), R(-2, WZ - 21, "talk", 4)] },
+  // the King lives in the castle: on his throne, now and then a look down the hall, a meal in the banquet hall
+  { id: "king", name: "Re Edric", role: "noble", look: "king", pos: [KX, KZ - 18.75], hp: 50, dmg: 3, loot: 50, valdoro: true,
+    routine: [R(KX, KZ - 18.75, "sit", 40, { face: [KX, KZ - 10], seat: 0.2 }), R(KX, KZ - 13.5, "look", 6, { face: [KX, KZ - 4] }), R(KX + 7.4, KZ + 0.3, "eat", 7, { face: [KX + 7.4, KZ + 2], walk: 45 }), R(KX, KZ - 18.75, "sit", 40, { face: [KX, KZ - 10], seat: 0.2, walk: 45 })] },
+  // guards of the castle: two at its door in the square, two beside the throne, the jailer down in the prisons
+  { id: "guardia_castello1", name: "Guardia Tebaldo", role: "soldier", look: "soldier", pos: [-2.6, WZ - 29.5], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true, valdoro: true,
+    routine: [R(-2.6, WZ - 29.5, "look", 12, { face: [-2.6, WZ - 20] })] },
+  { id: "guardia_castello2", name: "Guardia Ivo", role: "soldier", look: "soldier", pos: [2.6, WZ - 29.5], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true, valdoro: true,
+    routine: [R(2.6, WZ - 29.5, "look", 12, { face: [2.6, WZ - 20] })] },
+  { id: "guardia_reale1", name: "Guardia Reale Corrado", role: "soldier", look: "knight", pos: [KX - 2.75, KZ - 16.9], hp: 120, dmg: 14, loot: 20, weapon: "long", guard: true, fights: true, valdoro: true,
+    routine: [R(KX - 2.75, KZ - 16.9, "look", 12, { face: [KX - 2.75, KZ - 8] })] },
+  { id: "guardia_reale2", name: "Guardia Reale Elio", role: "soldier", look: "knight", pos: [KX + 2.75, KZ - 16.9], hp: 120, dmg: 14, loot: 20, weapon: "long", guard: true, fights: true, valdoro: true,
+    routine: [R(KX + 2.75, KZ - 16.9, "look", 12, { face: [KX + 2.75, KZ - 8] })] },
+  { id: "carceriere", name: "Carceriere Mauro", role: "soldier", look: "soldier", pos: [KX + 22, KZ + 2], hp: 90, dmg: 11, loot: 15, weapon: "short", guard: true, fights: true, valdoro: true,
+    routine: [R(KX + 22, KZ + 2, "look", 8, { face: [KX + 26, KZ + 2] }), R(KX + 22, KZ - 3.5, "look", 6, { face: [KX + 26, KZ - 4] }), R(KX + 21.7, KZ + 3.1, "eat", 5, { face: [KX + 21.1, KZ + 4] })] },
 ];
 
 export const OBJECTS = [
   { id: "well", x: 0, z: 0, label: "Pozzo" }, { id: "rack", x: 15.6, z: -6.2, label: "Rastrelliera spade" },
   { id: "carriage", x: 19.5, z: 17, label: "Carrozza" }, { id: "fountain", x: 0, z: WZ - 16, label: "Fontana di Valdoro" },
+  // the castle's door in the back wall of the square, and its way out inside (castle_layout.js: EXIT)
+  { id: "castello", x: 0, z: WZ - 30.1, label: "Entra nel castello" }, { id: "castello_uscita", x: CASTLE[0], z: CASTLE[1] + 3.0, label: "Esci dal castello" },
 ];
 // [x, z, rotation]; index >= 6 are the stone houses of Valdoro
 export const HOUSES = [[-18, 10, 0.4], [-17, -9, 1.2], [17, 5, -1.4], [-4, 19, 3.1], [9, -16, 0], [21, -11, -0.6], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];

@@ -124,7 +124,7 @@ function buildDialog(id, S) {
         ],
       };
     }
-    case "soldier1": case "soldier2": case "hal": case "rolf": {
+    case "soldier1": case "soldier2": case "hal": case "rolf": case "guardia_castello1": case "guardia_castello2": case "guardia_reale1": case "guardia_reale2": case "carceriere": {
       const rep = npc.valdoro ? S.known.crown : S.rep.crown;
       return {
         title: `${npc.name} — ${npc.valdoro ? "Guardia di Valdoro" : "Soldato"}`,

@@ -8,7 +8,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { triTable } from "three/addons/objects/MarchingCubes.js";
-import { CX, CZ, MINE_NODES, MINE_TUNNELS, MINE_ORES } from "./world";
+import { CX, CZ, CASTLE, MINE_NODES, MINE_TUNNELS, MINE_ORES } from "./world";
 import { vnoise3 } from "./body";
 import { makeFlame } from "./models";
 import ROCCIA from "./terreno_terra.jpg";
@@ -20,6 +20,7 @@ const f1 = (v) => v.toFixed(2);
 // ---- Light inside the mountain (every lit material: Lambert, Phong, Standard, Toon) ----
 const SKY_GLSL = `
 float mineSkyAt( vec3 w ) {
+	if ( w.x > ${f1(CASTLE[0] - 100)} ) return 0.3;    // inside the castle (castle.js): no sky, no sun, a little light
 	vec3 d = w - vec3( ${f1(PX)}, 1.4, ${f1(CZ)} );
 	if ( d.x > - 0.04 || w.x < ${f1(ZONE.x0)} || w.y > ${f1(ZONE.top)} || abs( d.z ) > ${f1(ZONE.hz)} || ( d.x > - 5.4 && abs( d.z ) > 2.5 ) ) return 1.0;
 	return mix( 0.085, 1.0, exp( - length( d ) * 0.42 ) );

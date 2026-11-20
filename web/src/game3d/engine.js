@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect, CONTINUES } from "./dialogs";
-import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS } from "./world";
+import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
@@ -13,6 +13,7 @@ import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
+import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn } from "./castle";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose } from "./fparm";
@@ -251,12 +252,40 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   put(flat(new THREE.BoxGeometry(34, 0.13, 30), G.stone), 0, WZ - 16);                    // Valdoro's flagstones
   put(flat(new THREE.BoxGeometry(10, 0.14, 7), G.stone), 0, WZ + 2.5);                     // and before its gate
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
+  // The castle's door, in the back wall of the square (inside: castle.js): a stone frame, a double door of planks and
+  // iron, a flame on each side (lit at night). Its guards are in world.js.
+  {
+    const zf = WZ - 32.2 + (hasKit() ? (kitSize("castle_wall_01")?.[2] ?? 1.6) / 2 : 0.5) + 0.03, g = new THREE.Group();
+    const stoneMat = (hasKit() && kitMaterial("Wall_Tile_01_Mat")) || null;
+    const stone = (w, h, d, x, y, z) => { const m = stoneMat ? new THREE.Mesh(new THREE.BoxGeometry(w, h, d), stoneMat) : box(w, h, d, "#8a8478"); m.castShadow = m.receiveShadow = true; g.add(at(m, x, y, z)); };
+    stone(0.55, 3.9, 0.6, -1.85, 1.95, 0.2); stone(0.55, 3.9, 0.6, 1.85, 1.95, 0.2); stone(4.3, 0.65, 0.65, 0, 4.2, 0.2); stone(3.3, 0.1, 0.9, 0, 0.05, 0.4);
+    [-1, 1].forEach((sd) => {
+      const leaf = new THREE.Group();
+      leaf.add(at(box(1.55, 3.55, 0.12, "#4a2e18"), 0, 1.78, 0));
+      for (let i = 0; i < 5; i++) leaf.add(at(box(0.025, 3.5, 0.03, "#2e1c0e"), -0.62 + i * 0.31, 1.78, 0.07));   // the planks
+      [0.75, 2.75].forEach((y) => leaf.add(at(box(1.5, 0.11, 0.04, "#26262a"), 0, y, 0.08)));                    // iron bands
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 6, 12), new THREE.MeshStandardMaterial({ color: "#3a3a3e", roughness: 0.5, metalness: 0.6 }));
+      leaf.add(at(ring, -sd * 0.55, 1.45, 0.11));
+      g.add(at(leaf, sd * 0.79, 0, 0.12));
+    });
+    [-1, 1].forEach((sd) => {
+      g.add(at(box(0.08, 0.5, 0.08, "#3a2618"), sd * 2.4, 2.75, 0.1));
+      const f = makeFlame(0.9); f.position.set(sd * 2.4, 3.05, 0.1); g.add(f);
+      const a = new THREE.Object3D(); a.position.set(sd * 2.4, 3.2, 0.5); a.userData.anchor = { color: "#ffb050", intensity: 4, distance: 9, night: true }; g.add(a);
+    });
+    put(g, 0, zf);
+    rects.push({ cx: 0, cz: zf + 0.2, hw: 2.2, hd: 0.35, ry: 0 });
+  }
   [[7.5, WZ - 19.5, Math.PI], [-8.5, WZ - 13.5, Math.PI / 2], [9.5, WZ - 9.5, -Math.PI / 2], [-7.5, WZ - 29.5, 0], [5.5, WZ - 30.5, 0]].forEach(([x, z, r], i) => stall(x, z, r, i + 1));
   if (PROPS) { prop("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); propRect("props_cart_01", 4.6, WZ - 26.2, Math.PI / 2 - 0.1); }
   put(makeBench(), -6, WZ - 25.2, 0.3);
   [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => { if (!(hasKit() && i < 2)) putTree(i % 2, x, z, i, 0.9); });   // by the gate: town houses instead
   // The silver mine in the western hill (mine.js): tunnels going down from the portal, silver veins on the walls
   const mine = buildMine(scene);
+  // The castle of Valdoro, inside (castle.js): its lights and furniture are known from the start, its models come the
+  // first time one goes in. The floor under any point: the castle's, the mine's (0 elsewhere).
+  castleAnchors(scene); obstacles.push(...castleSolids);
+  const floorY = (x, z) => (castle.inZone(x, z) ? castle.floorY(x, z) : mine.floorY(x, z));
   if (import.meta.env.DEV) window.__mine = mine;                    // dev only (tests)
   scene.add(makeMountain());                                   // the mountain that covers the mine
   // Rock face on both sides of the portal and the portal's own sides: nobody walks into the slope
@@ -590,7 +619,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const atmosphere = (dt) => {
     const el = -Math.cos(S.dayT * Math.PI * 2), dayK = clamp((el + 0.08) * 4, 0, 1), dusk = clamp(1 - Math.abs(el - 0.05) / 0.2, 0, 1);
     S.night = el < 0.05;
-    const d = DAYLOOK[region === "mine" ? "village" : region];
+    const d = DAYLOOK[region === "mine" || region === "castello" ? "village" : region];
     cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); const bg = cA.clone();
     cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
     const near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
@@ -620,7 +649,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (lightsWanted) setLightsOn(true);
     }
     pool.forEach((l) => { const a = l.userData.a; l.intensity += ((a ? a.intensity : 0) - l.intensity) * k; });
-    if (torchLight) torchLight.intensity += (((S.night || region === "mine") ? 3.5 : 0.5) - torchLight.intensity) * k;
+    if (torchLight) torchLight.intensity += (((S.night || region === "mine" || region === "castello") ? 3.5 : 0.5) - torchLight.intensity) * k;
     if (!lightsWanted && lightsOn && pool.every((l) => l.intensity < 0.02)) setLightsOn(false);   // faded out: off
   };
   // Fixed pool of point lights (6 instead of ~22 lights). Every point light costs on every pixel even when dark, so
@@ -644,7 +673,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     makeNoise(P.x, P.z, NOISE.blow);                                                 // steel on steel, or a blow taken
     if (parryT > 0 && facing) {
       const perfect = parryT > (hasShield() ? 0.5 : 0.36);
-      fx.burst(P.x + Math.sin(P.yaw) * 0.6, mine.floorY(P.x, P.z) + 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
+      fx.burst(P.x + Math.sin(P.yaw) * 0.6, floorY(P.x, P.z) + 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
       n.stagger = perfect ? 1.6 : 0.9; n.state = "idle"; n.cd = Math.max(n.cd, 0.6);
       sfx.clash(1); shake = 0.15;
       if (perfect) riposteT = 1.5;
@@ -656,7 +685,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
     P.hp -= dmg; shake = 0.35;
     sfx.hit(0.9);
-    fx.burst(P.x + Math.sin(P.yaw) * 0.5, mine.floorY(P.x, P.z) + 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
+    fx.burst(P.x + Math.sin(P.yaw) * 0.5, floorY(P.x, P.z) + 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
     hooks.onFloat(`-${dmg}`, "#ff5252");
     if (n.spar && P.hp <= 15) {
       P.hp = 15; n.spar = false; n.hostile = false; n.hp = n.hpMax; n.actT = null;
@@ -673,8 +702,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const vAt = (x, z) => (zoneOf(x, z) === zoneOf(P.x, P.z) ? Math.max(0, 1 - Math.hypot(x - P.x, z - P.z) / 28) : 0);
   const pitchOf = (n) => (LOOKS[n.look]?.female || n.female ? 560 : n.role === "noble" ? 420 : 290) * (0.9 + Math.random() * 0.2);
   const snd = { scream: (n) => sfx.scream(vAt(n.x, n.z), pitchOf(n)), swing: (n) => sfx.swing(vAt(n.x, n.z) * 0.8) };
-  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, route: mine.route });
-  if (import.meta.env.DEV) window.__ai = ai;                        // dev only (tests)
+  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, route: (x, z, tx, tz) => castle.route(x, z, tx, tz) || mine.route(x, z, tx, tz) });
+  if (import.meta.env.DEV) { window.__ai = ai; window.__npcs = npcs; }   // dev only (tests)
 
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
@@ -693,7 +722,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const calm = !n.hostile && n.role !== "bandit";
     n.hp -= dmg; n.flash = 0.15; n.kb = 0.15; shake = Math.max(shake, 0.12);
     sfx.hit(1);
-    fx.burst(n.x, mine.floorY(n.x, n.z) + 1.3, n.z, "#b01c1c", 12, 3.5);
+    fx.burst(n.x, floorY(n.x, n.z) + 1.3, n.z, "#b01c1c", 12, 3.5);
     hooks.onFloat(`-${dmg}`, "#f0c050");
     unmountNpc(n);
     if (n.spar) {
@@ -738,7 +767,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
     if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block) {
-      fx.burst(n.x - dx * 0.3, mine.floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
+      fx.burst(n.x - dx * 0.3, floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
       sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
       makeNoise(n.x, n.z, NOISE.blow);
       return;
@@ -897,7 +926,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const still = n.riding || n.ms === "seat" || n.sleepAt;
     if (!still) {                                                        // turn to the player, gesture while talking
       n.yaw += angDiff(T.want, n.yaw) * k;
-      at(n.mesh, n.x, mine.floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0;
+      at(n.mesh, n.x, floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0;
       n.mesh.userData.atk = null; poseHuman(n.mesh, T.t, false, "talk");
       showTool(n.mesh, null); n.mesh.userData.prop.visible = false;
     }
@@ -968,6 +997,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (looking) { caughtStealing(n); return; }                          // it is looking right at you
       dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return;
     }
+    if (c.kind === "obj" && (c.id === "castello" || c.id === "castello_uscita")) { goThrough(c.id === "castello"); return; }
     if (c.kind === "npc" && !S.npcs[c.id].alive) { dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return; }
     const d = getDialog(c.id, S);
     if (d) { dialogOpen = true; startTalk(c.id); hooks.openDialog(c.id, d); }
@@ -988,9 +1018,32 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     say(applyEffect(effect, S, api(id)));
   }
 
+  // Into the castle and out (a "room" apart: castle.js): the screen goes black with "Caricamento...", the player is
+  // moved (the castle's models are downloaded and built the first time), a moment for the lights and the shaders,
+  // then the screen comes back. keepSpot: a game saved inside the castle starts where it was.
+  let transit = false;
+  async function goThrough(inside, keepSpot = false) {
+    if (transit) return;
+    transit = true; running = false;
+    if (P.mounted) dismount();
+    hooks.onLoading?.("Caricamento...");
+    await new Promise((r) => setTimeout(r, 350));
+    if (inside) { try { await buildCastle(scene); } catch (e) { console.error("castello:", e); } }
+    if (!keepSpot) {
+      const to = inside ? castleSpawn : { x: 0, z: WZ - 29.0, yaw: 0 };
+      P.x = to.x; P.z = to.z; P.yaw = to.yaw;
+    }
+    pitch = 0; lightT = 0; region = regionOf(P.x, P.z);
+    renderer.compile(scene, camera);
+    await new Promise((r) => setTimeout(r, 500));
+    transit = false;
+    hooks.onLoading?.(null);
+    if (!keepSpot) note(inside ? "Entri nel castello di Valdoro." : "Esci nella piazza di Valdoro.");
+  }
+
   function action(kind) {
     sfx.unlock();
-    if (dialogOpen || paused) return;
+    if (dialogOpen || paused || transit) return;
     if (kind === "interact") interact();
     if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; blow = nextBlow(); sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
@@ -1012,7 +1065,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       dodgeDir = [fwx * -f[1] + rx * f[0], fwz * -f[1] + rz * f[0]];
       const l = Math.hypot(...dodgeDir) || 1; dodgeDir = [dodgeDir[0] / l, dodgeDir[1] / l];
       dodgeT = 0.3; iframe = 0.4; dodgeCd = 0.8;
-      fx.burst(P.x, mine.floorY(P.x, P.z) + 0.2, P.z, "#b8a47a", 8, 2.5); sfx.swing(0.35);
+      fx.burst(P.x, floorY(P.x, P.z) + 0.2, P.z, "#b8a47a", 8, 2.5); sfx.swing(0.35);
     }
   }
 
@@ -1033,13 +1086,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     return [x, z];
   };
   // Is a camera point inside a wall? (houses, city walls, the mine's rock): keeps the 3rd-person camera out of walls.
-  const camBlocked = (x, z) => (mine.inZone(x, z) && !mine.inside(x, z, 0.4)) || rects.some((r) => {
+  const camBlocked = (x, z) => (mine.inZone(x, z) && !mine.inside(x, z, 0.4)) || (castle.inZone(x, z) && !castle.inside(x, z, 0.25)) || rects.some((r) => {
     if (r.off) return false;
     const dx = x - r.cx, dz = z - r.cz, c = Math.cos(r.ry), s2 = Math.sin(r.ry);
     return Math.abs(c * dx - s2 * dz) < r.hw + 0.15 && Math.abs(s2 * dx + c * dz) < r.hd + 0.15;
   });
   const collide = (x, z) => {
     [x, z] = pushOut(x, z);
+    if (castle.inZone(x, z)) return castle.constrain(x, z);                         // in the castle's rooms
     if (mine.inZone(x, z)) return P.mounted ? [Math.max(x, CX + 17.7), z] : mine.constrain(x, z);   // in the tunnels (horses stay out)
     if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
     if (z < -24 && Math.abs(x) < 30.5) return [clamp(x, -30, 30), z];
@@ -1253,7 +1307,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     let mx = fwx * -iy + rx * ix, mz = fwz * -iy + rz * ix;
     const ml = Math.hypot(mx, mz);
     let moving = false;
-    if (!dialogOpen && dodgeT <= 0 && ml > 0.15) {
+    if (!dialogOpen && !transit && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
       const run = (running || keys.shift) && !P.sneak && atkT < 0 && parryT <= 0 && (P.mounted || !winded);
       const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || parryT > 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
@@ -1304,7 +1358,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         n.deathT = n.deathT == null ? 99 : n.deathT + dt;
         const p = Math.min(1, n.deathT / DEATH_TIME[kind]);
         if (n.poseP !== p) {
-          n.poseP = p; at(n.mesh, n.x, mine.floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null);
+          n.poseP = p; at(n.mesh, n.x, floorY(n.x, n.z), n.z, n.yaw); n.mesh.rotation.x = 0; n.mesh.scale.setScalar(1); poseDeath(n.mesh, kind, p); n.mesh.userData.prop.visible = false; showTool(n.mesh, null);
           if (p === 1) { n.mesh.updateMatrixWorld(true); const c = n.mesh.userData.body.localToWorld(_cv.set(0, 1.0, 0)); n.cx = c.x; n.cz = c.z; }   // middle of the body on the ground
         }
         return;
@@ -1314,6 +1368,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (mine.inZone(n.x, n.z)) [n.x, n.z] = mine.constrain(n.x, n.z);                // in the mine: along the tunnels
+      else if (castle.inZone(n.x, n.z)) [n.x, n.z] = castle.constrain(n.x, n.z);       // in the castle: in its rooms
       if (n.scripted && (n.hostile || n.panic)) { unmountNpc(n); if (n.id === "cocchiere") n.ms = "off"; }
       const nt = time + n.pos[0];
       // characters hidden in the fog are only moved, not posed (the pose of dozens of skeletons costs on a phone)
@@ -1322,7 +1377,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       else {
         n.mesh.userData.atk = n.atk;
         const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k)) : n.lastY ?? 0;
-        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + mine.floorY(n.x, n.z), n.z, n.yaw);
+        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + floorY(n.x, n.z) + (r.seat || 0), n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
       }
@@ -1334,13 +1389,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     });
     fx.update(dt);
     ores.forEach((o) => { o.mesh.userData.crystals.visible = o.depletedUntil < time; });
-    picks.forEach((pk) => { pk.mesh.position.y = (pk.gy ??= mine.floorY(pk.x, pk.z)) + 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
+    picks.forEach((pk) => { pk.mesh.position.y = (pk.gy ??= floorY(pk.x, pk.z)) + 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
 
     // Camera: first person (view model) or third person (behind and above the shoulders)
     const bob = moving ? Math.sin(bobT) * 0.045 : 0;
     const crouch = P.sneak && !P.mounted ? 0.45 : 0;
     const shk = shake ? (Math.random() - 0.5) * 0.1 : 0;
-    const gy = mine.floorY(P.x, P.z);                                              // the floor under the player (the mine goes down)
+    const gy = floorY(P.x, P.z);                                                   // the floor under the player (the mine and the castle go up and down)
     const eyeY = gy + (P.mounted ? 2.55 : 1.62) - crouch + bob + shk;
     const lookX = Math.sin(P.yaw) * Math.cos(pitch), lookY = Math.sin(pitch), lookZ = Math.cos(P.yaw) * Math.cos(pitch);
     const sw = Math.sin(Math.min(1, k) * Math.PI);
@@ -1363,9 +1418,10 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         if (camBlocked(cx, cz)) { dist = Math.max(0.35, t - 0.3); break; }
       }
       const f = dist / want;
-      const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cg = mine.floorY(cx, cz);
+      const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cg = floorY(cx, cz);
       let cy = Math.max(cg + 0.4, headY + 0.7 + by * dist);
       if (mine.inZone(cx, cz)) cy = Math.min(cy, mine.roofY(cx, cz));              // under the tunnel's roof
+      else if (castle.inZone(cx, cz)) cy = Math.min(cy, castle.roofY(cx, cz));      // under the castle's vaults
       camera.position.set(cx + shk, cy, cz);
       camera.lookAt(P.x + rx * side * f + lookX * 4, headY + lookY * 4, P.z + rz * side * f + lookZ * 4);
     } else {
@@ -1436,6 +1492,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   resize();
   setLightsOn(false); renderer.compileAsync(scene, camera); setLightsOn(true);   // the "lights off" shaders too, now
   raf = requestAnimationFrame(frame);
+  if (castle.inZone(P.x, P.z)) goThrough(true, true);          // saved inside the castle: build it and stay there
 
   return {
     input, action, choose, shop,

@@ -11,7 +11,7 @@ import ItemPic from "@/components/ItemPic";
 import Shop from "@/components/Shop";
 import { loadSave, writeSave, clearSave } from "@/lib/save";
 
-const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro" };
+const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro", castello: "Castello di Valdoro" };
 const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - h) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
 
 
@@ -112,6 +112,7 @@ export default function Village3D() {
   const [shop, setShop] = useState(null);
   const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
+  const [loading, setLoading] = useState(null);   // "Caricamento..." while going into a place apart (the castle) or out
   const [fps, setFps] = useState(() => { try { return localStorage.getItem("rv-fps") === "1"; } catch { return false; } });
   // battery saving: 0 off, 1 medium (45 FPS), 2 most (30 FPS, simpler graphics)
   const [power, setPower] = useState(() => { try { return Math.max(0, Math.min(2, Number(localStorage.getItem("rv-risparmio")) || 0)); } catch { return 0; } });
@@ -131,6 +132,7 @@ export default function Village3D() {
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,
+        onLoading: setLoading,
         onPrompt: setPrompt,
         openDialog: (id, d) => setDialog({ id, d }),
         onToggleInventory: () => setMenuOpen((o) => !o),
@@ -228,6 +230,10 @@ export default function Village3D() {
         </div>
       </div>
       {fps && <FpsMeter getStats={getStats} cap={POWER_FPS[power]} />}
+      {/* going into the castle or out: a black screen over everything while the place is loaded */}
+      <div className={`fixed inset-0 z-[60] bg-black flex items-center justify-center transition-opacity duration-300 ${loading ? "opacity-100" : "opacity-0 pointer-events-none"}`} data-testid="loading" aria-hidden={!loading}>
+        <span className="font-title text-2xl md:text-3xl tracking-[0.2em] text-[#e8c050] animate-pulse">{loading || "Caricamento..."}</span>
+      </div>
       {menuOpen && <GameMenu hud={hud} log={log} onAct={(k, id) => gameRef.current?.invAction(k, id)} onClose={() => setMenuOpen(false)} onReset={() => setAskReset(true)}
         fps={fps} onFps={() => setFps((f) => { try { localStorage.setItem("rv-fps", f ? "0" : "1"); } catch { /* private mode */ } return !f; })}
         power={power} onPower={(v) => { powerRef.current = v; setPower(v); gameRef.current?.setPower(v); try { localStorage.setItem("rv-risparmio", String(v)); } catch { /* private mode */ } }} />}

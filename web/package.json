@@ -13,7 +13,8 @@
     "corpi": "node tools/convert-bodies.mjs && node tools/build-bodies.mjs",
     "props": "node tools/build-props.mjs",
     "terreno": "node tools/build-ground.mjs",
-    "nuvole": "node tools/build-clouds.mjs"
+    "nuvole": "node tools/build-clouds.mjs",
+    "castello": "node tools/build-castle.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",

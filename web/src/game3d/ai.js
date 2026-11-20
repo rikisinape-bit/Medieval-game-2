@@ -150,9 +150,12 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
     if (n.actT == null) {
       n.walkT = (n.walkT || 0) + dt;
       out.carry = !!s.carry;
-      if (step(s.at[0], s.at[1], n.guard ? 1.4 : 1.15) || n.walkT > 20) { n.actT = s.dur; n.walkT = 0; }
+      if (step(s.at[0], s.at[1], n.guard ? 1.4 : 1.15) || n.walkT > (s.walk || 20)) {   // (walk: a longer way, seconds)
+        n.actT = s.dur; n.walkT = 0;
+        if (s.seat && Math.hypot(s.at[0] - n.x, s.at[1] - n.z) < 0.3) { n.x = s.at[0]; n.z = s.at[1]; }   // right onto a throne
+      }
     } else {
-      n.actT -= dt; out.mode = s.act;
+      n.actT -= dt; out.mode = s.act; out.seat = s.seat || 0;      // (seat: sitting higher than a bench, e.g. a throne)
       out.carry = !!s.carry && s.act === "carry";
       if (s.face) face(s.face[0], s.face[1], 4);
       if (n.actT <= 0) { n.actT = null; n.ri = (n.ri + 1) % r.length; }
