@@ -1,108 +1,198 @@
-import React, { useState } from "react";
-import { X, Coins, Gem, Heart, Pause, RotateCw, Sword, Shield, Shirt, Castle, Crown, Home } from "lucide-react";
-import { ITEMS, SWORD_ITEM, dmgReduction } from "@/game3d/items";
+import React, { useLayoutEffect, useRef, useState } from "react";
+import { X, Heart, Pause, RotateCw, Gauge, BatteryMedium, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical } from "lucide-react";
+import { ITEMS, SWORD_ITEM, TWO_HANDED, dmgReduction, sellPrice } from "@/game3d/items";
 import CharacterPreview from "@/components/CharacterPreview";
 import ItemPic from "@/components/ItemPic";
 import RepFace from "@/components/RepFace";
 
-// ---- Item tiles -------------------------------------------------------------
-const SECTIONS = [
-  { id: "food", title: "Consumabili", kinds: ["food"], empty: "Niente da mangiare o bere." },
-  { id: "armor", title: "Armature", kinds: ["armor", "helm", "offhand"], empty: "Nessuna protezione." },
-  { id: "weapons", title: "Armi", kinds: ["sword"], empty: "Nessuna arma di scorta." },
-];
-const OTHER_KINDS = ["tool", "misc", "quest"];
-const SLOT_OF_KIND = { sword: "hand", armor: "body", helm: "head", offhand: "off" };
-const SLOT_LABEL = { head: "Testa", body: "Corpo", hand: "Mano destra", off: "Mano sinistra" };
+// ---- Inventory and equipment tabs ----------------------------------------------------------------------------------
+// Inventario: every thing carried (what is worn too, marked with a gold dot), pictures only, one next to the other.
+// Equipaggiamento: the player big (it turns only when you drag it), what it wears in squares at its sides (pictures
+// only, nothing written over the body), and beside it only the things that can be worn or put in the quick-use
+// square (food, drink, potions: the button next to Corri). Touching a square opens a window beside it with what the
+// thing does and what you can do with it; touching the same square again (or anywhere else) closes it.
+const SLOT_OF_KIND = { sword: "hand", armor: "body", helm: "head", offhand: "off", food: "quick" };
+const SLOTS_LEFT = [{ slot: "head", Icon: HardHat, title: "Testa" }, { slot: "body", Icon: Shirt, title: "Corpo" }];
+const SLOTS_RIGHT = [{ slot: "hand", Icon: Sword, title: "Arma" }, { slot: "off", Icon: Shield, title: "Mano sinistra" }, { slot: "quick", Icon: FlaskConical, title: "Uso rapido" }];
+// order of the things: weapons and armour first, then food, then the rest
+const KIND_ORDER = ["sword", "armor", "helm", "offhand", "food", "tool", "misc", "quest"];
+const WEARABLE = new Set(["sword", "armor", "helm", "offhand", "food"]);
+const pct = (v) => `${Math.round(v * 100)}%`;
+const byKind = ([a], [b]) => (KIND_ORDER.indexOf(ITEMS[a].kind) - KIND_ORDER.indexOf(ITEMS[b].kind)) || ITEMS[a].name.localeCompare(ITEMS[b].name);
+const equippedOf = (eq) => ({ hand: SWORD_ITEM[eq.hand], body: eq.body, head: eq.head, off: eq.off, quick: eq.quick });
 
-function Tile({ id, qty, equipped, selected, onSelect }) {
-  const it = ITEMS[id];
+// What a thing does, in a few short lines (the equipped one in the same place is given to compare).
+function effectOf(id, hud) {
+  const it = ITEMS[id], eq = hud.eq || {};
+  if (id === "oro") return [`Hai ${hud.gold} monete d'oro.`];
+  if (id === "argento") return [`Hai ${hud.ore} pezzi d'argento grezzo.`, "I mercanti lo comprano."];
+  switch (it.kind) {
+    case "food": return [it.heal >= 100 ? "Ti rimette tutta la vita." : `Ti rimette ${it.heal} di vita.`, `Ne hai ${hud.inv?.[id] || 0}.`];
+    case "sword": {
+      const cur = ITEMS[SWORD_ITEM[eq.hand]];
+      return [`Danno ${it.dmg}`, it.two ? "A due mani: colpi lenti e pesanti, niente scudo né torcia" : null, cur && cur !== it ? `La tua arma ora: danno ${cur.dmg}` : null];
+    }
+    case "armor": case "helm": {
+      const cur = ITEMS[eq[SLOT_OF_KIND[it.kind]]];
+      return [`Ferma il ${pct(it.red)} dei danni`, cur && cur !== it ? `Quella che porti: ${pct(cur.red)}` : null];
+    }
+    case "offhand": return [...(it.block ? [`Parate più facili`, `Ferma il ${pct(it.block)} dei colpi da davanti`] : [it.desc || ""]), TWO_HANDED.has(eq.hand) ? "Non con lo spadone in mano: serve un'arma a una mano" : null];
+    case "quest": return [it.desc || "Serve per una missione."];
+    default: return [it.desc, it.price ? `Un mercante te lo paga ${sellPrice(id)} oro.` : null];
+  }
+}
+
+// fit: a square of the equipment's columns, 68 px if there is room, smaller on a short screen (it keeps its shape)
+function Square({ testid, selected, onPick, children, title, big, fit }) {
+  const size = fit ? "flex-[0_1_60px] sm:flex-[0_1_68px] min-h-[38px] aspect-square" : `shrink-0 ${big ? "w-[66px] h-[66px] sm:w-[78px] sm:h-[78px]" : "w-[60px] h-[60px] sm:w-[68px] sm:h-[68px]"}`;
   return (
-    <button onClick={onSelect} data-ui="" data-testid={`tile-${id}${equipped ? "-eq" : ""}`} title={it.name}
-      className={`relative w-[56px] h-[56px] rounded-sm border flex items-center justify-center transition-colors bg-[radial-gradient(circle_at_50%_40%,#3a2c1c,#140e09)]
-        ${selected ? "border-[#e8c050] bg-[#3a2c18]" : equipped ? "border-[#c9a24a] bg-[#2a2016]" : "border-[#4a3820] bg-black/30"}`}>
-      <ItemPic id={id} size={46} />
-      {qty > 1 && <span className="absolute bottom-0 right-0.5 font-pixel text-[12px] leading-none text-[#e8dcc4] drop-shadow">{qty}</span>}
-      {equipped && <span className="absolute top-0 left-0 font-pixel text-[9px] leading-none bg-[#c9a24a] text-[#1b140e] px-0.5 rounded-br-sm">E</span>}
+    <button type="button" data-ui="" data-testid={testid} title={title} onClick={onPick}
+      className={`relative ${size} rounded-sm border-2 flex items-center justify-center transition-colors
+        bg-[radial-gradient(circle_at_50%_40%,#3a2c1c,#140e09)] ${selected ? "border-[#e8c050] shadow-[0_0_10px_rgba(232,192,80,0.45)]" : "border-[#4a3820]"}`}>
+      {children}
     </button>
   );
 }
+const SLOT_COL = "shrink-0 w-[60px] sm:w-[68px] flex flex-col justify-center items-center gap-1.5 min-h-0";   // a column of squares beside the player
+const Count = ({ n }) => <span className="absolute bottom-0 right-1 font-pixel text-[15px] leading-none text-[#e8dcc4] drop-shadow-[0_1px_1px_rgba(0,0,0,0.9)]">{n}</span>;
 
-function Section({ title, tiles, empty, sel, setSel }) {
+// The window beside a square, level with it and never over the square itself: inside `area` (the inventory, and on
+// the equipment tab the squares right of the player) on the right of the square if there is room, else on its left;
+// only on a small screen, when neither fits, further left. The squares left of the player open it over the inventory.
+function ItemWindow({ pop, hud, onAct, onClose, root, area }) {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ left: -9999, top: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current, R = root.current; if (!el || !R) return;
+    const Rb = R.getBoundingClientRect(), x0 = area.length ? Math.min(...area.map((a) => a.current.getBoundingClientRect().left)) - Rb.left : 0;
+    const x1 = R.clientWidth, H = R.clientHeight, w = el.offsetWidth, h = el.offsetHeight, gap = 6;
+    let left = pop.ax + pop.aw + gap;
+    if (left < x0) left = x0 + gap;                                   // a square left of the player: over the inventory, level with it
+    else if (left + w > x1) {
+      left = pop.ax - w - gap;                                        // no room on the right: on the left (on a small screen even
+      if (left < 0) left = x1 - w;                                    // over the player's frame: never over the square itself)
+    }
+    setPos({ left: Math.max(0, Math.min(x1 - w, left)), top: Math.max(0, Math.min(H - h, pop.ay)) });
+  }, [pop, root, area]);
+  const it = ITEMS[pop.id], eq = hud.eq || {}, inv = hud.inv || {};
+  // worn: the square of something worn (pop.slot); food in the quick-use square is still in the pack
+  const worn = !!pop.slot && pop.slot !== "quick", inQuick = pop.slot === "quick" || (!pop.slot && eq.quick === pop.id);
+  const act = (kind, arg) => { onAct(kind, arg); onClose(); };
+  const lines = effectOf(pop.id, hud).filter(Boolean);
   return (
-    <div className="rounded-sm border border-[#3a2a17] bg-black/20 p-1.5" data-testid={`section-${title}`}>
-      <div className="font-title text-[11px] tracking-widest text-[color:hsl(var(--primary))] mb-1">{title}</div>
-      {tiles.length === 0 ? <div className="font-pixel text-xs text-[#8a7d66] italic">{empty}</div> : (
-        <div className="flex flex-wrap gap-1">
-          {tiles.map(({ key, ...t }) => <Tile key={key} {...t} selected={sel === key} onSelect={() => setSel(sel === key ? null : key)} />)}
+    <div ref={ref} data-ui="" data-testid="item-window" style={pos} onClick={(e) => e.stopPropagation()}
+      className="absolute z-10 w-[196px] lg:w-[240px] rounded-md border-2 border-[#c9a24a] bg-[#1b140e] p-2 shadow-[0_6px_24px_rgba(0,0,0,0.75)]">
+      <div className="flex items-start gap-2">
+        <ItemPic id={pop.id} size={48} />
+        <div className="min-w-0">
+          <div className="font-title text-[15px] leading-tight text-[#e8c050]">{it.name}</div>
+          {worn && <div className="font-pixel text-[14px] text-[#8a7d66]">Equipaggiato</div>}
+          {inQuick && <div className="font-pixel text-[14px] text-[#8a7d66]">Nell'uso rapido</div>}
         </div>
-      )}
+      </div>
+      <div className="mt-1 font-pixel text-[16px] leading-tight text-[#e8dcc4] space-y-0.5" data-testid="item-effect">
+        {lines.map((l) => <div key={l}>{l}</div>)}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {it.kind === "food" && (inv[pop.id] || 0) > 0 && <button type="button" data-ui="" className="inv-btn inv-btn-lg" disabled={hud.hp >= 100} onClick={() => act("use", pop.id)} data-testid="detail-use">{hud.hp >= 100 ? "Vita piena" : "Usa"}</button>}
+        {!worn && !inQuick && SLOT_OF_KIND[it.kind] && <button type="button" data-ui="" className="inv-btn inv-btn-lg" disabled={it.kind === "offhand" && TWO_HANDED.has(eq.hand)} onClick={() => act("equip", pop.id)} data-testid="detail-equip">{it.kind === "food" ? "Uso rapido" : "Equipaggia"}</button>}
+        {(worn || inQuick) && pop.slot !== "hand" && <button type="button" data-ui="" className="inv-btn inv-btn-lg" onClick={() => act("unequip", worn ? pop.slot : "quick")} data-testid="detail-unequip">Togli</button>}
+        {!worn && it.kind !== "quest" && (pop.id === "oro" || pop.id === "argento" || (inv[pop.id] || 0) > 0) && (
+          <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger" onClick={() => act("drop", pop.id)} data-testid="detail-drop">
+            {pop.id === "oro" ? `Lascia ${Math.min(10, hud.gold)} a terra` : pop.id === "argento" ? "Lascia 1 a terra" : "Lascia a terra"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-// ---- Equipment tab ------------------------------------------------------------
-function EquipmentTab({ hud, onAct }) {
-  const [sel, setSel] = useState(null);
-  const eq = hud.eq || {};
-  const inv = Object.entries(hud.inv || {}).filter(([, q]) => q > 0);
-  const equippedIds = { hand: SWORD_ITEM[eq.hand], body: eq.body, head: eq.head, off: eq.off };
-  const tilesFor = (kinds) => [
-    ...Object.entries(equippedIds).filter(([, id]) => id && kinds.includes(ITEMS[id]?.kind)).map(([slot, id]) => ({ key: `eq:${slot}`, id, qty: 1, equipped: true, slot })),
-    ...inv.filter(([id]) => kinds.includes(ITEMS[id]?.kind)).map(([id, qty]) => ({ key: id, id, qty })),
-  ];
-  const others = tilesFor(OTHER_KINDS);
-  const selTile = sel && [...SECTIONS.flatMap((s) => tilesFor(s.kinds)), ...others].find((t) => t.key === sel);
-  const it = selTile && ITEMS[selTile.id];
-  const act = (kind, id) => { onAct(kind, id); setSel(null); };
-  const off = eq.off && ITEMS[eq.off];
+// The open window (one per tab): touch a square, its window opens beside it; the same square again closes it.
+function usePopup(root) {
+  const [pop, setPop] = useState(null);           // { key, id, slot, ax, ay, aw, ah }
+  const pick = (key, id, slot) => (e) => {
+    e.stopPropagation();
+    if (pop?.key === key) { setPop(null); return; }
+    const r = e.currentTarget.getBoundingClientRect(), R = root.current.getBoundingClientRect();
+    setPop({ key, id, slot, ax: r.left - R.left, ay: r.top - R.top, aw: r.width, ah: r.height });
+  };
+  return [pop, setPop, pick];
+}
 
+// Inventario: everything, and nothing else
+function InventoryTab({ hud, onAct }) {
+  const root = useRef(null);
+  const [pop, setPop, pick] = usePopup(root);
+  const worn = Object.entries(equippedOf(hud.eq || {})).filter(([s, id]) => id && s !== "quick").map(([s, id]) => [id, 1, s]);
+  const carried = Object.entries(hud.inv || {}).filter(([id, q]) => q > 0 && ITEMS[id]).sort(byKind).map(([id, q]) => [id, q, null]);
+  const tiles = [...worn, ...carried, ...(hud.gold > 0 ? [["oro", hud.gold]] : []), ...(hud.ore > 0 ? [["argento", hud.ore]] : [])];
   return (
-    <div className="grid grid-cols-[minmax(150px,34%)_1fr] gap-2 h-full min-h-0">
-      {/* Character */}
-      <div className="flex flex-col min-h-0">
-        <div className="relative flex-1 min-h-[150px] rounded-sm border border-[#3a2a17] bg-[radial-gradient(circle_at_50%_40%,#2a2016,#0d0a08)]">
-          <CharacterPreview eq={eq} />
-          {Object.entries(SLOT_LABEL).map(([slot, label], i) => {
-            const id = equippedIds[slot];
+    <div ref={root} className="relative h-full min-h-0 rounded-sm border border-[#3a2a17] bg-black/20 p-1.5 flex flex-col" onClick={() => setPop(null)} data-testid="inventory-tab">
+      <div className="flex-1 min-h-0 overflow-y-auto pr-0.5" onScroll={() => setPop(null)}>
+        <div className="flex flex-wrap gap-1.5 content-start" data-testid="inventory">
+          {tiles.map(([id, qty, wornIn]) => {
+            const key = wornIn ? `eq:${wornIn}` : id;
             return (
-              <button key={slot} data-ui="" data-testid={`slot-${slot}`} onClick={() => id && setSel(`eq:${slot}`)}
-                className={`absolute ${["top-1 left-1", "top-1 right-1", "bottom-1 right-1", "bottom-1 left-1"][i]} max-w-[48%] text-left font-pixel text-[10px] leading-tight px-1 py-0.5 rounded-sm border bg-[#1b140e]/85 ${sel === `eq:${slot}` ? "border-[#e8c050]" : "border-[#4a3820]"}`}>
-                <span className="text-[#8a7d66]">{label}</span><br /><span className="text-[#e8c050]">{id ? ITEMS[id].name : "—"}</span>
-              </button>
+              <Square key={key} big testid={`tile-${id}${wornIn ? "-eq" : ""}`} title={ITEMS[id].name} selected={pop?.key === key} onPick={pick(key, id, wornIn)}>
+                <ItemPic id={id} size={60} />
+                {qty > 1 && <Count n={qty} />}
+                {(wornIn || hud.eq?.quick === id) && <span className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-[#e8c050] shadow" title="Equipaggiato" />}
+              </Square>
             );
           })}
         </div>
-        <div className="mt-1 grid grid-cols-2 gap-x-2 font-pixel text-[11px] text-[#cfc2a8]" data-testid="menu-stats">
-          <span className="flex items-center gap-1"><Heart size={11} className="text-red-400" />{Math.round(hud.hp)}/100</span>
-          <span className="flex items-center gap-1"><Sword size={11} />Danno {ITEMS[equippedIds.hand]?.dmg ?? "?"}</span>
-          <span className="flex items-center gap-1"><Shirt size={11} />Difesa {Math.round(dmgReduction(eq) * 100)}%</span>
-          <span className="flex items-center gap-1"><Shield size={11} />{off?.block ? `Scudo ${Math.round(off.block * 100)}%` : off ? "Torcia" : "Nessuno scudo"}</span>
-          <span className="flex items-center gap-1"><Coins size={11} className="text-[#e8c050]" />{hud.gold} oro
-            <button data-ui="" className="ml-auto underline decoration-dotted disabled:opacity-40" disabled={hud.gold <= 0} onClick={() => onAct("drop", "oro")} data-testid="drop-gold">lascia {Math.min(10, hud.gold)}</button></span>
-          <span className="flex items-center gap-1"><Gem size={11} className="text-sky-200" />{hud.ore} argento
-            <button data-ui="" className="ml-auto underline decoration-dotted disabled:opacity-40" disabled={hud.ore <= 0} onClick={() => onAct("drop", "argento")} data-testid="drop-ore">lascia 1</button></span>
-        </div>
       </div>
+      {pop && <ItemWindow pop={pop} hud={hud} onAct={onAct} onClose={() => setPop(null)} root={root} area={[]} />}
+    </div>
+  );
+}
 
-      {/* Item sections */}
-      <div className="flex flex-col min-h-0 gap-1.5">
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-0.5">
-          {SECTIONS.map((s) => <Section key={s.id} title={s.title} empty={s.empty} tiles={tilesFor(s.kinds)} sel={sel} setSel={setSel} />)}
-          {others.length > 0 && <Section title="Altri oggetti" tiles={others} sel={sel} setSel={setSel} />}
+// Equipaggiamento: the player with what it wears at its sides, and only what can be worn
+function EquipmentTab({ hud, onAct }) {
+  const root = useRef(null), invRef = useRef(null), handRef = useRef(null);
+  const [pop, setPop, pick] = usePopup(root);
+  const eq = hud.eq || {}, inv = hud.inv || {}, equipped = equippedOf(eq);
+  const tiles = Object.entries(inv).filter(([id, q]) => q > 0 && ITEMS[id] && WEARABLE.has(ITEMS[id].kind) && id !== eq.quick).sort(byKind);
+  const off = eq.off && ITEMS[eq.off];
+  const slot = ({ slot: s, Icon, title }) => {
+    const id = equipped[s], n = s === "quick" && id ? inv[id] || 0 : null;
+    return (
+      <Square key={s} fit testid={`slot-${s}`} title={title} selected={pop?.key === `eq:${s}`} onPick={id ? pick(`eq:${s}`, id, s) : (e) => { e.stopPropagation(); setPop(null); }}>
+        {id ? <ItemPic id={id} size={50} className={`max-w-[80%] max-h-[80%] ${n === 0 ? "opacity-35" : ""}`} /> : <Icon size={26} className="text-[#4a3c28] max-w-[60%] max-h-[60%]" />}
+        {n != null && <Count n={n} />}
+      </Square>
+    );
+  };
+  return (
+    <div ref={root} className="relative grid grid-cols-[minmax(0,46%)_minmax(0,1fr)] gap-2 h-full min-h-0" onClick={() => setPop(null)} data-testid="equipment-tab">
+      <section className="flex flex-col min-h-0 rounded-sm border border-[#3a2a17] bg-black/20 p-1.5" data-testid="equipment">
+        <div className="flex-1 min-h-0 flex items-stretch gap-1.5">
+          <div className={SLOT_COL}>{SLOTS_LEFT.map(slot)}</div>
+          <div className="relative flex-1 min-w-0 rounded-sm bg-[radial-gradient(circle_at_50%_40%,#2a2016,#0d0a08)]"><CharacterPreview eq={eq} /></div>
+          <div ref={handRef} className={SLOT_COL}>{SLOTS_RIGHT.map(slot)}</div>
         </div>
-        <div className="rounded-sm border border-[#4a3820] bg-[#1b140e] px-2 py-1.5 min-h-[46px]" data-testid="item-detail">
-          {!it ? <div className="font-pixel text-xs text-[#8a7d66] italic">Tocca un quadretto per vederlo. Il personaggio a sinistra cambia subito.</div> : (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="font-pixel text-sm leading-tight mr-auto"><span className="text-[#e8c050]">{it.name}</span>{it.desc ? <span className="text-[#b8ab92]"> · {it.desc}</span> : null}{selTile.equipped ? <span className="text-[#8a7d66]"> · equipaggiato</span> : null}</div>
-              {it.kind === "food" && <button data-ui="" className="inv-btn" onClick={() => act("use", selTile.id)} data-testid="detail-use" disabled={hud.hp >= 100}>{hud.hp >= 100 ? "Vita piena" : "Usa"}</button>}
-              {!selTile.equipped && SLOT_OF_KIND[it.kind] && <button data-ui="" className="inv-btn" onClick={() => act("equip", selTile.id)} data-testid="detail-equip">Equipaggia</button>}
-              {selTile.equipped && selTile.slot !== "hand" && <button data-ui="" className="inv-btn" onClick={() => act("unequip", selTile.slot)} data-testid="detail-unequip">Togli</button>}
-              {!selTile.equipped && it.kind !== "quest" && <button data-ui="" className="inv-btn inv-btn-danger" onClick={() => act("drop", selTile.id)} data-testid="detail-drop">Lascia a terra</button>}
+        <div className="mt-1.5 grid grid-cols-2 gap-x-2 font-pixel text-[16px] leading-tight text-[#cfc2a8]" data-testid="menu-stats">
+          <span className="flex items-center gap-1.5"><Heart size={15} className="text-red-400" />{Math.round(hud.hp)}/100</span>
+          <span className="flex items-center gap-1.5"><Sword size={15} />Danno {ITEMS[equipped.hand]?.dmg ?? "?"}</span>
+          <span className="flex items-center gap-1.5"><Shirt size={15} />Difesa {pct(dmgReduction(eq))}</span>
+          <span className="flex items-center gap-1.5">{off && !off.block ? <Hand size={15} /> : <Shield size={15} />}{off?.block ? `Scudo ${pct(off.block)}` : off ? "Torcia" : "Niente scudo"}</span>
+        </div>
+      </section>
+      <section ref={invRef} className="flex flex-col min-h-0 rounded-sm border border-[#3a2a17] bg-black/20 p-1.5" data-testid="wearable">
+        <div className="flex-1 min-h-0 overflow-y-auto pr-0.5" onScroll={() => setPop(null)}>
+          {tiles.length === 0 ? <div className="font-pixel text-[16px] text-[#8a7d66] italic">Niente da equipaggiare.</div> : (
+            <div className="flex flex-wrap gap-1.5 content-start">
+              {tiles.map(([id, qty]) => (
+                <Square key={id} testid={`tile-${id}`} title={ITEMS[id].name} selected={pop?.key === id} onPick={pick(id, id, null)}>
+                  <ItemPic id={id} size={52} />
+                  {qty > 1 && <Count n={qty} />}
+                </Square>
+              ))}
             </div>
           )}
         </div>
-      </div>
+      </section>
+      {pop && <ItemWindow pop={pop} hud={hud} onAct={onAct} onClose={() => setPop(null)} root={root} area={pop.slot === "head" || pop.slot === "body" ? [invRef] : [invRef, handRef]} />}
     </div>
   );
 }
@@ -114,20 +204,20 @@ function ReputationTab({ hud }) {
     <div className="h-full overflow-y-auto grid sm:grid-cols-2 gap-2 content-start" data-testid="rep-list">
       {(hud.places || []).map((p) => {
         const Icon = PLACE_ICON[p.id] || Home;
-        const pct = Math.max(0, Math.min(100, (p.value + 100) / 2));
+        const pos = Math.max(0, Math.min(100, (p.value + 100) / 2));
         return (
           <div key={p.id} className="rounded-sm border border-[#3a2a17] bg-black/25 p-2" data-testid={`rep-${p.id}`}>
-            <div className="flex items-center gap-2">
-              <Icon size={16} className="text-[color:hsl(var(--primary))]" />
-              <div className="font-title text-sm tracking-wider">{p.name}</div>
-              <div className="font-pixel text-[10px] text-[#8a7d66] uppercase">{p.kind}</div>
-              <div className="ml-auto flex items-center gap-1 font-pixel text-sm"><RepFace mood={p.mood} size={18} />{p.label} <span className="text-[#8a7d66]">({p.value})</span></div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Icon size={18} className="text-[color:hsl(var(--primary))]" />
+              <div className="font-title text-[16px] tracking-wider">{p.name}</div>
+              <div className="font-pixel text-[13px] text-[#8a7d66] uppercase">{p.kind}</div>
+              <div className="ml-auto flex items-center gap-1 font-pixel text-[17px]"><RepFace mood={p.mood} size={22} />{p.label} <span className="text-[#8a7d66]">({p.value})</span></div>
             </div>
-            <div className="relative h-2 mt-1.5 rounded-sm bg-[linear-gradient(90deg,#6a1a14,#3a2a17_45%,#3a2a17_55%,#6a8a2a)]">
-              <div className="absolute top-[-3px] w-1.5 h-3.5 bg-[#e8dcc4] rounded-sm" style={{ left: `calc(${pct}% - 3px)` }} />
+            <div className="relative h-2.5 mt-2 rounded-sm bg-[linear-gradient(90deg,#6a1a14,#3a2a17_45%,#3a2a17_55%,#6a8a2a)]">
+              <div className="absolute top-[-3px] w-2 h-4 bg-[#e8dcc4] rounded-sm" style={{ left: `calc(${pos}% - 4px)` }} />
             </div>
-            <div className="mt-1 text-xs italic text-[#b8ab92]">{p.note}</div>
-            <ul className="mt-1 font-pixel text-[12px] text-[#cfc2a8] list-disc pl-4">{p.effects.map((e) => <li key={e}>{e}</li>)}</ul>
+            <div className="mt-1.5 text-[15px] italic text-[#b8ab92]">{p.note}</div>
+            <ul className="mt-1 font-pixel text-[16px] leading-tight text-[#cfc2a8] list-disc pl-5">{p.effects.map((e) => <li key={e}>{e}</li>)}</ul>
           </div>
         );
       })}
@@ -136,34 +226,45 @@ function ReputationTab({ hud }) {
 }
 
 // ---- Menu shell ----------------------------------------------------------------
-export default function GameMenu({ hud, log = [], onAct, onClose, onReset }) {
-  const [tab, setTab] = useState("equip");
+export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps, power = 0, onPower }) {
+  const [tab, setTab] = useState("inv");
   if (!hud) return null;
-  const tabs = [["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
+  const tabs = [["inv", "Inventario"], ["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
   return (
-    <div className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/60 p-1.5 sm:p-3" data-ui="" data-testid="game-menu">
-      <div className="parchment rounded-md w-full max-w-4xl flex flex-col p-2 sm:p-3 min-h-0">
-        <div className="flex items-center gap-1 mb-1.5 font-pixel text-xs">
-          <span className="flex items-center gap-1 text-[#8a7d66] mr-1" data-testid="menu-paused"><Pause size={12} />In pausa</span>
+    <div className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/70 p-1 sm:p-3" data-ui="" data-testid="game-menu">
+      <div className="parchment rounded-md w-full max-w-5xl flex flex-col p-1.5 sm:p-3 min-h-0">
+        <div className="flex items-center gap-1.5 mb-1.5 font-pixel">
+          <span className="hidden lg:flex items-center gap-1 text-[15px] text-[#8a7d66] mr-1" data-testid="menu-paused"><Pause size={15} />In pausa</span>
           {tabs.map(([id, label]) => (
-            <button key={id} data-ui="" className={`inv-btn ${tab === id ? "!bg-[#c9a24a] !text-[#1b140e]" : ""}`} onClick={() => setTab(id)} data-testid={`menu-tab-${id}`}>{label}</button>
+            <button key={id} type="button" data-ui="" className={`inv-btn inv-btn-lg !px-2 sm:!px-3 ${tab === id ? "!bg-[#c9a24a] !text-[#1b140e]" : ""}`} onClick={() => setTab(id)} data-testid={`menu-tab-${id}`}>{label}</button>
           ))}
-          <button data-ui="" onClick={onClose} className="inv-btn ml-auto" data-testid="menu-close"><X size={14} /></button>
+          <button type="button" data-ui="" onClick={onClose} className="inv-btn inv-btn-lg ml-auto !px-3" data-testid="menu-close" aria-label="Chiudi"><X size={18} /></button>
         </div>
         <div className="flex-1 min-h-0">
+          {tab === "inv" && <InventoryTab hud={hud} onAct={onAct} />}
           {tab === "equip" && <EquipmentTab hud={hud} onAct={onAct} />}
           {tab === "rep" && <ReputationTab hud={hud} />}
           {tab === "log" && (
-            <div className="h-full overflow-y-auto space-y-0.5 font-pixel text-[13px]" data-testid="menu-log">
+            <div className="h-full overflow-y-auto space-y-1 font-pixel text-[17px] leading-tight" data-testid="menu-log">
               {log.length === 0 && <div className="italic text-[#8a7d66]">Ancora nulla da annotare.</div>}
               {log.map((l) => <div key={l.id} className={l.quiet ? "text-[#8a7d66]" : "text-[#e8dcc4]"}>{l.t}</div>)}
             </div>
           )}
           {tab === "game" && (
-            <div className="space-y-2 font-pixel text-sm" data-testid="menu-game">
+            <div className="h-full overflow-y-auto space-y-3 font-pixel text-[17px] leading-snug" data-testid="menu-game">
               <p className="text-[#b8ab92]">La partita si salva da sola in questo browser ogni 5 secondi e quando chiudi o cambi app.</p>
-              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, I menu.</p>
-              <button data-ui="" className="inv-btn inv-btn-danger flex items-center gap-1" onClick={onReset} data-testid="menu-reset"><RotateCw size={12} />Nuova partita…</button>
+              <p className="text-[#b8ab92]">Comandi: joystick per muoverti, trascina lo schermo per guardare. Tastiera: WASD, Maiusc corri, E usa (da furtivo: ruba), J attacca, K para, C furtivo, V telecamera, Spazio schiva, Q uso rapido, I menu.</p>
+              <button type="button" data-ui="" className="inv-btn inv-btn-lg inv-btn-danger flex items-center gap-1.5" onClick={onReset} data-testid="menu-reset"><RotateCw size={16} />Nuova partita…</button>
+              <button type="button" data-ui="" className="inv-btn inv-btn-lg flex items-center gap-1.5" onClick={onFps} data-testid="menu-fps"><Gauge size={16} />Contatore FPS: {fps ? "acceso" : "spento"}</button>
+              <div className="flex flex-wrap items-center gap-1.5" data-testid="menu-saving">
+                <span className="flex items-center gap-1.5 text-[#e8dcc4] mr-1"><BatteryMedium size={16} />Risparmio batteria:</span>
+                {[["spento", "60 FPS"], ["medio", "45 FPS"], ["massimo", "30 FPS"]].map(([t, f], i) => (
+                  <button key={t} type="button" data-ui="" onClick={() => onPower(i)} data-testid={`menu-power-${i}`}
+                    className={`inv-btn inv-btn-lg ${power === i ? "!bg-[#c9a24a] !text-[#1b140e] !border-[#e8c050]" : ""}`}>{t} <span className="opacity-75">({f})</span></button>
+                ))}
+              </div>
+              <p className="text-[15px] text-[#8a7d66]">Medio: 45 immagini al secondo invece di 60, grafica uguale. Massimo: 30 al secondo, risoluzione normale e ombre più semplici. Meno immagini, meno calore; ma il gioco è un po' meno fluido.</p>
+              <p className="text-[14px] text-[#8a7d66]" data-testid="menu-credits">Crediti: lastricato di Valdoro, texture «Stone Ground 01» di Game industry veteran (skfb.ly/6VGCp), licenza CC BY 4.0.</p>
             </div>
           )}
         </div>

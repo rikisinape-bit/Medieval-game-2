@@ -52,6 +52,8 @@ function dims(u) {
   D.ankleY = D.sides.R.ank.y; D.hipW = Math.abs(D.sides.R.hip.x);
   const pv = g.pivots.armR;                                 // geo.grip is given from the old arm pivot
   D.grip = new THREE.Vector3(pv[0] + g.grip[0], pv[1] + g.grip[1], pv[2] + g.grip[2]).sub(D.J.handR); D.gripAxis = V3(g.gripAxis).normalize();
+  const pl = g.pivots.armL;
+  D.gripL = new THREE.Vector3(pl[0] + g.gripL[0], pl[1] + g.gripL[1], pl[2] + g.gripL[2]).sub(D.J.handL); D.gripAxisL = V3(g.gripAxisL).normalize();
   D.foot = g.heelToe.map((p) => [p[0] - D.sides.R.ank.x, p[1] - D.sides.R.ank.y, p[2] - D.sides.R.ank.z]);   // heel, toe from the ankle (right side)
   return (u._dims = D);
 }
@@ -334,6 +336,87 @@ function upper(P, D, t, mode, ph, shield) {
   }
 }
 
+// ---------- two-handed swords: both hands on the grip ----------
+// The right fist at G on the posed chest (x right, y up, z forward), the blade along B (both turn with the chest), the
+// left fist LEFT_BELOW lower on the grip: armIK puts the wrists there, the hands turn onto the blade. Standing and
+// walking (rest), the guard, the parry (block) and each blow (the cocked pose and the blow, like ATK; the trunk and
+// the legs are ATK's: the blow is wound up first, then it falls).
+const LEFT_BELOW = 0.11;
+const TWO = {
+  rest: { G: [0.05, -0.36, 0.27], B: [0.05, -0.32, 0.95] },             // standing, walking: low, the point forward and down
+  ready: { G: [0.06, -0.26, 0.34], B: [0.05, 0.72, 0.69] },            // in front of the belly, the blade up and forward
+  block: { G: [0.12, 0.12, 0.36], B: [0.95, 0.3, 0.1] },              // the blade across in front of the face, the point out to the right
+  // tw: the trunk's turn (+: the sword side back), lean: bent forward; the feet: ATK's
+  side: { cock: { G: [0.22, 0.26, 0.06], B: [0.3, 0.75, -0.55], tw: 0.55, lean: -0.08 }, hit: { G: [-0.14, -0.3, 0.32], B: [-0.55, -0.45, 0.7], tw: -0.65, lean: 0.35 } },  // from over the right shoulder down to the left
+  rise: { cock: { G: [-0.16, 0.12, 0.1], B: [-0.3, 0.8, -0.45], tw: -0.45, lean: -0.05 }, hit: { G: [0.22, -0.3, 0.38], B: [0.55, -0.45, 0.7], tw: 0.4, lean: 0.3 } },  // from over the left shoulder down to the right
+  over: { cock: { G: [0.04, 0.42, -0.04], B: [0.0, 0.4, -0.92], tw: 0.1, lean: -0.25 }, hit: { G: [0.0, -0.3, 0.5], B: [0, -0.35, 0.94], tw: 0, lean: 0.45 } },    // over the head, straight down
+  thrust: { cock: { G: [0.06, -0.22, 0.16], B: [0, 0.45, 0.89], tw: 0.45, lean: 0 }, hit: { G: [0.02, -0.08, 0.56], B: [0, 0.15, 0.99], tw: -0.15, lean: 0.25 } },
+};
+export const TWO_WIND = 0.34;                                          // (the share of a two-handed blow spent winding up)
+const _g2 = new THREE.Vector3(), _b2 = new THREE.Vector3(), _w2 = new THREE.Vector3(), _h2 = new THREE.Vector3(), _q5 = new THREE.Quaternion(), _q6 = new THREE.Quaternion();
+// The hand turned so that what it holds points along b (body space): the forearm turns on itself (within its limits)
+// as far as it helps, the wrist does the rest within its own (the best of a few turns of the forearm).
+const _Y3 = new THREE.Vector3(0, 1, 0), _qB = new THREE.Quaternion(), _qF = new THREE.Quaternion(), _qT = new THREE.Quaternion(), _ax = new THREE.Vector3(), _hb = [0, 0, 0];
+function aimHand(P, D, s, b) {
+  const axis = s === "R" ? D.gripAxis : D.gripAxisL, Lh = LIM["hand" + s], fore = P["fore" + s];
+  _qB.copy(boneFK(P, D, "upperArm" + s).q).multiply(_qT.setFromEuler(_e.set(fore[0], 0, 0, "XYZ")));   // the forearm before its own turn
+  let best = Infinity, bt = 0;
+  for (let tw = -0.9; tw <= 0.9001; tw += 0.15) {
+    _qF.copy(_qB).multiply(_qT.setFromAxisAngle(_Y3, tw));
+    _q5.setFromUnitVectors(axis, _h2.copy(b).applyQuaternion(_q6.copy(_qF).invert()));
+    _e.setFromQuaternion(_q5, "XYZ");
+    const x = clamp(_e.x, Lh[0][0], Lh[0][1]), y = clamp(_e.y, Lh[1][0], Lh[1][1]), z = clamp(_e.z, Lh[2][0], Lh[2][1]);
+    const err = _ax.copy(axis).applyQuaternion(_q6.setFromEuler(_e.set(x, y, z, "XYZ"))).applyQuaternion(_qF).angleTo(b) + 0.02 * Math.abs(tw);
+    if (err < best) { best = err; bt = tw; _hb[0] = x; _hb[1] = y; _hb[2] = z; }
+  }
+  fore[1] = bt; set(P, "hand" + s, _hb[0], _hb[1], _hb[2]);
+}
+function holdAt(P, D, s, p, b, pole) {     // the fist of arm s at p (body space), holding along b
+  const grip = s === "R" ? D.grip : D.gripL;
+  _w2.copy(grip).applyQuaternion(_q5.setFromUnitVectors(s === "R" ? D.gripAxis : D.gripAxisL, b)).negate().add(p);   // the wrist, a first guess
+  for (let i = 0; i < 3; i++) {
+    armIK(P, D, s, _w2.toArray(), pole, P["fore" + s][1]); aimHand(P, D, s, b);   // (with the forearm's turn found last time)
+    const at = posedPt(P, D, "hand" + s, grip.x, grip.y, grip.z);
+    _w2.x += p.x - at[0]; _w2.y += p.y - at[1]; _w2.z += p.z - at[2];
+  }
+  armIK(P, D, s, _w2.toArray(), pole, P["fore" + s][1]);                // (the wrist where it must be, with the last turn)
+}
+function twoHands(P, D, K) {
+  const { pos, q } = boneFK(P, D, "chest"), G = K.G;
+  const g = _g2.set(G[0], G[1], G[2]).applyQuaternion(q).add(pos), b = _b2.set(K.B[0], K.B[1], K.B[2]).normalize().applyQuaternion(q);
+  const hi = clamp(G[1] / 0.4, 0, 1);                                   // (high hands: the elbows out and forward)
+  holdAt(P, D, "R", g.clone(), b.clone(), [0.8, -0.9 + 1.1 * hi, -0.25 + 0.6 * hi]);
+  holdAt(P, D, "L", g.clone().addScaledVector(b, -LEFT_BELOW), b.clone(), [-0.8, -0.9 + 1.1 * hi, -0.25 + 0.6 * hi]);
+  if (import.meta.env.DEV && globalThis.__twoDbg) {   // (tests: how far the hands and the blade are from what was asked, after the joint limits)
+    const err = (s, p) => { const c = P["hand" + s].map((v, i) => clamp(v, LIM["hand" + s][i][0], LIM["hand" + s][i][1])); const keep = P["hand" + s].slice(); set(P, "hand" + s, ...c);
+      const { q } = boneFK(P, D, "hand" + s), ax = (s === "R" ? D.gripAxis : D.gripAxisL).clone().applyQuaternion(q), at = posedPt(P, D, "hand" + s, ...(s === "R" ? D.grip : D.gripL).toArray());
+      set(P, "hand" + s, ...keep); return [Math.round(THREE.MathUtils.radToDeg(ax.angleTo(b))), Math.round(100 * Math.hypot(at[0] - p.x, at[1] - p.y, at[2] - p.z))]; };
+    globalThis.__twoDbg.push({ R: err("R", g), L: err("L", g.clone().addScaledVector(b, -LEFT_BELOW)), hand: [P.handR.map((v) => +v.toFixed(2)), P.handL.map((v) => +v.toFixed(2))] });
+  }
+}
+const mix2 = (a, b, t) => ({ G: a.G.map((v, i) => v + (b.G[i] - v) * t), B: a.B.map((v, i) => v + (b.B[i] - v) * t), tw: (a.tw || 0) + ((b.tw || 0) - (a.tw || 0)) * t, lean: (a.lean || 0) + ((b.lean || 0) - (a.lean || 0)) * t });
+// a two-handed blow: from the guard up to the cocked pose, then down fast to the blow, a moment held, back to the guard;
+// the trunk turns and bends with it (tw, lean), the legs step as in ATK
+function attack2(P, D, k, atk) {
+  const A = TWO[atk] || TWO.over, S = ATK[atk] || ATK.over;
+  let K, feet;
+  if (k < TWO_WIND) { const e = ease(k / TWO_WIND); K = mix2(TWO.ready, A.cock, e); feet = feetMix(GUARD_FEET, S.cockFeet, e); }
+  else {
+    const s = (k - TWO_WIND) / (1 - TWO_WIND);
+    if (s < 0.7) { const e = 1 - Math.pow(1 - clamp(s / 0.5, 0, 1), 3); K = mix2(A.cock, A.hit, e); feet = feetMix(S.cockFeet, S.hitFeet, e); }
+    else { const e = ease((s - 0.7) / 0.3); K = mix2(A.hit, TWO.ready, e); feet = feetMix(S.hitFeet, GUARD_FEET, e); }
+  }
+  const tw = K.tw, ln = K.lean;
+  set(P, "pel", 0.06 + 0.2 * ln, 0.3 * tw, 0); set(P, "pelP", 0, 0, 0.18 * ln);
+  set(P, "spine", 0.06 + 0.5 * ln, 0.3 * tw, 0); set(P, "chest", 0.04 + 0.5 * ln, 0.4 * tw, 0);
+  set(P, "neck", -0.1 - 0.3 * ln, -0.45 * tw, 0); set(P, "head", -0.05 - 0.25 * ln, -0.4 * tw, 0);
+  stance(P, D, feet);
+  twoHands(P, D, K);
+}
+function twoHanded(P, D, mode) {
+  twoHands(P, D, mode === "block" ? TWO.block : mode === "guard" ? TWO.ready : TWO.rest);
+}
+
 // ---------- applying a pose ----------
 function apply(u, A) {
   const B = u.B;
@@ -377,6 +460,22 @@ export const followSkirt = (u) => {
   });
 };
 
+// ---------- the cape ----------
+// Its three bones (models.js, body.js) turn back from the shoulders: as the trunk bends forwards the cape still hangs
+// down, walking it lifts a little behind, running more (riding: some wind), slowly following the pace; a wave runs
+// down the cloth, larger the faster one goes. now: seconds (a clock that runs even standing still).
+function capeMove(u, now, mode, walking, P, ph) {
+  const sp = walking ? (mode === "run" ? 1 : 0.45) : mode === "sit" ? 0.2 : 0, want = 0.04 + 0.46 * sp;
+  const c = u._cape || (u._cape = { a: want, t: now });
+  const dt = clamp(now - c.t, 0, 0.1); c.t = now;
+  c.a += (want - c.a) * Math.min(1, dt * 2.5);
+  const lean = Math.max(0, P.pel[0] + P.spine[0] + P.chest[0]), f = 0.03 + 0.09 * sp;
+  const w = (k) => Math.sin(now * (2.4 + 0.9 * k) * (1 + 0.6 * sp) + ph * (1 + k) - 0.8 * k);
+  u.B.capeU.rotation.set(c.a * 0.5 + lean * 0.9 + f * 0.3 * w(0), 0, f * 0.12 * w(1));
+  u.B.capeM.rotation.set(c.a * 0.3 + f * 0.6 * w(1), 0, f * 0.2 * w(2));
+  u.B.capeL.rotation.set(c.a * 0.25 + f * 0.9 * w(2), 0, f * 0.25 * w(0));
+}
+
 // ---------- poseHuman ----------
 // mode: what the character is doing (null = stand / walk); k: progress of timed moves (0..1). Attacks: "windup"
 // then "swing", in the style userData.atk ("over" overhead chop, "side" horizontal cut, "thrust" lunge, "rise" rising
@@ -387,7 +486,10 @@ export function poseHuman(g, t, moving, mode, k = 0) {
   let lift = 0, sitY = null;
   const walking = moving && !["sit", "sleep", "dead", "windup", "swing", "stagger"].includes(mode);
   switch (mode) {
-    case "windup": case "swing": attack(P, D, mode, Math.min(1, k), u.atk || "over", shield); break;
+    case "windup": case "swing":
+      if (u.twoHand && mode === "swing") attack2(P, D, Math.min(1, k), u.atk || "over");   // a two-handed blow: wound up first, then it falls
+      else attack(P, D, mode, Math.min(1, k), u.atk || "over", shield);
+      break;
     case "slash": attack(P, D, "swing", Math.min(1, k * 1.6) * 0.7, "side", shield); break;
     case "guard":
       if (walking) { lift = stepLegs(P, t, "walk", long).lift; upper(P, D, t, "guardUpper", ph, shield); }
@@ -440,6 +542,8 @@ export function poseHuman(g, t, moving, mode, k = 0) {
       else idle(P, D, t, ph);
       upper(P, D, t, mode, ph, shield);
   }
+  // a two-handed sword: both hands on its grip (not riding, talking, falling...)
+  if (u.twoHand && (mode == null || ["run", "sneak", "block", "guard"].includes(mode))) twoHanded(P, D, mode);
   // the head looks where the body goes: it turns back what the pelvis and the trunk turned
   const turn = P.pel[1] + P.spine[1] + P.chest[1];
   if (!["windup", "swing", "slash", "train", "look", "sleep", "dead"].includes(mode)) { add(P, "neck", 0, -0.45 * turn, 0); add(P, "head", 0, -0.4 * turn, 0); }
@@ -453,6 +557,7 @@ export function poseHuman(g, t, moving, mode, k = 0) {
   u._last = A;
   apply(u, A);
   followSkirt(u);
+  if (u.geo?.capeJoints && u.B.capeU) capeMove(u, now, mode, walking, P, ph);
   if (sitY !== null) return sitY;
   return (-footLow(u) + lift) * (u.variant?.height || 1);
 }

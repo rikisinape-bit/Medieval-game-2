@@ -23,9 +23,10 @@ export const NATURE = {
   roccia: { s: 0.5, shadow: true }, sasso_tondo: { s: 1 }, sasso_quadro: { s: 1 }, selciato: { s: 1 },
 };
 
-let lib = null, natureOk = false, kitOk = false;
+let lib = null, natureOk = false, kitOk = false, propsOk = false;
 export const hasNature = () => natureOk;
 export const hasKit = () => kitOk;
+export const hasProps = () => propsOk;
 
 // Loads one GLB (or its base64 JS module in the published page) and returns { id: [{ geometry, material }] }.
 async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
@@ -74,6 +75,9 @@ export async function loadNature() {
   lib = null; kitOk = false;
   try { lib = await loadLib("natura"); } catch (e) { console.warn("Natura non caricata: restano gli alberi procedurali", e); }
   try { const kit = await loadLib("kit", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...kit }; kitOk = true; } catch (e) { console.warn("Kit medievale non caricato: restano gli edifici procedurali", e); }
+  // village props (market stalls, crates, buckets, carts, lamp posts, torches, woodpile, campfire, fence: tools/build-props.mjs)
+  propsOk = false;
+  try { const props = await loadLib("props", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...props }; propsOk = true; } catch (e) { console.warn("Oggetti del villaggio non caricati: restano quelli fatti a codice", e); }
   natureOk = !!lib && !!lib.pino_1;
   return natureOk;
 }
@@ -174,6 +178,13 @@ export function kitSize(id) {
   const parts = lib?.[id]; if (!parts) return null;
   const b = new THREE.Box3(); parts.forEach((p) => { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox); });
   return b.getSize(new THREE.Vector3()).toArray();
+}
+
+// Centre and size of the part of a piece drawn with one material (e.g. the glass of the lamp post), or null.
+export function kitPartBox(id, material) {
+  const parts = (lib?.[id] || []).filter((p) => p.material.name === "Kit_" + material); if (!parts.length) return null;
+  const b = new THREE.Box3(); parts.forEach((p) => { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox); });
+  return { center: b.getCenter(new THREE.Vector3()), size: b.getSize(new THREE.Vector3()) };
 }
 
 // One piece as its own object (for things that move, like the castle gate).
