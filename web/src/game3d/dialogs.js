@@ -3,7 +3,8 @@ import { ITEMS, SHOPS, MARKUP_REP } from "./items";
 // NPC & object dialogs for the open world, with consequences.
 const has = (S, id) => S.player.inv[id] || 0;
 export const GATE_BRIBE = 150; // gold to bribe the knights at the gate of Valdoro
-export const RANSOM = 30;      // gold to get out of a cell of the castle's prison (after a KO in the castle)
+export const RANSOM = 30;      // gold to get out of a cell of the castle's prison (after a KO by Valdoro's guards)
+export const RANSOM_CAGE = 20; // gold to get out of Roccanera's cage (after a KO by Roccanera's guards)
 const names = (list) => list.map(([id, q]) => (id === "oro" ? `${q} oro` : q > 1 ? `${ITEMS[id].name} x${q}` : ITEMS[id].name)).join(", ");
 
 const CHATTER = {
@@ -31,6 +32,15 @@ export function getDialog(id, S, reply) {
 function buildDialog(id, S) {
   const p = S.player;
   const npc = S.npcs[id];
+  if (S.flags.cage && npc?.alive && ["soldier1", "soldier2", "alaric"].includes(id)) return {   // you are in the cage: the ransom (through the bars)
+    title: `${npc.name} — Guardia di Roccanera`,
+    text: p.gold >= RANSOM_CAGE ? `"Ti sei calmato? Qui a Roccanera chi alza le mani finisce in gabbia. ${RANSOM_CAGE} monete e torni libero."`
+      : `"${RANSOM_CAGE} monete e torni libero... ma mi sa che non le hai."`,
+    options: [
+      p.gold >= RANSOM_CAGE ? { label: `Pago il riscatto (${RANSOM_CAGE} oro)`, effect: "ransom_cage" } : { label: `Non ho ${RANSOM_CAGE} monete...`, effect: "ransom_cage_poor" },
+      { label: "Ci penso", effect: "close" },
+    ],
+  };
   if (npc && !npc.alive) {
     if (npc.looted) return null;
     return { title: `Il corpo di ${npc.name}`, text: npc.boss ? "Il capo dei banditi giace nel fango. Ser Alaric vorrà una prova." : "Giace immobile nella polvere. Potresti frugargli le tasche.", options: [{ label: npc.boss ? "Fruga il corpo e prendi la testa" : "Fruga il corpo", effect: "loot" }, { label: "Lascia stare", effect: "close" }] };
@@ -242,6 +252,8 @@ export function applyEffect(e, S, api) {
     case "morn_deliver": api.take("testa_morn", 1); p.gold += 40; rep("crown", 15); S.flags.mornDone = true; return `Alaric solleva la testa davanti ai soldati: "Per tutti i Santi, è Capo Morn! Il flagello del sentiero è finito. Ben fatto, viandante: ecco la tua ricompensa." (+40 oro, la Corona ti è grata)`;
     case "spar": api.spar(api.targetId); return `${S.npcs[api.targetId].name} sguaina la spada: "In guardia! Il primo che cede perde."`;
     case "fight_bandits": api.hostile(Object.values(S.npcs).filter((x) => x.role === "bandit" && Math.hypot(x.x - p.x, x.z - p.z) < 15).map((x) => x.id)); return "I banditi sguainano le lame!";
+    case "ransom_cage": p.gold -= RANSOM_CAGE; api.freeCage(); return `La guardia intasca le monete e apre il lucchetto: "Fuori. E fila dritto." (−${RANSOM_CAGE} oro)`;
+    case "ransom_cage_poor": { const g = p.gold; p.gold = 0; api.freeCage(); return `La guardia ti fruga nelle tasche${g ? ` e si prende tutto (−${g} oro)` : ""}: "Per stavolta basta così. Sparisci."`; }
     case "ransom": p.gold -= RANSOM; api.free(); return `Il carceriere conta le monete e gira la chiave: "Fuori. E che non ti riveda quaggiù." (−${RANSOM} oro)`;
     case "ransom_poor": { const g = p.gold; p.gold = 0; api.free(); return `Il carceriere ti rovescia le tasche${g ? ` e si tiene tutto (−${g} oro)` : ""}: "Meglio di niente. Fuori, prima che cambi idea."`; }
     case "pay_tax": p.gold -= 10; rep("crown", 10); S.flags.taxPaid = true; return `Alaric conta le monete e annuisce: "Sei in regola con la Corona. Ti serve qualcosa?" (−10 oro)`;

@@ -348,6 +348,40 @@ export function makeSwordRack() {
   return g;
 }
 
+// Roccanera's cage (engine.js, world.js CAGE): wooden corner posts and rails, iron bars on every side, a roof of planks
+// on two beams, a barred door in the middle of the front (-z) that turns on its hinge (userData.door: rotation.y 0 shut,
+// PI / 2 open, outwards). half: half the side, dw: half the doorway.
+export function makeCage(half = 1.1, dw = 0.45) {
+  const g = new THREE.Group(), H = 2.35, W = half * 2, WOOD = "#4a3220", DARK = "#33261a", IRON = "#34363b";
+  for (const [x, z] of [[-half, -half], [half, -half], [-half, half], [half, half]]) g.add(at(box(0.15, H + 0.12, 0.15, WOOD), x, (H + 0.12) / 2, z));
+  for (const y of [0.07, H]) {                                                       // the frame: bottom and top rails
+    for (const z of [-half, half]) g.add(at(box(W, 0.11, 0.11, WOOD), 0, y, z));
+    for (const x of [-half, half]) g.add(at(box(0.11, 0.11, W, WOOD), x, y, 0));
+  }
+  const bar = (x, z) => g.add(at(box(0.034, H - 0.12, 0.034, IRON), x, H / 2 + 0.01, z));
+  const strap = (w, d, x, y, z) => g.add(at(box(w, 0.045, d, IRON), x, y, z));
+  for (let s = -half + 0.17; s < half - 0.08; s += 0.17) { bar(s, half); bar(-half, s); bar(half, s); if (Math.abs(s) > dw + 0.05) bar(s, -half); }
+  for (const y of [0.8, 1.55]) {                                                     // iron bands round the bars
+    strap(W, 0.05, 0, y, half); strap(0.05, W, -half, y, 0); strap(0.05, W, half, y, 0);
+    for (const sd of [-1, 1]) strap(half - dw, 0.05, sd * (half + dw) / 2, y, -half);
+  }
+  [-half + 0.45, half - 0.45].forEach((x) => g.add(at(box(0.12, 0.1, W + 0.3, DARK), x, H + 0.1, 0)));   // roof beams
+  for (let i = 0; i < 7; i++) {                                                      // roof planks, a little uneven
+    const p = at(box(W + 0.36, 0.05, 0.36, i % 2 ? WOOD : DARK), 0, H + 0.18, -half - 0.08 + i * 0.37);
+    p.rotation.z = (i % 3 - 1) * 0.015; g.add(p);
+  }
+  // the door: bars in a frame of iron, the lock on its free edge
+  const door = new THREE.Group();
+  for (let x = 0.09; x < dw * 2 - 0.04; x += 0.15) door.add(at(box(0.034, H - 0.25, 0.034, IRON), x, H / 2, 0));
+  for (const y of [0.15, 0.8, 1.55, H - 0.1]) door.add(at(box(dw * 2 - 0.04, 0.05, 0.05, IRON), dw, y, 0));
+  for (const x of [0.02, dw * 2 - 0.04]) door.add(at(box(0.05, H - 0.15, 0.05, IRON), x, H / 2, 0));
+  door.add(at(box(0.1, 0.16, 0.08, "#26272b"), dw * 2 - 0.08, 1.1, -0.05));          // the lock
+  g.add(at(door, -dw, 0, -half));
+  bake(g);
+  g.userData.door = door;
+  return g;
+}
+
 export function makeStall() {
   const g = new THREE.Group();
   add(g, at(box(3, 0.9, 1.2, "#6a4426"), 0, 0.45, 0), at(box(3.2, 0.1, 1.8, "#c9a24a"), 0, 2.4, 0), at(box(3.2, 0.1, 1.8, "#8b1e1e"), 0, 2.5, 0.05),

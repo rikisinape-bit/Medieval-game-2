@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
-import { getDialog, applyEffect, CONTINUES, RANSOM } from "./dialogs";
-import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE } from "./world";
+import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeCage, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
+import { getDialog, applyEffect, CONTINUES, RANSOM, RANSOM_CAGE } from "./dialogs";
+import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE, CAGE, CAGE_GUARDS, CAGE_WATCH } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF, TWO_HANDED, SLOW_2H } from "./items";
 import { createAI, FIGHT } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
@@ -143,6 +143,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   put(makeWell(), 0, 0, 0, 1.2);
   if (PROPS) { prop("props_waterbucket_01", 1.25, -0.95, 0.5); obstacles.push({ x: 1.25, z: -0.95, r: 0.3 }); prop("props_bucket", 12.6, -3.5, 0.3); obstacles.push({ x: 12.6, z: -3.5, r: 0.4 }); }   // bucket at the well, tub at the forge
   DUMMIES.forEach(([x, z]) => put(makeDummy(), x, z, 0, 0.4));
+  // Roccanera's cage (world.js CAGE): its walls of bars as obstacles, the doorway's one off while the door is open
+  const cage = put(makeCage(CAGE.half, CAGE.door), CAGE.x, CAGE.z);
+  const cageDoorRect = { cx: CAGE.x, cz: CAGE.z - CAGE.half, hw: CAGE.door, hd: 0.06, ry: 0, off: false };
+  {
+    const H = CAGE.half, side = (H - CAGE.door) / 2;
+    rects.push({ cx: CAGE.x, cz: CAGE.z + H, hw: H + 0.08, hd: 0.06, ry: 0 }, { cx: CAGE.x - H, cz: CAGE.z, hw: 0.06, hd: H + 0.08, ry: 0 }, { cx: CAGE.x + H, cz: CAGE.z, hw: 0.06, hd: H + 0.08, ry: 0 },
+      { cx: CAGE.x - CAGE.door - side, cz: CAGE.z - H, hw: side + 0.08, hd: 0.06, ry: 0 }, { cx: CAGE.x + CAGE.door + side, cz: CAGE.z - H, hw: side + 0.08, hd: 0.06, ry: 0 }, cageDoorRect);
+  }
   put(makeBench(), 8.4, 6.75, 0);
   if (PROPS) { prop("props_woodpile_01", 5.5, -12, 0.3); obstacles.push({ x: 5.5, z: -12, r: 0.9 }); prop("props_cart_02", 8.6, -10.4, 0.25); propRect("props_cart_02", 8.6, -10.4, 0.25); }
   else put(makeWoodpile(), 5.5, -12, 0, 0.7);
@@ -559,6 +567,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...p }); });
   S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }));
   castleCells.forEach((c) => castle.setDoor(c.id, !!S.flags.cells?.[c.id]));   // the prison cells: shut, unless opened
+  cageDoorRect.off = !!S.flags.cageOpen; cage.userData.door.rotation.y = S.flags.cageOpen ? Math.PI / 2 : 0;   // Roccanera's cage
+  if (S.flags.cage) watchCage();                                       // (saved while in it: its keeper keeps watch again)
 
   const input = { x: 0, y: 0 };
   const keys = {};
@@ -697,10 +707,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       return;
     }
     if (P.hp <= 0) {
-      const jail = castle.inZone(P.x, P.z) && S.npcs.carceriere?.alive;   // KO in the castle: into a cell (if there is a jailer)
+      // KO in the castle, or by any guard or knight of Valdoro (outside the walls too): into a cell of the castle's prison
+      // (if there is a jailer); by Roccanera's guards: into the cage by their training ground (if one of them is alive)
+      const jail = S.npcs.carceriere?.alive && (castle.inZone(P.x, P.z) || (n.valdoro && n.guard));
+      const caged = !jail && n.guard && !n.valdoro && cageGuards().length > 0;
       P.hp = 60;
       dismount(); npcs.forEach((x) => { Object.assign(x, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, state: "idle" }); }); graceT = 10;
       if (jail) { toJail(); return; }
+      if (caged) { toCage(); return; }
       P.gold = Math.floor(P.gold / 2); P.x = 0; P.z = 4;
       say("Sei stato sconfitto. Ti risvegli accanto al pozzo, derubato di metà dell'oro.");
     }
@@ -866,6 +880,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     picks.forEach((pk) => { if (near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""}` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
     ores.forEach((o, i) => { if (o.depletedUntil < time && near(o.x, o.z, 2.6)) list.push({ kind: "ore", id: i, x: o.x, z: o.z, label: "Estrai argento" }); });
+    if (near(CAGE.x, CAGE.z - CAGE.half, 1.8)) {                         // Roccanera's cage: with its key it opens and shuts
+      const x = CAGE.x, z = CAGE.z - CAGE.half;
+      if (P.inv.chiave_gabbia) list.push({ kind: "cage", id: "gabbia", x, z, label: S.flags.cageOpen ? "Chiudi la gabbia" : "Apri la gabbia" });
+      else if (!S.flags.cageOpen) list.push({ kind: "cage", id: "gabbia", x, z, w: 2, label: "Gabbia chiusa a chiave" });
+    }
     if (castle.inZone(P.x, P.z)) castleCells.forEach((c) => {           // a cell's door: with the key it opens and shuts
       if (!near(c.x, c.z, 1.8)) return;
       const open = castle.doorOpen(c.id);
@@ -882,6 +901,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else note(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
     heal: (v) => { P.hp = Math.min(100, P.hp + v); },
     free: () => { const j = S.flags.jail; if (j) { setCell(j.cell, true); S.flags.jail = null; } },   // the ransom is paid
+    freeCage: () => { if (S.flags.cage) { setCage(true); freeFromCage(); } },
     crime: (theft, victimId) => ai.crime(S.npcs[victimId] || null, theft),
     scream: (id, text) => { const n = S.npcs[id]; if (n?.alive) ai.scream(n, P.x, P.z, text); },
     spar: (id) => { const n = S.npcs[id]; Object.assign(n, { spar: true, hostile: true, hp: n.hpMax, state: "idle", cd: 1 }); },
@@ -1073,6 +1093,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       dialogOpen = true; lootId = c.id; hooks.openLoot?.(lootInfo(c.id)); return;
     }
     if (c.kind === "obj" && (c.id === "castello" || c.id === "castello_uscita")) { goThrough(c.id === "castello"); return; }
+    if (c.kind === "cage") {
+      if (!P.inv.chiave_gabbia) { note("La gabbia è chiusa a chiave: la chiave ce l'ha una delle guardie di Roccanera."); return; }
+      const open = !S.flags.cageOpen;
+      setCage(open);
+      if (open && S.flags.cage) {                                          // out of the cage: if a guard sees you...
+        freeFromCage();
+        const g = cageGuards().find((x) => ai.sees(x, P.x, P.z, 12));
+        if (g) { g.hostile = true; g.actT = null; say(`${g.name}: "Ehi! Chi ti ha aperto? Torna dentro!"`); }
+        else note("La serratura scatta: sei fuori dalla gabbia.");
+      } else note(open ? "Giri la chiave: la gabbia si apre." : "Chiudi la gabbia a chiave.");
+      return;
+    }
     if (c.kind === "cell") {
       if (!P.inv.chiave_celle) { note("La cella è chiusa a chiave: ci vuole la chiave delle celle. Ce l'ha il carceriere."); return; }
       const open = !castle.doorOpen(c.id);
@@ -1116,9 +1148,38 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     castle.setDoor(id, open); S.flags.cells = { ...(S.flags.cells || {}), [id]: open };
     if (!quiet) sfx.creak(0.9);
   };
+  // Roccanera's cage (world.js CAGE): a KO by Roccanera's guards. Locked in (S.flags.cage, the door: S.flags.cageOpen),
+  // the first of them alive keeps watch by it (CAGE_WATCH) and lets you out for a ransom (dialogs.js); or its key
+  // (Gerd's, pickpocketed through the bars) opens it. The keys you had are taken back.
+  const cageGuards = () => CAGE_GUARDS.map((id) => S.npcs[id]).filter((x) => x?.alive);
+  const setCage = (open, quiet = false) => { S.flags.cageOpen = open; cageDoorRect.off = open; if (!quiet) sfx.creak(0.9); };
+  const watchCage = () => {                                            // the keeper's routine while someone is in the cage
+    const k = S.npcs[S.flags.cageKeeper] || cageGuards()[0]; if (!k) return;
+    S.flags.cageKeeper = k.id; Object.assign(k, { routine: CAGE_WATCH, ri: 0, actT: null, walkT: 0 });
+  };
+  const freeFromCage = () => {
+    const k = S.npcs[S.flags.cageKeeper];
+    if (k) Object.assign(k, { routine: NPC_DEFS.find((d) => d.id === k.id).routine, ri: 0, actT: null, walkT: 0 });
+    S.flags.cage = null; S.flags.cageKeeper = null;
+  };
+  async function toCage() {
+    transit = true; running = false;
+    hooks.onLoading?.("I soldati ti hanno messo KO...");
+    if (P.inv.chiave_gabbia) { take("chiave_gabbia", P.inv.chiave_gabbia); const k = S.npcs.soldier1; if (k?.alive && !k.inv.chiave_gabbia) k.inv.chiave_gabbia = 1; }
+    setCage(false, true);
+    S.flags.cage = true; S.flags.cageKeeper = null; watchCage();
+    P.x = CAGE.x; P.z = CAGE.z + 0.2; P.yaw = Math.PI; pitch = 0; lightT = 0; region = regionOf(P.x, P.z);   // facing the door
+    await new Promise((r) => setTimeout(r, 1800));
+    transit = false; hooks.onLoading?.(null);
+    say(`Ti risvegli chiuso nella gabbia delle guardie di Roccanera. Vogliono ${RANSOM_CAGE} monete d'oro per farti uscire: parla con la guardia attraverso le sbarre.`);
+  }
   async function toJail() {
     transit = true; running = false;
     hooks.onLoading?.("Le guardie ti hanno messo KO...");
+    if (!castle.inZone(P.x, P.z)) {                                      // knocked out outside: the castle is loaded first
+      await new Promise((r) => setTimeout(r, 350));
+      try { await buildCastle(scene); } catch (e) { console.error("castello:", e); }
+    }
     if (P.inv.chiave_celle) {
       take("chiave_celle", P.inv.chiave_celle);
       const j = S.npcs.carceriere; if (j?.alive && !j.inv.chiave_celle) j.inv.chiave_celle = 1;
@@ -1128,7 +1189,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     }
     setCell(castleJail.cell, false, true);
     S.flags.jail = { cell: castleJail.cell };
-    P.x = castleJail.x; P.z = castleJail.z; P.yaw = castleJail.yaw; pitch = 0;
+    P.x = castleJail.x; P.z = castleJail.z; P.yaw = castleJail.yaw; pitch = 0; lightT = 0; region = regionOf(P.x, P.z);
+    renderer.compile(scene, camera);
     await new Promise((r) => setTimeout(r, 1800));
     transit = false; hooks.onLoading?.(null);
     say(`Ti risvegli in una cella delle prigioni. Il carceriere vuole ${RANSOM} monete d'oro per farti uscire: parlagli quando passa davanti alle sbarre.`);
@@ -1204,6 +1266,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   });
   const collide = (x, z) => {
     [x, z] = pushOut(x, z);
+    if (S.flags.cage && !S.flags.cageOpen) { const m = CAGE.half - 0.46; return [clamp(x, CAGE.x - m, CAGE.x + m), clamp(z, CAGE.z - m, CAGE.z + m)]; }   // locked in the cage
     if (castle.inZone(x, z)) return castle.inZone(P.x, P.z) ? castle.move(P.x, P.z, x, z) : castle.constrain(x, z);   // in the castle's rooms (step by step)
     if (mine.inZone(x, z)) return P.mounted ? [Math.max(x, CX + 17.7), z] : mine.constrain(x, z);   // in the tunnels (horses stay out)
     if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
@@ -1350,8 +1413,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
   function updateDoorsAndGate(dt) {
     if (castle.inZone(P.x, P.z)) castle.updateDoors(dt);
-    if (S.flags.jail) npcs.forEach((n) => {                             // in a cell: whoever is angry with you gives up after a while
-      if (!n.hostile || !castle.inZone(n.x, n.z)) { n.jailAnger = 0; return; }
+    { const d = cage.userData.door, want = S.flags.cageOpen ? Math.PI / 2 : 0; if (Math.abs(d.rotation.y - want) > 1e-3) d.rotation.y += (want - d.rotation.y) * Math.min(1, dt * 4); }
+    if (S.flags.jail || S.flags.cage) npcs.forEach((n) => {             // in a cell or in the cage: whoever is angry with you gives up after a while
+      if (!n.hostile || (S.flags.jail && !castle.inZone(n.x, n.z))) { n.jailAnger = 0; return; }
       n.jailAnger = (n.jailAnger || 0) + dt;
       if (n.jailAnger > 8) { n.jailAnger = 0; Object.assign(n, { hostile: false, alert: 0, actT: null, state: "idle" }); say(`${n.name}: "Marcisci lì dentro."`); }
     });

@@ -26,7 +26,7 @@ export const NPC_DEFS = [
     routine: [R(-8, 5.9, "sell", 6, { face: [-8, 3] }), R(-6, 9.6, "carry", 3, { face: [-7, 8], carry: true }), R(-8, 5.9, "talk", 5, { face: [-8, 3] }), R(-8, 6.4, "eat", 3, { face: [-8, 3] })] },
   { id: "alaric", name: "Ser Alaric", role: "knight", look: "knight", pos: [2, 12], hp: 140, dmg: 16, loot: 40, weapon: "long", guard: true, fights: true,
     routine: [R(2, 12, "look", 6), R(11, 20.4, "look", 6, { face: [12.5, 23] }), R(-2, -3.5, "look", 5)] },
-  { id: "soldier1", name: "Soldato Gerd", role: "soldier", look: "soldier", pos: [8, 18], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true,
+  { id: "soldier1", name: "Soldato Gerd", role: "soldier", look: "soldier", pos: [8, 18], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true, carries: ["chiave_gabbia"],
     routine: [R(8, 18, "look", 2), R(-8, 16, "look", 2), R(-12, 2, "look", 2), R(-2, -6, "look", 2), R(8, 3, "look", 2)] },
   { id: "soldier2", name: "Soldato Ulf", role: "soldier", look: "soldier", pos: [11, 21.6], hp: 80, dmg: 10, loot: 12, weapon: "short", guard: true, fights: true,
     routine: [R(11, 21.6, "train", 9, { face: [11, 23] }), R(14, 21.6, "train", 7, { face: [14, 23] }), R(-2, -4, "look", 4), R(8, 3, "look", 3)] },
@@ -107,6 +107,12 @@ export const MINE_TUNNELS = [["E0", "E1", 3.0], ["E1", "J1", 2.7], ["J1", "N1", 
   ["J2", "W1", 2.5], ["W1", "W2", 2.6], ["J1", "T1", 2.4], ["T1", "T2", 2.5]];
 export const MINE_ORES = [["N1", "N2", 0.8, 1], ["S1", "S2", 0.85, -1], ["W1", "W2", 0.82, 1], ["T1", "T2", 0.8, -1], ["J2", "W1", 0.45, -1], ["J1", "N1", 0.6, 1]];
 export const DUMMIES = [[11, 23], [14, 23]];
+// Roccanera's cage, by the soldiers' training ground: where whoever Roccanera's guards knock out wakes up (engine.js).
+// The middle, half the side, half the doorway (on the north side, towards the village). While someone is in it, the
+// first of Roccanera's guards alive (Gerd, who has the key; then Ulf, Ser Alaric) keeps watch: CAGE_WATCH.
+export const CAGE = { x: 6.5, z: 23.5, half: 1.1, door: 0.45 };
+export const CAGE_GUARDS = ["soldier1", "soldier2", "alaric"];
+export const CAGE_WATCH = [R(7.6, 21.5, "look", 8, { face: [6.5, 23.5] }), R(5.0, 21.3, "look", 7, { face: [5.0, 17] }), R(8.9, 24.4, "look", 6, { face: [12, 24.4] })];
 // Items lying in the world. owned => taking them in front of a witness is theft.
 export const PICKUPS = [
   { id: "w1", item: "pane", x: -6.3, z: 9.6, owned: true }, { id: "w2", item: "ascia", x: 4.6, z: -12.8, owned: true },
