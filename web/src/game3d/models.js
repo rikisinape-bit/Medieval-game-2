@@ -116,6 +116,10 @@ const BONE_PARENT = {
   skirtFR: "pelvis", skirtBR: "pelvis", skirtFL: "pelvis", skirtBL: "pelvis", skirtKR: "skirtFR", skirtKL: "skirtFL",
 };
 const HELPER_AT = { skirtFR: "thighR", skirtBR: "thighR", skirtFL: "thighL", skirtBL: "thighL", skirtKR: "shinR", skirtKL: "shinL" };   // where the helpers sit
+// the cape's bones, after the helpers (body.js puts their joints, geo.capeJoints, and weighs the cape on them; anim.js
+// moves them): one under the other down the back, the first on the chest
+const CAPE_BONES = ["capeU", "capeM", "capeL"];
+Object.assign(BONE_PARENT, { capeU: "chest", capeM: "capeU", capeL: "capeM" });
 export function makeHuman(look, weapon, seed) {
   const v = variantOf(look, seed || JSON.stringify(look));
   const geo = bodyGeometries(look, v);
@@ -123,8 +127,8 @@ export function makeHuman(look, weapon, seed) {
   const body = new THREE.Group(); // scaled for per-NPC height; the outer group's scale is used by the engine (hit flash)
   body.scale.setScalar(v.height);
   g.add(body);
-  const names = [...geo.bones, ...Object.keys(HELPER_AT)];                 // the order of the skin's bone indices
-  const J = (n) => geo.joints[geo.bones.indexOf(HELPER_AT[n] || n)];
+  const names = [...geo.bones, ...Object.keys(HELPER_AT), ...CAPE_BONES];  // the order of the skin's bone indices
+  const J = (n) => (CAPE_BONES.includes(n) ? geo.capeJoints?.[n] || geo.joints[geo.bones.indexOf("chest")] : geo.joints[geo.bones.indexOf(HELPER_AT[n] || n)]);
   const B = {};
   names.forEach((n) => { B[n] = new THREE.Bone(); B[n].name = n; });
   names.forEach((n) => { const p = BONE_PARENT[n], j = J(n), q = p ? J(p) : [0, 0, 0]; B[n].position.set(j[0] - q[0], j[1] - q[1], j[2] - q[2]); (p ? B[p] : body).add(B[n]); });

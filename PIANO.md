@@ -175,7 +175,7 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   Per aggiornarla, confrontare TUTTI i file di `web/dist` con quelli pubblicati (impronte sha256) e caricare ogni file cambiato:
   anche il CSS cambia nome quando cambia il codice (una volta è rimasto quello vecchio: pagina senza stile).
 - **Pagine di prova** (con `npm run dev`): `lineup.html` (personaggi; `?eq=1` equipaggiamenti, `?faces=hair|beard|female`
-  volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `?two=1` gli spadoni a due mani (con `globalThis.__twoDbg = []` prima del caricamento: di quanto mani e lama si scostano dal voluto), `bodyview.html` (corpo base),
+  volti, `?mode=…&atk=…&k=…&t=…` pose e colpi (`t` = istante dell'animazione, `walk=1` passo), `?pal=1|2|4` armatura del paladino, `?death=0..3&p=…` cadute, `?top=N` dall'alto), `?capes=1` i personaggi col mantello (`&walk=1`, `&mode=run`, `ry` per girarli), `?two=1` gli spadoni a due mani (con `globalThis.__twoDbg = []` prima del caricamento: di quanto mani e lama si scostano dal voluto), `bodyview.html` (corpo base),
   `kitview.html` (pezzi del kit). In sviluppo: `window.__P` (giocatore), `window.__S` (stato del mondo, `S.npcs`), `window.__ai`,
   `window.__atk = { t, combo, blow }` (ferma un colpo; `blow`: 1, 2, 3 o "thrust"), `window.__fp` (braccio in prima persona: `solveKey`, `FP_BLOWS`),
   `window.__equip(id)` (dà ed equipaggia un oggetto), `window.__npcs` (i personaggi), `window.__castle` (aree e porte del castello), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera; i pezzi lontani dal
@@ -295,6 +295,22 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
     Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
     lento un passo lungo saltava la porta chiusa;
+  - **KO dalle guardie**: tutte le guardie e i cavalieri di Valdoro (`valdoro` e `guard`: anche Brann e Oswin fuori dalle
+    mura) portano in una cella del castello (il castello si carica dietro lo schermo nero "Le guardie ti hanno messo
+    KO..."); le guardie di Roccanera (Gerd, Ulf, Ser Alaric) in una **gabbia** accanto al campo d'addestramento
+    (`CAGE` in `world.js`, `makeCage` in `models.js`: pali e telaio di legno, sbarre e fasce di ferro, tetto di assi, porta a
+    sbarre col lucchetto che gira sul cardine). Chiuso dentro (`S.flags.cage`, la porta `S.flags.cageOpen`; il corpo resta
+    nella gabbia anche in un fotogramma lento) la prima guardia viva fa la guardia accanto (`CAGE_WATCH`, poi torna ai
+    suoi giri); le si parla attraverso le sbarre: riscatto di 20 monete (`RANSOM_CAGE`), o tutto l'oro se ne hai meno;
+    oppure le rubi la chiave (`chiave_gabbia`, ce l'ha Gerd) e apri da solo (se una guardia ti vede uscire ti attacca);
+    le chiavi che avevi te le tolgono. Gli altri KO (banditi, popolani) come prima: al pozzo;
+  - **mantelli veri** (`body.js`, `anim.js capeMove`): al posto della tavola dritta un telo curvo a due facce (9 file per 8
+    colonne, con i bordi) che parte dalle spalle (due pezzi sopra le spalle e un fermaglio davanti), si allarga in basso,
+    gira un po' intorno alla schiena e non entra mai nel corpo né nell'armatura (scende dritto dalle scapole e passa
+    dietro i fianchi); tre ossa sue (`capeU`, `capeM`, `capeL` dopo quelle della gonna, pesi per altezza) che `capeMove`
+    gira all'indietro: fermo pende (anche col busto piegato in avanti), camminando si alza un po' dietro, correndo di più
+    (a cavallo un po' di vento), seguendo il passo con calma, e un'onda scende lungo il telo, più ampia più si va veloci.
+    Lo hanno il giocatore senza armatura, i cavalieri, i nobili, i banditi, i messaggeri e il re;
   - **spadoni a due mani** (`two` in `ITEMS`, `TWO_HANDED`): la Spada lunga è diventata lo **Spadone** (danno 34, prima 24;
     impugnatura per due mani e lama più lunga in `weapons.js`, la mano destra vicino all'elsa, la sinistra `LEFT_BELOW`
     = 11 cm più in basso) e lo **Spadone di Valdoro** (danno 42, prima 30) è a due mani anche lui. Colpi più lenti

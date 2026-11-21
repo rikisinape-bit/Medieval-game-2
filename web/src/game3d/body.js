@@ -197,6 +197,7 @@ export function Part(y0, rand, dirt, surf0 = 0) {
     cap: (r, hex, x, y, z, thetaLen, sx = 1, sy = 1, sz = 1, rotx = 0, phiStart = 0, phiLen = Math.PI * 2) =>
       push(place(new THREE.SphereGeometry(r, 8, 5, phiStart, phiLen, 0, thetaLen), x, y, z, rotx, 0, 0, sx, sy, sz), hex),
     cone: (r, h, hex, x, y, z, rx = 0, rz = 0, seg = 6, sx = 1, sz = 1) => push(place(new THREE.ConeGeometry(r, h, seg), x, y, z, rx, 0, rz, sx, 1, sz), hex),
+    geo: (g, hex) => push(g, hex),                                       // any geometry (the cape's cloth)
     done: () => { if (!list.length) return null; const g = mergeGeometries(list); list.forEach((x) => x.dispose()); g.computeBoundingSphere(); return g; },
   };
   return api;
@@ -427,7 +428,7 @@ export function bodyGeometries(look, v, opts = {}) {
   };
   const opt = { bulk: BK, rand: r, dirt };
   const sstep = (a, b, x) => { const k = Math.min(1, Math.max(0, (x - a) / (b - a))); return k * k * (3 - 2 * k); };
-  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [], padL: [], padR: [] };
+  const pieces = { torso: [], head: [], armL: [], armR: [], legL: [], legR: [], shinL: [], shinR: [], padL: [], padR: [], cape: [] };
   // A piece of the paladin armour (paladin.json): triangles in the part's space with the texture's UVs; the vertex
   // colour is only the dirt towards the ground (drawn with PALADIN_MAT, separately from the body's mesh).
   const palPieces = {};
@@ -606,10 +607,38 @@ export function bodyGeometries(look, v, opts = {}) {
   if (palHelm) { T.tube(neckR + 0.012, neckR + 0.05, neck + 0.06, neck - 0.07, tone(PAL_CLOTH, -0.05), 0, neckZ, 9, 1.08); }   // padded coif under the great helm
   if (look.collar) T.tube(neckR + 0.02, neckR + 0.11, neck - 0.01, neck - 0.13, look.collar, 0, neckZ - 0.005, 9, Math.max(1, dzN));   // fur / cloth collar
   if (look.cowl) T.tube(neckR + 0.03, neckR + 0.07, neck + 0.03, neck - 0.09, look.cowl, 0, neckZ - 0.01, 9, 1.05);   // hood down, around the neck
+  // The cape: a cloth hanging from the shoulders, curved round the back (its sides come forwards over the shoulders),
+  // wider at the hem, never closer to the body than the back above it (it falls straight from the shoulder blades
+  // and clears the hips; armour pushes it out); two faces and the edges. Its own bones (models.js: capeU at the top,
+  // capeM, capeL further down; anim.js moves them: it lifts behind and ripples) take it by height (capeW below).
+  let capeJoints = null, capeTop = 0, capeLen = 1, capeMid = 0;
   if (look.cape) {
-    const cl = look.capeLen || 1.08, top = shY + 0.06, c = prof(shY - 0.05, 0.05);
-    T.box(PV.armR[0] * BK * 2.1, cl, 0.03, look.cape, 0, top - cl / 2, c.z0 - 0.02 - cl * 0.06, -0.08);
-    [-1, 1].forEach((sd) => T.box(0.1, 0.03, 0.16, look.cape, sd * PV.armR[0] * BK * 0.75, shY + 0.075, (c.z0 + c.z1) / 2 - 0.03, 0, 0, sd * -0.35));   // over the shoulders
+    const cl = (capeLen = look.capeLen || 1.08), top = (capeTop = shY + 0.06), c = prof(shY - 0.05, 0.05);
+    capeMid = (c.z0 + c.z1) / 2 - 0.02;
+    const clear = 0.035 + (paladin || plate ? 0.07 : mail ? 0.02 : look.coat ? 0.02 : 0), NS = 9, NU = 8, TH = 0.008;
+    const rows = []; let zb = Infinity;
+    for (let i = 0; i <= NS; i++) {
+      const s = i / NS, y = top - cl * s;
+      zb = Math.min(zb, prof(Math.max(y, crotch), 0).z0 - clear);
+      rows.push({ y, z: zb - 0.07 * s * s, hw: (PV.armR[0] * BK + 0.07) * (1 + 0.32 * s), wrap: 0.15 * (1 - s) * (1 - s) + 0.045 });
+    }
+    const zAt = (s) => { const f = s * NS, i = Math.min(NS - 1, Math.floor(f)), k = f - i; return rows[i].z + (rows[i + 1].z - rows[i].z) * k; };
+    const pos = [], idx = [], V = (i, j, side) => { const r = rows[i], u = -1 + (2 * j) / NU; pos.push(u * r.hw, r.y, r.z + r.wrap * u * u + side * TH); return pos.length / 3 - 1; };
+    const out = [], inn = [];
+    for (let i = 0; i <= NS; i++) { out.push([]); inn.push([]); for (let j = 0; j <= NU; j++) { out[i].push(V(i, j, -1)); inn[i].push(V(i, j, 1)); } }
+    const quad = (a, b, c2, d) => idx.push(a, b, c2, b, d, c2);                 // a b on top, c d below (a above c)
+    for (let i = 0; i < NS; i++) for (let j = 0; j < NU; j++) {
+      quad(out[i][j], out[i][j + 1], out[i + 1][j], out[i + 1][j + 1]);       // the outside, facing back
+      quad(inn[i][j + 1], inn[i][j], inn[i + 1][j + 1], inn[i + 1][j]);       // the inside, facing the body
+    }
+    for (let i = 0; i < NS; i++) { quad(inn[i][0], out[i][0], inn[i + 1][0], out[i + 1][0]); quad(out[i][NU], inn[i][NU], out[i + 1][NU], inn[i + 1][NU]); }   // the sides
+    for (let j = 0; j < NU; j++) { quad(out[NS][j], out[NS][j + 1], inn[NS][j], inn[NS][j + 1]); quad(inn[0][j], inn[0][j + 1], out[0][j], out[0][j + 1]); }  // hem, top
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+    const C = Part(0, r, dirt); C.geo(g, look.cape);
+    [-1, 1].forEach((sd) => C.box(0.12, 0.03, 0.17, look.cape, sd * PV.armR[0] * BK * 0.72, shY + 0.08, (c.z0 + c.z1) / 2 - 0.035, 0, 0, sd * -0.35));   // over the shoulders
+    C.box(0.05, 0.05, 0.03, "#8a7a4a", 0, shY + 0.02, c.z1 + 0.01);              // the clasp at the front
+    pieces.cape.push(C.done());
+    capeJoints = { capeU: [0, top, zAt(0)], capeM: [0, top - cl * 0.4, zAt(0.4)], capeL: [0, top - cl * 0.72, zAt(0.72)] };
   }
   pieces.torso.push(T.done());
 
@@ -835,7 +864,7 @@ export function bodyGeometries(look, v, opts = {}) {
   // ---------- SKINNING: the whole body in the character's space, each vertex following up to 4 bones ----------
   // The parts are built around the pivots of the unwidened body: shoulders and hips move out with the bulk.
   const wide = (p) => [p[0] * BK, p[1], p[2]];
-  const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL) };
+  const pivots = { ...PV, armR: wide(PV.armR), armL: wide(PV.armL), legR: wide(PV.legR), legL: wide(PV.legL), shinR: wide(PV.shinR), shinL: wide(PV.shinL), cape: [0, 0, 0] };
   const sc = (a) => [a[0] * BK, a[1], a[2] * BK];
   const hands = { pivots, grip: sc(R.grip), gripAxis: R.gripAxis, gripL: sc(R.gripL), gripAxisL: R.gripAxisL, shieldAt: [-Bd.fore[0] * BK - 0.07, Bd.fore[1], Bd.fore[2] * BK + 0.03] };
   // the bones' joints, widened like the body (the head is not)
@@ -895,7 +924,19 @@ export function bodyGeometries(look, v, opts = {}) {
     }
     setSkin(g, si, sw);
   };
-  const weigher = (name) => (name === "head" ? (x, y, z, a) => { a[4] = 1; } : name === "torso" ? torsoPiece : name.startsWith("pad") ? near([name === "padR" ? "armR" : "armL", "torso"]) : near([name]));
+  // the cape, by how far down a point is (s): the chest at the top, then its bones one after the other (blended
+  // around their joints: s 0.4 and 0.72); its bones come after the skirt's helpers (models.js: capeU, capeM, capeL)
+  const C0 = R.bones.length + 6, CHEST = R.bones.indexOf("chest");
+  const CAPE_W = [[0, CHEST], [0.08, C0], [0.32, C0], [0.48, C0 + 1], [0.64, C0 + 1], [0.8, C0 + 2]];
+  const capeW = (x, y, z, a) => {
+    const s = Math.min(1, Math.max(0, (capeTop - y) / capeLen));
+    if (s < 0.1 && z > capeMid) { a[CHEST] += 1; return; }               // over the shoulders, the clasp: on the chest
+    let k = 0; while (k < CAPE_W.length - 1 && CAPE_W[k + 1][0] <= s) k++;
+    if (k === CAPE_W.length - 1) { a[CAPE_W[k][1]] += 1; return; }
+    const [s0, b0] = CAPE_W[k], [s1, b1] = CAPE_W[k + 1], t = (s - s0) / (s1 - s0);
+    a[b0] += 1 - t; a[b1] += t;
+  };
+  const weigher = (name) => (name === "head" ? (x, y, z, a) => { a[4] = 1; } : name === "cape" ? capeW : name === "torso" ? torsoPiece : name.startsWith("pad") ? near([name === "padR" ? "armR" : "armL", "torso"]) : near([name]));
   const pivotOf = (name) => (name.startsWith("pad") ? pivots[name === "padR" ? "armR" : "armL"] : pivots[name]);
   if (opts.fp) {
     // The first-person arms (makeViewmodel), in the arm's own space, skinned on three bones of their own: 0 the upper
@@ -934,7 +975,7 @@ export function bodyGeometries(look, v, opts = {}) {
   }
   for (const [name, g] of Object.entries(palPieces)) { const pv = pivotOf(name); g.translate(pv[0], pv[1], pv[2]); skinBy(g, weigher(name)); palAll.push(g); }
   const ft = Bd.foot, kp = pivots.shinR;                                // heel and toe of the right foot (ground contact)
-  const out = { body: merge(all), palBody: merge(palAll), bones: R.bones, joints,
+  const out = { body: merge(all), palBody: merge(palAll), bones: R.bones, joints, capeJoints,
     heelToe: [[kp[0] + ft.x * BK, 0, kp[2] + (ft.z - ft.d * 0.42) * BK], [kp[0] + ft.x * BK, 0, kp[2] + (ft.z + ft.d * 0.42) * BK]],   // the sole
     long, ...hands };
   cache.set(key, out);

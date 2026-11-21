@@ -460,6 +460,22 @@ export const followSkirt = (u) => {
   });
 };
 
+// ---------- the cape ----------
+// Its three bones (models.js, body.js) turn back from the shoulders: as the trunk bends forwards the cape still hangs
+// down, walking it lifts a little behind, running more (riding: some wind), slowly following the pace; a wave runs
+// down the cloth, larger the faster one goes. now: seconds (a clock that runs even standing still).
+function capeMove(u, now, mode, walking, P, ph) {
+  const sp = walking ? (mode === "run" ? 1 : 0.45) : mode === "sit" ? 0.2 : 0, want = 0.04 + 0.46 * sp;
+  const c = u._cape || (u._cape = { a: want, t: now });
+  const dt = clamp(now - c.t, 0, 0.1); c.t = now;
+  c.a += (want - c.a) * Math.min(1, dt * 2.5);
+  const lean = Math.max(0, P.pel[0] + P.spine[0] + P.chest[0]), f = 0.03 + 0.09 * sp;
+  const w = (k) => Math.sin(now * (2.4 + 0.9 * k) * (1 + 0.6 * sp) + ph * (1 + k) - 0.8 * k);
+  u.B.capeU.rotation.set(c.a * 0.5 + lean * 0.9 + f * 0.3 * w(0), 0, f * 0.12 * w(1));
+  u.B.capeM.rotation.set(c.a * 0.3 + f * 0.6 * w(1), 0, f * 0.2 * w(2));
+  u.B.capeL.rotation.set(c.a * 0.25 + f * 0.9 * w(2), 0, f * 0.25 * w(0));
+}
+
 // ---------- poseHuman ----------
 // mode: what the character is doing (null = stand / walk); k: progress of timed moves (0..1). Attacks: "windup"
 // then "swing", in the style userData.atk ("over" overhead chop, "side" horizontal cut, "thrust" lunge, "rise" rising
@@ -541,6 +557,7 @@ export function poseHuman(g, t, moving, mode, k = 0) {
   u._last = A;
   apply(u, A);
   followSkirt(u);
+  if (u.geo?.capeJoints && u.B.capeU) capeMove(u, now, mode, walking, P, ph);
   if (sitY !== null) return sitY;
   return (-footLow(u) + lift) * (u.variant?.height || 1);
 }
