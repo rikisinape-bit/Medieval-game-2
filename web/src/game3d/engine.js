@@ -17,6 +17,7 @@ import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleCe
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
+import { createSky, sunDir } from "./sky";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -46,6 +47,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   sun.shadow.mapSize.set(1024, 1024);
   Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, far: 140 });
   scene.add(hemi, sun, sun.target);
+  const sky = createSky(scene), _sunV = new THREE.Vector3();          // the sun and the moon going round the sky
   const fx = createFx(scene);
   const sfx = createAudio();
 
@@ -637,14 +639,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); const bg = cA.clone();
     cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
     const near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
-    const si = d[4] * clamp(el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dayK);
+    // the light comes from the sun by day, from the moon by night (sky.js: opposite to it; pale blue, weak): the
+    // shadows follow them round the sky
+    const L = sunDir(S.dayT, _sunV), byDay = L.y > -0.03;
+    if (!byDay) L.negate();
+    const si = byDay ? d[4] * clamp(el * 2.2, 0, 1) : 0.32 * clamp(-el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dayK);
+    sun.color.set(byDay ? "#fff0d0" : "#a9bcff");
     const k = Math.min(1, dt * 2.5);
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
     scene.fog.near += (near - scene.fog.near) * k; scene.fog.far += (far - scene.fog.far) * k;
     sun.intensity += (si - sun.intensity) * k; hemi.intensity += (hi - hemi.intensity) * k;
     PALADIN_MAT.envMapIntensity = 0.2 + 0.85 * Math.min(1, hemi.intensity / 0.9);   // the steel's reflections follow the daylight
-    const az = S.dayT * Math.PI * 2;
-    sun.position.set(P.x + Math.sin(az) * 30, Math.max(4, el * 40), P.z + 12); sun.target.position.set(P.x, 0, P.z);
+    sun.position.set(P.x + L.x * 40, Math.max(4, L.y * 40), P.z + L.z * 40); sun.target.position.set(P.x, 0, P.z);
     const lan = S.night ? 7 : 0;
     lanterns.forEach((l) => { l.userData.glow.material.emissiveIntensity = S.night ? 1 : 0.1; });
     if (lampMat) lampMat.emissiveIntensity = S.night ? 1.2 : 0.12;
@@ -1628,6 +1634,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
     if (talk) updateTalk(dt);
     mine.update(camera.position);
+    sky.update(camera.position, S.dayT);
     if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);
     renderer.render(scene, camera);

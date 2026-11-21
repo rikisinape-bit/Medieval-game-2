@@ -27,6 +27,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
 | `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
 | `castle.js`, `castle_layout.js` | Interno del castello di Valdoro, "stanza a parte" lontana dal mondo (`CASTLE`): pezzi, aree calpestabili, ostacoli e luci (`castle_layout.js`, solo dati); caricamento dei modelli alla prima entrata, pavimenti, strade da stanza a stanza (`castle.js`) |
+| `sky.js` | Sole e luna nel cielo: lo stesso arco di quelli veri (sorgono a est, alti a sud, tramontano a ovest), il sole di giorno, la luna piena opposta di notte; la luce del motore viene da quello che è alto (`sunDir`) |
 | `ground.js`, `leaves.js` | Terreno con texture (`groundMat`) e foglioline 3D ai bordi tra terra e prato (`addLeaves`, `edgeSpots`) |
 | `dialogs.js` | Dialoghi con opzioni + `applyEffect` (tutte le conseguenze) |
 | `fx.js` | Particelle a cubetti (`burst`) |
@@ -295,6 +296,18 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
     Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
     lento un passo lungo saltava la porta chiusa;
+  - **sole e luna** (`sky.js`): girano nel cielo col ciclo del giorno (`S.dayT`) come quelli veri qui al nord: sorgono a
+    est, a mezzogiorno sono alti a sud (latitudine ~25°: il sole a 65°), tramontano a ovest; la luna, piena, è sempre
+    opposta al sole: sorge al tramonto e cala all'alba. Disegnati a 180 m dalla telecamera (oltre la nebbia, che non li
+    tocca; case, montagna, muri li nascondono): il sole un disco luminoso in un grande alone (arancione e più largo vicino
+    all'orizzonte), la luna il modello dell'utente (la scena di 3ds Max "Moon 001", una sfera con i crateri scolpiti),
+    illuminata dal sole un po' di lato (i crateri si vedono), luminosa, in un alone azzurrino; spariscono sotto
+    l'orizzonte. La luce del motore ora viene da loro: di giorno dal sole (le ombre seguono il sole), di notte dalla
+    luna, azzurra e debole (ombre leggere al chiaro di luna). La luna dal file .max (formato chiuso, niente 3ds Max):
+    `tools/max-mesh.py` legge la mesh dell'Editable Poly dallo stream "Scene" (blocchi annidati: vertici 0x0100, facce
+    0x011A), `tools/moon-export.py` (Python di Blender) la centra, raggio 1, ~2400 triangoli, `npm run luna`
+    (`tools/build-moon.mjs`) → `public/models/luna.glb` (11 KB); sorgente in `assets/sorgenti/luna/` (fuori da git);
+    licenza del modello da verificare;
   - **KO dalle guardie**: tutte le guardie e i cavalieri di Valdoro (`valdoro` e `guard`: anche Brann e Oswin fuori dalle
     mura) portano in una cella del castello (il castello si carica dietro lo schermo nero "Le guardie ti hanno messo
     KO..."); le guardie di Roccanera (Gerd, Ulf, Ser Alaric) in una **gabbia** accanto al campo d'addestramento
