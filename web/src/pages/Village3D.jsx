@@ -21,11 +21,14 @@ const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - 
 const ATK = 84, ATK_C = 6 + ATK / 2, ARC = 86;
 const onArc = (deg, size) => { const a = (deg * Math.PI) / 180; return [ATK_C + Math.cos(a) * ARC - size / 2, ATK_C + Math.sin(a) * ARC - size / 2, size]; };
 // at: [right, bottom, size] in px inside the cluster.
-function Btn({ testid, color, onPress, icon, label, at, active, dim }) {
+// onRelease: a button that is held (the guard): called when the finger lets go (or slides away)
+function Btn({ testid, color, onPress, onRelease, icon, label, at, active, dim }) {
   const [right, bottom, size] = at;
+  const up = onRelease ? (e) => { e.stopPropagation(); onRelease(); } : undefined;
   return (
     <button
-      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); onPress(); }}
+      onPointerDown={(e) => { e.preventDefault(); e.stopPropagation(); if (onRelease) e.currentTarget.setPointerCapture?.(e.pointerId); onPress(); }}
+      onPointerUp={up} onPointerCancel={up} onLostPointerCapture={up}
       data-testid={testid}
       data-ui=""
       className={`absolute pointer-events-auto rounded-full border-2 ${active ? "bg-slate-700/80" : "bg-black/40"} ${dim ? "opacity-40" : ""} backdrop-blur-sm flex flex-col items-center justify-center font-pixel ${size > 60 ? "text-[11px]" : "text-[8px]"} active:scale-90 transition-transform select-none touch-none`}
@@ -223,7 +226,7 @@ export default function Village3D() {
             ? <Btn testid="btn3d-dodge" color="#a8e07a" onPress={() => act("run")} dim={hud?.winded || (hud?.stamina ?? 100) < 15} icon={<Wind size={17} />} label="Schiva" at={onArc(-10, 50)} />
             : <Btn testid="btn3d-run" color="#a8e07a" onPress={() => act("run")} active={hud?.running} dim={hud?.winded && !hud?.mounted} icon={<Footprints size={17} />} label="Corri" at={onArc(-10, 50)} />}
           <QuickBtn hud={hud} onPress={() => act("quick")} />
-          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
+          <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} onRelease={() => act("parryUp")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
           {hud?.sneak
             ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
             : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}

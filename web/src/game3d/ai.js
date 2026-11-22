@@ -5,9 +5,11 @@ const ATTACKS = ["over", "side", "thrust", "rise"];
 // Whoever has decided to stop the player keeps at it to the end: it gives up only when the player has got this far
 // away (metres). Then it goes back to its place and heals slowly (engine).
 export const GIVE_UP = 35;
+// block: how often it raises its guard against a blow it sees coming; perfect: how often that guard is a perfect
+// parry (just in time: your blow glances off, you stagger); hold: how often it waits behind its guard between blows
 export const FIGHT = {
-  knight: { block: 0.35, sp: 3.4, wind: 0.5 }, soldier: { block: 0.25, sp: 3.0, wind: 0.6 },
-  smith: { block: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.2, sp: 3.8, wind: 0.55 },
+  knight: { block: 0.5, perfect: 0.3, hold: 0.35, sp: 3.4, wind: 0.5 }, soldier: { block: 0.38, perfect: 0.18, hold: 0.25, sp: 3.0, wind: 0.6 },
+  smith: { block: 0.22, perfect: 0.08, hold: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.3, perfect: 0.12, hold: 0.2, sp: 3.8, wind: 0.55 },
 };
 
 // route(x, z, tx, tz): the next point on the way through the mine's tunnels, or null (straight)
@@ -89,18 +91,34 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
     if (n.hostile && n.fights) {                                  // (also into the mine and out of it: it follows the tunnels)
       const F = FIGHT[n.role] || FIGHT.soldier;
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
-      out.mode = "guard";
+      // its guard: raised against a blow of yours it sees coming (decided once a blow, after its reaction time), held
+      // while your blow lasts, then lowered with a quick answer; its posture comes back while it is down (engine.js:
+      // a blow on the guard, perfect parry, guard broken)
+      n.posture = Math.min(100, (n.posture ?? 100) + (n.blocking ? 0 : 22 * dt));
+      if (P.attacking && P.atkSeq !== n.seenAtk && d < 3.2 && n.state === "idle" && n.stagger <= 0) {
+        n.seenAtk = P.atkSeq;                                       // a blow of yours coming: once a blow, it decides
+        const r = Math.random();
+        if (!n.blocking && r < F.block) { n.blocking = true; n.blockT = 0; n.blockPerfect = r < F.perfect; n.holdT = 0; }
+      }
+      // between blows (it waits for its turn), sometimes behind its guard: a guard held is never a perfect parry
+      if (!n.blocking && n.state === "idle" && n.cd > 0.4 && d < 2.6 && n.stagger <= 0 && Math.random() < F.hold * dt) { n.blocking = true; n.blockT = 0.5; n.blockPerfect = false; n.holdT = 0.8 + Math.random() * 0.9; }
+      if (n.blocking) {
+        n.blockT += dt;
+        if (n.stagger > 0 || n.state !== "idle" || (!P.attacking && n.blockT > Math.max(0.45, n.holdT || 0)) || n.blockT > 3) { n.blocking = false; n.cd = Math.min(n.cd, 0.25); }
+      }
+      out.mode = n.blocking ? "block" : "guard";
       if (n.stagger > 0) out.mode = "stagger";
       else if (n.state === "windup") {
-        n.k += dt / F.wind; out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);
-        if (n.k >= 1) { n.state = "swing"; n.k = 0; snd.swing(n); if (d < 2.3 && !route(n.x, n.z, P.x, P.z)) hurtPlayer(n); }   // (not through rock)
+        n.k += dt / (F.wind * (n.riposte ? 0.55 : 1)); out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);   // (a riposte: quick)
+        if (n.k >= 1) { n.state = "swing"; n.k = 0; n.riposte = false; snd.swing(n); if (d < 2.3 && !route(n.x, n.z, P.x, P.z)) hurtPlayer(n); }   // (not through rock)
       } else if (n.state === "swing") {
         n.k += dt / 0.3; out.mode = "swing"; out.k = n.k;
         if (n.k >= 1) { n.state = "idle"; n.cd = 0.8 + Math.random() * 0.7; n.side = Math.random() < 0.5 ? -1 : 1; }
       } else if (d > 1.8 || route(n.x, n.z, P.x, P.z)) step(P.x, P.z, F.sp);
       else {
         face(P.x, P.z, 8);
-        if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
+        if (n.blocking) { /* behind its guard: it waits for your blow */ }
+        else if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
         else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }
       // (before, a bandit 22 m from its post turned round and walked home, its back to the player, healed at once)

@@ -4,7 +4,7 @@ import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHou
 import { getDialog, applyEffect, CONTINUES, RANSOM, RANSOM_CAGE } from "./dialogs";
 import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE, CAGE, CAGE_GUARDS, CAGE_WATCH } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF, TWO_HANDED, SLOW_2H } from "./items";
-import { createAI, FIGHT } from "./ai";
+import { createAI } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
 import { createFx } from "./fx";
 import { createAudio } from "./audio";
@@ -578,7 +578,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   let dodgeT = 0, dodgeCd = 0, iframe = 0, shake = 0, hudT = 0, scanT = 0, prompt = null, dialogOpen = false;
   // Parry (K / Para): a short guard; blocking right at the start is a perfect parry (the enemy staggers, your next blow
   // does double damage). Running (Shift / Corri): faster, but not while sneaking, attacking or parrying.
-  let parryT = -1, riposteT = 0, running = false, stillT = 0;
+  // The guard (the parry): up while the button is held (guardHeld); perfect if a blow lands just after it was raised
+  // (guardT), else the blow is mostly stopped; every blow stopped costs breath (stamina), more with a two-handed sword;
+  // without breath the guard breaks (guardBroken: down until the button is let go). guardK: how far the arms have
+  // raised the blade. pStag: the player staggered (a blow of yours perfectly parried by them, the guard broken).
+  let guardHeld = false, guarding = false, guardT = 0, guardK = 0, guardBroken = false, pStag = 0, riposteT = 0, running = false, stillT = 0;
+  const GUARD = { perfect: 0.2, perfectShield: 0.28, cost: 14, costPerfect: 5, heavy: 1.5, shieldCost: 0.8, through: 0.3, throughShield: 0.15 };
   // Stamina (resistenza, 0..100): running on foot uses it up in about 6 s, a dodge costs 15; it comes back after a
   // moment, walking or (faster) standing still. Out of breath at 0: no running and no dodging until it is back to 30.
   // (On horseback the horse runs: no stamina.)
@@ -691,21 +696,31 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const facing = Math.abs(angDiff(Math.atan2(n.x - P.x, n.z - P.z), P.yaw)) < 1.4;
     if (iframe > 0) { hooks.onFloat("SCHIVATA!", "#a8e07a"); return; }
     makeNoise(P.x, P.z, NOISE.blow);                                                 // steel on steel, or a blow taken
-    if (parryT > 0 && facing) {
-      const perfect = parryT > (hasShield() ? 0.5 : 0.36);
+    let scale = 1;                                                                   // how much of the blow gets through
+    if (guarding && facing) {
+      const shield = hasShield(), perfect = guardT <= (shield ? GUARD.perfectShield : GUARD.perfect);
+      const cost = (perfect ? GUARD.costPerfect : GUARD.cost) * (TWO_HANDED.has(P.eq.hand) ? GUARD.heavy : 1) * (shield ? GUARD.shieldCost : 1);
       fx.burst(P.x + Math.sin(P.yaw) * 0.6, floorY(P.x, P.z) + 1.5, P.z + Math.cos(P.yaw) * 0.6, "#ffe08a", perfect ? 16 : 8, 4, true);
-      n.stagger = perfect ? 1.6 : 0.9; n.state = "idle"; n.cd = Math.max(n.cd, 0.6);
-      sfx.clash(1); shake = 0.15;
-      if (perfect) riposteT = 1.5;
-      hooks.onFloat(perfect ? "PARATA PERFETTA!" : "PARATA!", "#9fd0ff");
-      return;
+      if (!perfect && P.stamina < cost) {                                             // out of breath: the guard breaks
+        guardBroken = true; guarding = false; pStag = 0.5; P.stamina = 0; winded = true; breathT = 0.8; scale = 0.75;
+        sfx.clash(0.7); hooks.onFloat("GUARDIA ROTTA!", "#ff8a4a");
+      } else {
+        P.stamina = Math.max(0, P.stamina - cost); breathT = 0.8; sfx.clash(1);
+        if (perfect) {                                                                // at the right moment: it staggers, your answer is strong
+          n.stagger = 1.6; n.state = "idle"; n.cd = Math.max(n.cd, 0.6); riposteT = 1.5; shake = 0.15;
+          hooks.onFloat("PARATA PERFETTA!", "#9fd0ff");
+          return;
+        }
+        n.cd = Math.max(n.cd, 0.35); shake = 0.1; scale = shield ? GUARD.throughShield : GUARD.through;
+        hooks.onFloat("PARATA", "#9fd0ff");
+      }
     }
     let raw = n.spar ? Math.ceil(n.dmg * 0.6) : n.dmg + (n.role === "bandit" && S.night ? 3 : 0);
-    if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
-    const dmg = Math.max(1, Math.round(raw * (1 - dmgReduction(P.eq))));
-    P.hp -= dmg; shake = 0.35;
-    sfx.hit(0.9);
-    fx.burst(P.x + Math.sin(P.yaw) * 0.5, floorY(P.x, P.z) + 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3);
+    if (scale < 1) raw *= scale; else if (facing && hasShield()) raw *= 1 - ITEMS[P.eq.off].block;
+    const dmg = Math.max(scale < 1 ? 0 : 1, Math.round(raw * (1 - dmgReduction(P.eq))));
+    if (!dmg) return;
+    P.hp -= dmg; shake = Math.max(shake, scale < 1 ? 0.15 : 0.35);
+    if (scale === 1) { sfx.hit(0.9); fx.burst(P.x + Math.sin(P.yaw) * 0.5, floorY(P.x, P.z) + 1.3, P.z + Math.cos(P.yaw) * 0.5, "#a01818", 10, 3); }
     hooks.onFloat(`-${dmg}`, "#ff5252");
     if (n.spar && P.hp <= 15) {
       P.hp = 15; n.spar = false; n.hostile = false; n.hp = n.hpMax; n.actT = null;
@@ -793,16 +808,27 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (!target) return;
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
-    const two = TWO_HANDED.has(P.eq.hand);                                       // a two-handed blow: harder to block, it staggers
-    if (n.hostile && n.fights && n.state === "idle" && n.stagger <= 0 && facingMe && Math.random() < (FIGHT[n.role] || FIGHT.soldier).block * (two ? 0.6 : 1)) {
-      fx.burst(n.x - dx * 0.3, floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 8, 3, true);
-      sfx.clash(1); hooks.onFloat("BLOCCATO", "#c8c8d4"); n.cd = Math.min(n.cd, 0.25); queued = false; shake = 0.1; n.blockT = 0.45;
-      makeNoise(n.x, n.z, NOISE.blow);
-      return;
-    }
+    const two = TWO_HANDED.has(P.eq.hand);                                       // a two-handed blow: it breaks guards, it staggers
     const unaware = (!n.hostile && !facingMe && !n.panic) || n.sleepAt;
     let dmg = SWORDS[P.eq.hand].dmg + Math.round(Math.random() * 6);
     if (combo === 3) dmg = Math.round(dmg * 1.5);
+    // its guard up (ai.js: raised when it sees your blow coming): just raised, a perfect parry, your blow glances off,
+    // you stagger and it answers at once; else most of the blow is stopped, and its guard gives way (posture) blow by
+    // blow, faster to a two-handed sword: broken, it staggers
+    if (n.blocking && facingMe && n.stagger <= 0) {
+      fx.burst(n.x - dx * 0.3, floorY(n.x, n.z) + 1.5, n.z - dz * 0.3, "#ffe08a", 10, 3, true);
+      makeNoise(n.x, n.z, NOISE.blow); queued = false;
+      if (n.blockPerfect && n.blockT <= 0.4) {
+        sfx.clash(1); shake = 0.25; pStag = 0.8; atkT = -1; combo = 0; riposteT = 0;
+        n.blocking = false; n.cd = 0; n.riposte = true;
+        hooks.onFloat("PARATA PERFETTA!", "#ff9a4a");
+        return;
+      }
+      n.posture = (n.posture ?? 100) - (two ? 45 : 25);
+      if (n.posture <= 0) { n.blocking = false; n.posture = 50; sfx.clash(0.8); hooks.onFloat("GUARDIA ROTTA!", "#ffd27a"); hitNpc(n, Math.round(dmg * 0.5)); n.stagger = Math.max(n.stagger, 1.0); }
+      else { sfx.clash(0.9); shake = 0.1; hooks.onFloat("PARATO", "#c8c8d4"); hitNpc(n, Math.max(1, Math.round(dmg * 0.25))); n.kb = 0.1; }
+      return;
+    }
     if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
     hitNpc(n, unaware ? n.hp : dmg);
     if (two && n.alive) { n.kb = 0.3; n.stagger = Math.max(n.stagger, 0.3); }
@@ -1222,11 +1248,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
   function action(kind) {
     sfx.unlock();
+    if (kind === "parryUp") { guardHeld = false; guardBroken = false; return; }       // (let go even in a dialog or a pause)
     if (dialogOpen || paused || transit) return;
     if (kind === "interact") interact();
-    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; blow = nextBlow(); sfx.swing(0.7); } else if (atkT > 0.12) queued = true; }
+    if (pStag > 0 && (kind === "attack" || kind === "dodge")) return;                 // staggered: nothing for a moment
+    if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; blow = nextBlow(); sfx.swing(0.7); P.atkSeq = (P.atkSeq || 0) + 1; } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
-    if (kind === "parry" && parryT <= -0.3 && atkT < 0 && !P.mounted) { parryT = hasShield() ? 0.8 : 0.55; running = false; }
+    if (kind === "parry") guardHeld = true;                                            // held: up as long as it can be
     if (kind === "run") {                                                // in a fight the button dodges
       if (inCombat() && !P.mounted) kind = "dodge";
       else if (winded && !P.mounted && !running) hooks.onFloat("SENZA FIATO", "#c8b88a");
@@ -1496,8 +1524,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     let moving = false;
     if (!dialogOpen && !transit && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
-      const run = (running || keys.shift) && !P.sneak && atkT < 0 && parryT <= 0 && (P.mounted || !winded);
-      const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || parryT > 0 ? 0.5 : 1) * (P.sneak ? 0.45 : 1);
+      const run = (running || keys.shift) && !P.sneak && atkT < 0 && !guarding && pStag <= 0 && (P.mounted || !winded);
+      const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || guarding ? 0.5 : 1) * (pStag > 0 ? 0.35 : 1) * (P.sneak ? 0.45 : 1);
       [P.x, P.z] = collide(P.x + mx * spd * dt, P.z + mz * spd * dt);
       moving = true; bobT += dt * (P.mounted ? 7 : 9) * (run ? 1.45 : 1); P.running = run;
       stillT = 0;
@@ -1506,7 +1534,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (P.running && !P.mounted) {
       P.stamina = Math.max(0, P.stamina - 16 * dt); breathT = 0.8;
       if (P.stamina <= 0) { winded = true; running = false; hooks.onFloat("SENZA FIATO", "#c8b88a"); note("Sei senza fiato: cammina per riprenderlo."); }
-    } else if ((breathT -= dt) <= 0) P.stamina = Math.min(100, P.stamina + (moving ? 9 : 16) * dt);
+    } else if ((breathT -= dt) <= 0) P.stamina = Math.min(100, P.stamina + (moving ? 9 : 16) * (guarding ? 0.3 : 1) * dt);   // (slowly behind the guard)
     if (winded && P.stamina >= 30) winded = false;
     // noise of the player's moves, a few times a second
     noiseT -= dt; heardT -= dt;
@@ -1516,7 +1544,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (r > 0) makeNoise(P.x, P.z, r);
     }
     if (dodgeT > 0) { dodgeT -= dt; [P.x, P.z] = collide(P.x + dodgeDir[0] * 10 * dt, P.z + dodgeDir[1] * 10 * dt); }
-    iframe -= dt; dodgeCd -= dt; parryT -= dt; riposteT -= dt; shake = Math.max(0, shake - dt);
+    iframe -= dt; dodgeCd -= dt; riposteT -= dt; shake = Math.max(0, shake - dt); pStag = Math.max(0, pStag - dt);
+    { const was = guarding; guarding = guardHeld && !guardBroken && atkT < 0 && !P.mounted && pStag <= 0 && dodgeT <= 0;
+      if (guarding && !was) { guardT = 0; running = false; }
+      if (guarding) guardT += dt;
+      guardK += ((guarding ? 1 : 0) - guardK) * Math.min(1, dt * 14); P.guarding = guarding; P.attacking = atkT >= 0; }   // (ai.js reads them)
     let k = 0;
     if (import.meta.env.DEV && window.__atk) { atkT = window.__atk.t - dt; combo = window.__atk.combo; blow = window.__atk.blow || combo; queued = false; }   // dev only: freeze a blow (tests)
     if (atkT >= 0) {
@@ -1526,7 +1558,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (import.meta.env.DEV && window.__atk) atkT = window.__atk.t;
       // the thrust is a lunge: a short step forward while the arm shoots out
       if (blow === "thrust" && !P.mounted && k > 0.3 && k < 0.52 && !(import.meta.env.DEV && window.__atk)) [P.x, P.z] = collide(P.x + Math.sin(P.yaw) * 2.4 * dt * slow, P.z + Math.cos(P.yaw) * 2.4 * dt * slow);
-      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; blow = nextBlow(); sfx.swing(0.8); } else { atkT = -1; combo = 0; } queued = false; }
+      if (atkT > 0.45) { if (queued && combo < 3) { atkT = 0; combo += 1; blow = nextBlow(); sfx.swing(0.8); P.atkSeq = (P.atkSeq || 0) + 1; } else { atkT = -1; combo = 0; } queued = false; }
     }
     const h = mounted();
     if (h) { h.x = P.x; h.z = P.z; h.yaw = P.yaw; }
@@ -1551,7 +1583,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         }
         return;
       }
-      n.cd -= dt; n.stagger -= dt; n.flash -= dt; n.blockT = (n.blockT || 0) - dt;
+      n.cd -= dt; n.stagger -= dt; n.flash -= dt;
       if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
       const ox = n.x, oz = n.z;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
@@ -1565,7 +1597,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; if (shown) poseHuman(n.mesh, 0, false, "sleep"); }
       else {
         n.mesh.userData.atk = n.atk;
-        const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, n.blockT > 0 && r.mode === "guard" ? "block" : r.mode, r.k)) : n.lastY ?? 0;
+        const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, r.mode, r.k)) : n.lastY ?? 0;
         at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + floorY(n.x, n.z) + (r.seat || 0), n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
@@ -1592,7 +1624,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       // Player body
       const pm = playerMesh;
       pm.userData.atk = blow === "thrust" ? "thrust" : ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo, or a lunge
-      const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : atkT >= 0 ? "swing" : parryT > 0 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
+      const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : pStag > 0 ? "stagger" : atkT >= 0 ? "swing" : guardK > 0.5 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
       at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : gy + ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
@@ -1618,7 +1650,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);
       // The blows (FP_BLOWS): the arm turns so the edge leads, the elbow bends, the wrist bends; the sword never turns in the fist.
       const R = VM_REST.R, L = VM_REST.L;
-      const g = parryT > 0 ? Math.min(1, (hasShield() ? 0.8 : 0.55) - parryT < 0.08 ? ((hasShield() ? 0.8 : 0.55) - parryT) / 0.08 : 1, parryT / 0.1) : 0;   // guard up, then down
+      const g = guardK;                                                                // the guard: up while held
+      vm.g.rotation.set(pStag > 0 ? -0.35 * Math.min(1, pStag / 0.5) : 0, 0, pStag > 0 ? Math.sin(pStag * 40) * 0.04 : 0);   // staggered: the arms knocked back
       if (TWO_HANDED.has(P.eq.hand)) fpTwoHands(k, g, Math.sin(bobT * 0.5) * 0.01, Math.sin(bobT * 0.5) * 0.01);   // both hands on the grip
       else {
         if (atkT >= 0) applyPose(fpRig(), vm.armR, vm.bonesR, fpArm(Math.min(1, k), blow));
@@ -1672,8 +1705,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (kk === "k") action("parry");
     if (kk === "q") action("quick");
   };
-  const ku = (e) => { keys[e.key.toLowerCase()] = false; };
-  const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); };
+  const ku = (e) => { const kk = e.key.toLowerCase(); keys[kk] = false; if (kk === "k") action("parryUp"); };   // (the guard: while K is held)
+  const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); guardHeld = false; guardBroken = false; };
   window.addEventListener("blur", blur);
   window.addEventListener("pointerdown", onDown);
   window.addEventListener("pointermove", onMove);

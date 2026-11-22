@@ -296,6 +296,18 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
     Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
     lento un passo lungo saltava la porta chiusa;
+  - **parata tenuta** (`engine.js` `GUARD`, `ai.js` `FIGHT`): la guardia resta alzata finché tieni premuto (tasto K, pulsante
+    Para del telefono: `onRelease`); se il colpo arriva entro 0,2 s da quando l'hai alzata (0,28 con lo scudo) è una
+    **parata perfetta** (nessun danno, il nemico barcolla 1,6 s, il tuo colpo dopo è un contrattacco doppio); altrimenti
+    passa solo il 30% del colpo (15% con lo scudo). Ogni colpo parato costa resistenza: 14 (perfetta 5), ×1,5 con lo
+    spadone, ×0,8 con lo scudo; senza abbastanza resistenza la **guardia si rompe** (passa il 75%, barcolli mezzo
+    secondo, va rilasciata e ripremuta); dietro la guardia la resistenza torna piano e cammini a metà velocità. I
+    **nemici** (`n.blocking`) alzano la guardia quando vedono partire un tuo colpo (cavalieri 50%, soldati 38%, banditi
+    30%, fabbri 22%) o la tengono tra un colpo e l'altro; a volte è una parata perfetta contro di te (cavalieri 30%,
+    soldati 18%...: il tuo colpo rimbalza, **barcolli** 0,8 s senza poter colpire, parare o schivare, e loro
+    rispondono subito con un colpo veloce); altrimenti passa il 25% del tuo colpo e la loro guardia cede (postura:
+    −25 a colpo, −45 con lo spadone, a zero si rompe: passa metà del colpo e barcollano 1 s; si ricarica quando
+    abbassano la guardia);
   - **sole e luna** (`sky.js`): girano nel cielo col ciclo del giorno (`S.dayT`) come quelli veri qui al nord: sorgono a
     est, a mezzogiorno sono alti a sud (latitudine ~25°: il sole a 65°), tramontano a ovest; la luna, piena, è sempre
     opposta al sole: sorge al tramonto e cala all'alba. Disegnati a 180 m dalla telecamera (oltre la nebbia, che non li
