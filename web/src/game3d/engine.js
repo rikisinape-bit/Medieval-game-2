@@ -18,6 +18,7 @@ import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./le
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
 import { createSky, sunDir } from "./sky";
+import { shapeOf, tumble, middle, placeMiddle, settle } from "./tumble";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -566,50 +567,51 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
   const picks = [];
   // Things lying about (picks) are real objects with weight: they lie still where they rest (on the ground; a few on
-  // a table: gy); let go or thrown they fall, tumble, bounce a little and settle on their own resting pose (each
-  // model is made lying as it would). Held (the interact button kept down) they are carried in front of you. Where
-  // a thing of the world was left is saved (S.flags.moved), a thing you dropped keeps its place in S.drops (ref).
-  const GRAV = 9.81;
-  const restY = (pk) => (pk.gy ?? floorY(pk.x, pk.z));
+  // a table: gy); let go or thrown they fall, tumble, bounce a little, tip over or roll (tumble.js: each one with the
+  // shape of its model) and are left exactly as they come to rest, on whatever side: never put back upright. Held
+  // (the interact button kept down) they are carried in front of you, turned as they were taken. Where and how a
+  // thing of the world was left is saved (S.flags.moved: x, z and its turn), a thing you dropped keeps its place in
+  // S.drops (ref: x, z, q).
+  const GRAV = 9.81, UPV = new THREE.Vector3(0, 1, 0), _cw = new THREE.Vector3(), _cq = new THREE.Quaternion(), _tw = new THREE.Vector3();
   const addPick = (p, ref) => {
-    const m = makeItem(p.item, ITEMS[p.item]?.color);
-    const pk = { ...p, mesh: m, ref, yaw: p.yaw ?? p.x * 1.7, vx: 0, vy: 0, vz: 0, spin: [0, 0], tilt: [0, 0], rest: true };
+    const m = makeItem(p.item, ITEMS[p.item]?.color), shape = shapeOf(p.item, m);
+    const pk = { ...p, mesh: m, ref, shape, q: new THREE.Quaternion().setFromAxisAngle(UPV, p.yaw ?? p.x * 1.7), v: new THREE.Vector3(), w: new THREE.Vector3(), rest: true };
+    pk.ground = (x, z) => pk.gy ?? floorY(x, z);
     const mv = !p.drop && S.flags.moved?.[p.id];
-    if (mv) { pk.x = mv[0]; pk.z = mv[1]; pk.gy = undefined; }
-    pk.y = restY(pk);
-    at(m, pk.x, pk.y, pk.z, pk.yaw); scene.add(m); picks.push(pk);
+    if (mv) { pk.x = mv[0]; pk.z = mv[1]; pk.gy = undefined; if (mv.length >= 6) pk.q.set(mv[2], mv[3], mv[4], mv[5]).normalize(); }
+    else if (Array.isArray(p.q) && p.q.length === 4) pk.q.set(...p.q).normalize();
+    settle(pk, shape, pk.ground);                                      // (lying on its lowest points)
+    m.position.set(pk.x, pk.y, pk.z); m.quaternion.copy(pk.q); scene.add(m); picks.push(pk);
     return pk;
   };
   PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...p }); });
   S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }, d));
   if (import.meta.env.DEV) window.__picks = picks;                  // dev only (tests)
-  const throwPick = (pk, vx, vy, vz) => { Object.assign(pk, { rest: false, carried: false, gy: undefined, vx, vy, vz, spin: [(Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9] }); };
-  const savePick = (pk) => {                                         // where it was left
-    if (pk.ref) { pk.ref.x = +pk.x.toFixed(2); pk.ref.z = +pk.z.toFixed(2); }
-    else if (!pk.drop) S.flags.moved = { ...(S.flags.moved || {}), [pk.id]: [+pk.x.toFixed(2), +pk.z.toFixed(2)] };
+  // let go (or thrown): it flies on as it was moving, turning a little (more the faster it goes)
+  const throwPick = (pk, vx, vy, vz) => {
+    const a = 1.2 + Math.random() * 2.2 + Math.hypot(vx, vy, vz) * 0.5;
+    Object.assign(pk, { rest: false, carried: false, gy: undefined, still: 0, simT: 0 });
+    pk.v.set(vx, vy, vz); pk.w.copy(_tw.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize().multiplyScalar(a));
+  };
+  const savePick = (pk) => {                                         // where (and how) it was left
+    const q = pk.q.toArray().map((a) => +a.toFixed(4));
+    if (pk.ref) Object.assign(pk.ref, { x: +pk.x.toFixed(2), z: +pk.z.toFixed(2), q });
+    else if (!pk.drop) S.flags.moved = { ...(S.flags.moved || {}), [pk.id]: [+pk.x.toFixed(2), +pk.z.toFixed(2), ...q] };
+  };
+  const keepOut = (x, z) => {                                        // a thing is never inside a wall
+    [x, z] = pushOut(x, z, 0.12);
+    if (castle.inZone(x, z)) return castle.constrain(x, z);
+    return mine.inZone(x, z) ? mine.constrain(x, z) : [x, z];
   };
   const updatePicks = (dt) => {
     for (const pk of picks) {
       if (!pk.carried && !pk.rest) {
-        pk.vy -= GRAV * dt;
-        let nx = pk.x + pk.vx * dt, nz = pk.z + pk.vz * dt;
-        [nx, nz] = pushOut(nx, nz, 0.12);                               // (not into walls)
-        if (castle.inZone(nx, nz)) [nx, nz] = castle.constrain(nx, nz); else if (mine.inZone(nx, nz)) [nx, nz] = mine.constrain(nx, nz);
-        pk.x = nx; pk.z = nz; pk.y += pk.vy * dt;
-        pk.tilt[0] += pk.spin[0] * dt; pk.tilt[1] += pk.spin[1] * dt;
-        const g = restY(pk);
-        if (pk.y <= g) {                                                // the ground: a bounce, or it stays
-          pk.y = g;
-          if (vAt(pk.x, pk.z) > 0) sfx.step(Math.min(0.6, 0.1 + -pk.vy * 0.08));
-          if (pk.vy < -1.8) { pk.vy *= -0.3; pk.vx *= 0.5; pk.vz *= 0.5; pk.spin = pk.spin.map((s) => s * 0.4); }
-          else { pk.vx = pk.vy = pk.vz = 0; pk.rest = true; savePick(pk); }
-        }
+        const r = tumble(pk, pk.shape, dt, pk.ground, keepOut);
+        if (r.hit > 1 && !(pk.sndT > 0) && vAt(pk.x, pk.z) > 0) { sfx.step(Math.min(0.6, 0.1 + r.hit * 0.08)); pk.sndT = 0.15; }
+        if (r.rest) { pk.rest = true; savePick(pk); }
       }
-      if (pk.rest && (pk.tilt[0] || pk.tilt[1])) {                       // landed: it settles on its resting pose
-        const k = Math.min(1, dt * 9);
-        pk.tilt = pk.tilt.map((a) => { const w = Math.atan2(Math.sin(a), Math.cos(a)) * (1 - k); return Math.abs(w) < 0.01 ? 0 : w; });
-      }
-      pk.mesh.position.set(pk.x, pk.y, pk.z); pk.mesh.rotation.set(pk.tilt[0], pk.yaw, pk.tilt[1]);
+      if (pk.sndT > 0) pk.sndT -= dt;
+      pk.mesh.position.set(pk.x, pk.y, pk.z); pk.mesh.quaternion.copy(pk.q);
     }
   };
   castleCells.forEach((c) => castle.setDoor(c.id, !!S.flags.cells?.[c.id]));   // the prison cells: shut, unless opened
@@ -923,8 +925,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), [x, z] = pushOut(P.x + fx * 0.55, P.z + fz * 0.55, 0.12);
     const d = { item: id, qty: q, x, z };
     S.drops.push(d);
-    const pk = addPick({ id: `d${Date.now()}`, ...d, drop: true }, d);  // from your hand: it falls in front of you
-    pk.y = floorY(P.x, P.z) + 1.15; throwPick(pk, fx * 1.3, 0.6, fz * 1.3);
+    const pk = addPick({ id: `d${Date.now()}`, ...d, drop: true, yaw: P.yaw }, d);  // from your hand: it falls in front of you
+    placeMiddle(pk, pk.shape, _cw.set(x, floorY(P.x, P.z) + 1.15, z)); throwPick(pk, fx * 1.3, 0.6, fz * 1.3);
     note(`Lasci a terra: ${ITEMS[id].name}${q > 1 ? ` (${q})` : ""}.`);
   };
   const pickUp = (pk) => {
@@ -948,7 +950,10 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   let holdT = -1, holdC = null, carry = null;
   const canCarry = (c) => !P.mounted && (c?.kind === "pick" || (c?.kind === "npc" && S.npcs[c.id] && !S.npcs[c.id].alive));
   const startCarry = (c) => {
-    if (c.kind === "pick") { carry = { pk: c.pk, vx: 0, vy: 0, vz: 0 }; Object.assign(c.pk, { carried: true, rest: false, gy: undefined }); sfx.pick(0.4); }
+    if (c.kind === "pick") {                                           // (it stays turned as it was, from where you face)
+      carry = { pk: c.pk, vx: 0, vy: 0, vz: 0, rel: new THREE.Quaternion().setFromAxisAngle(UPV, -P.yaw).multiply(c.pk.q) };
+      Object.assign(c.pk, { carried: true, rest: false, gy: undefined }); sfx.pick(0.4);
+    }
     else { const n = S.npcs[c.id]; carry = { n }; n.dragged = true; n.lift = n.lift || 0; n.liftV = 0; sfx.step(0.5); }
     running = false;
   };
@@ -958,7 +963,6 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     else { carry.n.dragged = false; carry.n.deadX = carry.n.x; carry.n.deadZ = carry.n.z; }
     carry = null;
   };
-  const _cw = new THREE.Vector3();
   const updateCarry = (dt) => {
     if (holdT >= 0 && (holdT += dt) >= 0.35) {                           // held long enough: it is taken
       const c = holdC; holdT = -1; holdC = null;
@@ -970,11 +974,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (view === "first") { tx = P.x + Math.sin(P.yaw) * cp * 0.85; tz = P.z + Math.cos(P.yaw) * cp * 0.85; ty = g0 + 1.38 + fy * 0.85; }
       else { tx = P.x + Math.sin(P.yaw) * 0.7; tz = P.z + Math.cos(P.yaw) * 0.7; ty = g0 + 1.1; }
       [tx, tz] = pushOut(tx, tz, 0.12);
-      ty = Math.max(ty, floorY(tx, tz) + 0.05);
-      const k = 1 - Math.exp(-dt * 18), ox = pk.x, oy = pk.y, oz = pk.z;
-      pk.x += (tx - pk.x) * k; pk.y += (ty - pk.y) * k; pk.z += (tz - pk.z) * k;
-      pk.yaw += Math.atan2(Math.sin(P.yaw - pk.yaw), Math.cos(P.yaw - pk.yaw)) * k; pk.tilt = [0, 0];
-      if (dt > 0) { carry.vx = (pk.x - ox) / dt; carry.vy = (pk.y - oy) / dt; carry.vz = (pk.z - oz) / dt; }
+      ty = Math.max(ty, floorY(tx, tz) + 0.15);
+      const k = 1 - Math.exp(-dt * 18);
+      pk.q.slerp(_cq.setFromAxisAngle(UPV, P.yaw).multiply(carry.rel), k);   // it turns with you
+      const c = middle(pk, pk.shape, _cw), ox = c.x, oy = c.y, oz = c.z;      // its middle where you hold it
+      c.x += (tx - c.x) * k; c.y += (ty - c.y) * k; c.z += (tz - c.z) * k;
+      placeMiddle(pk, pk.shape, c);
+      if (dt > 0) { carry.vx = (c.x - ox) / dt; carry.vy = (c.y - oy) / dt; carry.vz = (c.z - oz) / dt; }
     } else if (carry?.n) {                                               // a body: its middle a little in front of you
       const n = carry.n, tx = P.x + Math.sin(P.yaw) * 1.15, tz = P.z + Math.cos(P.yaw) * 1.15, k = 1 - Math.exp(-dt * 10);
       const cx = n.cx ?? n.x, cz = n.cz ?? n.z;

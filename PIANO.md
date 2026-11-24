@@ -298,11 +298,18 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     lento un passo lungo saltava la porta chiusa;
   - **oggetti con un peso** (`engine.js`: `addPick`, `updatePicks`, `throwPick`): ogni oggetto dell'inventario a terra è il
     suo modello vero (quello delle immagini del menu) e sta fermo appoggiato (niente più oggetti che galleggiano e
-    girano); lasciato a terra dal menu cade dalla mano, gli oggetti lanciati o lasciati cadono con la gravità (9,81),
-    girano in aria, rimbalzano un poco e si posano sul loro lato (il modello è fatto già appoggiato); non entrano nei muri.
+    girano); lasciato a terra dal menu cade dalla mano, gli oggetti lanciati o lasciati cadono con la gravità (9,81).
+    **Corpo rigido** (`tumble.js`): ogni modello diventa i suoi punti più esterni (un involucro convesso approssimato,
+    `shapeOf`), un baricentro e un'inerzia da scatola; in aria vola e gira, dove i punti toccano il terreno (a ogni
+    altezza: `floorY`) l'urto lo respinge con un piccolo rimbalzo e con attrito (passi di 1/120 s, contatti risolti a
+    impulsi): si ribalta su un fianco, una cosa piatta si ferma su una faccia, una tonda rotola (e su una discesa rallenta
+    fino a fermarsi). **Resta esattamente com'è atterrato**, su qualunque lato: non torna più dritto; fermo quando nessun
+    suo punto si muove più di 4 cm/s per 0,3 s. Non entra nei muri (rimbalza un poco). Dove e come è rimasto si salva
+    (`S.flags.moved`: x, z e il quaternione; `S.drops`: `q`) e al caricamento è appoggiato sui suoi punti più bassi (`settle`).
     **Interagisci tenuto premuto** (tasto E, pulsante Usa: `interactDown`/`interactUp`): un tocco fa quello che faceva
     (raccogli, fruga, parla); tenuto 0,35 s su un oggetto lo porti davanti a te (dove guardi), su un morto lo trascini
-    (più piano, un po' sollevato); lasciato, l'oggetto cade conservando il movimento (si può lanciare un poco), il corpo
+    (più piano, un po' sollevato); un oggetto preso resta girato com'era e gira con te; lasciato, cade conservando il
+    movimento (si può lanciare un poco), il corpo
     ricade a terra. I vivi non si spostano. Dove resta un oggetto del mondo si salva (`S.flags.moved`), uno lasciato da te
     in `S.drops`, un corpo in `deadX`/`deadZ`; per combattere lo lasci (attacca o para);
   - **cibi nuovi** dai modelli dell'utente (`assets/sorgenti/cibo/`, fuori da git: tre file di Blender e un pacchetto Unity):
