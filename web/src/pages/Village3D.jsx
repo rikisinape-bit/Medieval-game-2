@@ -228,8 +228,8 @@ export default function Village3D() {
           <QuickBtn hud={hud} onPress={() => act("quick")} />
           <Btn testid="btn3d-parry" color="#9fd0ff" onPress={() => act("parry")} onRelease={() => act("parryUp")} icon={<Shield size={15} />} label="Para" at={onArc(26.7, 46)} />
           {hud?.sneak
-            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interact")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
-            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interact")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
+            ? <Btn testid="btn3d-interact" color="#e8c050" onPress={() => act("interactDown")} onRelease={() => act("interactUp")} icon={<Hand size={15} />} label="Ruba" at={onArc(63.3, 46)} />
+            : <Btn testid="btn3d-interact" color="#6ab0f0" onPress={() => act("interactDown")} onRelease={() => act("interactUp")} icon={<MessageSquare size={15} />} label="Usa" at={onArc(63.3, 46)} />}
         </div>
       </div>
       {fps && <FpsMeter getStats={getStats} cap={POWER_FPS[power]} />}

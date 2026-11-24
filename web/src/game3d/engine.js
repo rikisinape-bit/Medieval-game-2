@@ -565,9 +565,53 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   });
 
   const picks = [];
-  const addPick = (p) => { const m = makeItem(p.item, ITEMS[p.item]?.color); at(m, p.x, 0.05, p.z, p.x * 1.7); scene.add(m); picks.push({ ...p, mesh: m }); };
+  // Things lying about (picks) are real objects with weight: they lie still where they rest (on the ground; a few on
+  // a table: gy); let go or thrown they fall, tumble, bounce a little and settle on their own resting pose (each
+  // model is made lying as it would). Held (the interact button kept down) they are carried in front of you. Where
+  // a thing of the world was left is saved (S.flags.moved), a thing you dropped keeps its place in S.drops (ref).
+  const GRAV = 9.81;
+  const restY = (pk) => (pk.gy ?? floorY(pk.x, pk.z));
+  const addPick = (p, ref) => {
+    const m = makeItem(p.item, ITEMS[p.item]?.color);
+    const pk = { ...p, mesh: m, ref, yaw: p.yaw ?? p.x * 1.7, vx: 0, vy: 0, vz: 0, spin: [0, 0], tilt: [0, 0], rest: true };
+    const mv = !p.drop && S.flags.moved?.[p.id];
+    if (mv) { pk.x = mv[0]; pk.z = mv[1]; pk.gy = undefined; }
+    pk.y = restY(pk);
+    at(m, pk.x, pk.y, pk.z, pk.yaw); scene.add(m); picks.push(pk);
+    return pk;
+  };
   PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...p }); });
-  S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }));
+  S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }, d));
+  if (import.meta.env.DEV) window.__picks = picks;                  // dev only (tests)
+  const throwPick = (pk, vx, vy, vz) => { Object.assign(pk, { rest: false, carried: false, gy: undefined, vx, vy, vz, spin: [(Math.random() - 0.5) * 9, (Math.random() - 0.5) * 9] }); };
+  const savePick = (pk) => {                                         // where it was left
+    if (pk.ref) { pk.ref.x = +pk.x.toFixed(2); pk.ref.z = +pk.z.toFixed(2); }
+    else if (!pk.drop) S.flags.moved = { ...(S.flags.moved || {}), [pk.id]: [+pk.x.toFixed(2), +pk.z.toFixed(2)] };
+  };
+  const updatePicks = (dt) => {
+    for (const pk of picks) {
+      if (!pk.carried && !pk.rest) {
+        pk.vy -= GRAV * dt;
+        let nx = pk.x + pk.vx * dt, nz = pk.z + pk.vz * dt;
+        [nx, nz] = pushOut(nx, nz, 0.12);                               // (not into walls)
+        if (castle.inZone(nx, nz)) [nx, nz] = castle.constrain(nx, nz); else if (mine.inZone(nx, nz)) [nx, nz] = mine.constrain(nx, nz);
+        pk.x = nx; pk.z = nz; pk.y += pk.vy * dt;
+        pk.tilt[0] += pk.spin[0] * dt; pk.tilt[1] += pk.spin[1] * dt;
+        const g = restY(pk);
+        if (pk.y <= g) {                                                // the ground: a bounce, or it stays
+          pk.y = g;
+          if (vAt(pk.x, pk.z) > 0) sfx.step(Math.min(0.6, 0.1 + -pk.vy * 0.08));
+          if (pk.vy < -1.8) { pk.vy *= -0.3; pk.vx *= 0.5; pk.vz *= 0.5; pk.spin = pk.spin.map((s) => s * 0.4); }
+          else { pk.vx = pk.vy = pk.vz = 0; pk.rest = true; savePick(pk); }
+        }
+      }
+      if (pk.rest && (pk.tilt[0] || pk.tilt[1])) {                       // landed: it settles on its resting pose
+        const k = Math.min(1, dt * 9);
+        pk.tilt = pk.tilt.map((a) => { const w = Math.atan2(Math.sin(a), Math.cos(a)) * (1 - k); return Math.abs(w) < 0.01 ? 0 : w; });
+      }
+      pk.mesh.position.set(pk.x, pk.y, pk.z); pk.mesh.rotation.set(pk.tilt[0], pk.yaw, pk.tilt[1]);
+    }
+  };
   castleCells.forEach((c) => castle.setDoor(c.id, !!S.flags.cells?.[c.id]));   // the prison cells: shut, unless opened
   cageDoorRect.off = !!S.flags.cageOpen; cage.userData.door.rotation.y = S.flags.cageOpen ? Math.PI / 2 : 0;   // Roccanera's cage
   if (S.flags.cage) watchCage();                                       // (saved while in it: its keeper keeps watch again)
@@ -876,15 +920,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (id === "oro") { q = Math.min(10, P.gold); if (q <= 0) return; P.gold -= q; }
     else if (id === "argento") { if (P.ore <= 0) return; P.ore -= 1; }
     else { if (!P.inv[id]) return; take(id); }
-    const [x, z] = pushOut(P.x + Math.sin(P.yaw) * 1.2, P.z + Math.cos(P.yaw) * 1.2);
+    const fx = Math.sin(P.yaw), fz = Math.cos(P.yaw), [x, z] = pushOut(P.x + fx * 0.55, P.z + fz * 0.55, 0.12);
     const d = { item: id, qty: q, x, z };
     S.drops.push(d);
-    addPick({ id: `d${Date.now()}`, ...d, drop: true });
+    const pk = addPick({ id: `d${Date.now()}`, ...d, drop: true }, d);  // from your hand: it falls in front of you
+    pk.y = floorY(P.x, P.z) + 1.15; throwPick(pk, fx * 1.3, 0.6, fz * 1.3);
     note(`Lasci a terra: ${ITEMS[id].name}${q > 1 ? ` (${q})` : ""}.`);
   };
   const pickUp = (pk) => {
     scene.remove(pk.mesh); picks.splice(picks.indexOf(pk), 1);
-    if (pk.drop) { const i = S.drops.findIndex((d) => d.x === pk.x && d.z === pk.z && d.item === pk.item); if (i >= 0) S.drops.splice(i, 1); }
+    if (pk.drop) { const i = pk.ref ? S.drops.indexOf(pk.ref) : S.drops.findIndex((d) => d.x === pk.x && d.z === pk.z && d.item === pk.item); if (i >= 0) S.drops.splice(i, 1); }
     else S.flags.taken = { ...(S.flags.taken || {}), [pk.id]: true };
     give(pk.item, pk.qty || 1); sfx.pick(1);
     if (pk.owned && !pk.drop && ai.crime(null, true)) { S.rep.village -= 10; say("Ti hanno visto prendere roba non tua!"); }
@@ -897,6 +942,54 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     else { if (!P.inv[id] || !def.buys.includes(ITEMS[id].kind)) return; take(id); const p = sellPrice(id); P.gold += p; hooks.onFloat(`+${p} oro`, "#e8c050"); sfx.pick(0.6); }
   };
 
+  // Holding the interact button on a thing lying about or on a body: carried (a thing, in front of you, where you
+  // look) or dragged (a body, on the ground); let go, it falls (a thing keeps how it was moving: it can be tossed).
+  // A tap does what it always did (pick up, search). The living cannot be moved.
+  let holdT = -1, holdC = null, carry = null;
+  const canCarry = (c) => !P.mounted && (c?.kind === "pick" || (c?.kind === "npc" && S.npcs[c.id] && !S.npcs[c.id].alive));
+  const startCarry = (c) => {
+    if (c.kind === "pick") { carry = { pk: c.pk, vx: 0, vy: 0, vz: 0 }; Object.assign(c.pk, { carried: true, rest: false, gy: undefined }); sfx.pick(0.4); }
+    else { const n = S.npcs[c.id]; carry = { n }; n.dragged = true; n.lift = n.lift || 0; n.liftV = 0; sfx.step(0.5); }
+    running = false;
+  };
+  const dropCarry = () => {
+    if (!carry) return;
+    if (carry.pk) { const v = Math.hypot(carry.vx, carry.vz), k = v > 5 ? 5 / v : 1; throwPick(carry.pk, carry.vx * k, Math.min(4, carry.vy), carry.vz * k); }
+    else { carry.n.dragged = false; carry.n.deadX = carry.n.x; carry.n.deadZ = carry.n.z; }
+    carry = null;
+  };
+  const _cw = new THREE.Vector3();
+  const updateCarry = (dt) => {
+    if (holdT >= 0 && (holdT += dt) >= 0.35) {                           // held long enough: it is taken
+      const c = holdC; holdT = -1; holdC = null;
+      if (c && canCarry(c) && !carry && Math.hypot(c.x - P.x, c.z - P.z) < 3) startCarry(c);
+    }
+    if (carry?.pk) {
+      const pk = carry.pk, fy = Math.sin(pitch), cp = Math.cos(pitch), g0 = floorY(P.x, P.z);
+      let tx, ty, tz;
+      if (view === "first") { tx = P.x + Math.sin(P.yaw) * cp * 0.85; tz = P.z + Math.cos(P.yaw) * cp * 0.85; ty = g0 + 1.38 + fy * 0.85; }
+      else { tx = P.x + Math.sin(P.yaw) * 0.7; tz = P.z + Math.cos(P.yaw) * 0.7; ty = g0 + 1.1; }
+      [tx, tz] = pushOut(tx, tz, 0.12);
+      ty = Math.max(ty, floorY(tx, tz) + 0.05);
+      const k = 1 - Math.exp(-dt * 18), ox = pk.x, oy = pk.y, oz = pk.z;
+      pk.x += (tx - pk.x) * k; pk.y += (ty - pk.y) * k; pk.z += (tz - pk.z) * k;
+      pk.yaw += Math.atan2(Math.sin(P.yaw - pk.yaw), Math.cos(P.yaw - pk.yaw)) * k; pk.tilt = [0, 0];
+      if (dt > 0) { carry.vx = (pk.x - ox) / dt; carry.vy = (pk.y - oy) / dt; carry.vz = (pk.z - oz) / dt; }
+    } else if (carry?.n) {                                               // a body: its middle a little in front of you
+      const n = carry.n, tx = P.x + Math.sin(P.yaw) * 1.15, tz = P.z + Math.cos(P.yaw) * 1.15, k = 1 - Math.exp(-dt * 10);
+      const cx = n.cx ?? n.x, cz = n.cz ?? n.z;
+      let dx = (tx - cx) * k, dz = (tz - cz) * k;
+      const [px, pz] = pushOut(n.x + dx, n.z + dz, 0.3); dx = px - n.x; dz = pz - n.z;
+      n.x += dx; n.z += dz; if (n.cx != null) { n.cx += dx; n.cz += dz; }
+      n.lift += (0.12 - n.lift) * k;
+    }
+    npcs.forEach((n) => {                                                 // a body let go falls back to the ground
+      if (n.alive || n.lift == null) return;
+      if (!n.dragged && n.lift > 0) { n.liftV -= GRAV * dt; n.lift = Math.max(0, n.lift + n.liftV * dt); if (!n.lift) { n.liftV = 0; sfx.step(0.5); } }
+      if (n.mesh && (n.dragged || n.lift >= 0)) n.mesh.position.set(n.x, floorY(n.x, n.z) + n.lift, n.z);
+      if (!n.dragged && !n.lift) n.lift = null;
+    });
+  };
   const candidates = () => {
     const list = [];
     const near = (x, z, r = 2.6) => Math.hypot(x - P.x, z - P.z) < r;
@@ -905,11 +998,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const x = n.alive ? n.x : n.cx ?? n.x, z = n.alive ? n.z : n.cz ?? n.z;            // a body: where it lies, not where its feet are
       if (!(zoneOk(x, z) && near(x, z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach"))) return;
       if (n.alive && P.sneak) { if (!n.riding && near(x, z, 1.9)) list.push({ kind: "steal", id: n.id, x, z, label: `Ruba a ${n.name}` }); return; }   // sneaking: pickpocket instead of talking
-      list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name}` });
+      list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name} (tieni: trascina)` });
     });
     OBJECTS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
     houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
-    picks.forEach((pk) => { if (near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""}` }); });
+    picks.forEach((pk) => { if (!pk.carried && near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""} (tieni: sposta)` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
     ores.forEach((o, i) => { if (o.depletedUntil < time && near(o.x, o.z, 2.6)) list.push({ kind: "ore", id: i, x: o.x, z: o.z, label: "Estrai argento" }); });
     if (near(CAGE.x, CAGE.z - CAGE.half, 1.8)) {                         // Roccanera's cage: with its key it opens and shuts
@@ -1249,8 +1342,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   function action(kind) {
     sfx.unlock();
     if (kind === "parryUp") { guardHeld = false; guardBroken = false; return; }       // (let go even in a dialog or a pause)
+    if (kind === "interactUp") {                                           // let go: what you carried falls; a short press: as always
+      if (carry) dropCarry();
+      else if (holdT >= 0) { holdT = -1; holdC = null; if (!(dialogOpen || paused || transit)) interact(); }
+      return;
+    }
     if (dialogOpen || paused || transit) return;
     if (kind === "interact") interact();
+    if (kind === "interactDown" && !carry) {                               // a thing or a body: wait, it may be held
+      const c = candidates();
+      if (canCarry(c)) { holdC = c; holdT = 0; } else interact();
+    }
+    if (carry && (kind === "attack" || kind === "parry")) dropCarry();     // (to fight you let go)
     if (pStag > 0 && (kind === "attack" || kind === "dodge")) return;                 // staggered: nothing for a moment
     if (kind === "attack") { if (atkT < 0) { atkT = 0; combo = 1; blow = nextBlow(); sfx.swing(0.7); P.atkSeq = (P.atkSeq || 0) + 1; } else if (atkT > 0.12) queued = true; }
     if (kind === "sneak") setSneak(!P.sneak);
@@ -1524,8 +1627,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     let moving = false;
     if (!dialogOpen && !transit && dodgeT <= 0 && ml > 0.15) {
       mx /= ml; mz /= ml;
-      const run = (running || keys.shift) && !P.sneak && atkT < 0 && !guarding && pStag <= 0 && (P.mounted || !winded);
-      const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || guarding ? 0.5 : 1) * (pStag > 0 ? 0.35 : 1) * (P.sneak ? 0.45 : 1);
+      const run = (running || keys.shift) && !P.sneak && atkT < 0 && !guarding && pStag <= 0 && !carry?.n && (P.mounted || !winded);
+      const spd = (P.mounted ? (run ? 13 : 9) : run ? 7.6 : 4.5) * mag * (atkT >= 0 || guarding ? 0.5 : 1) * (pStag > 0 ? 0.35 : 1) * (P.sneak ? 0.45 : 1) * (carry?.n ? 0.55 : 1);
       [P.x, P.z] = collide(P.x + mx * spd * dt, P.z + mz * spd * dt);
       moving = true; bobT += dt * (P.mounted ? 7 : 9) * (run ? 1.45 : 1); P.running = run;
       stillT = 0;
@@ -1610,7 +1713,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     });
     fx.update(dt);
     ores.forEach((o) => { o.mesh.userData.crystals.visible = o.depletedUntil < time; });
-    picks.forEach((pk) => { pk.mesh.position.y = (pk.gy ??= floorY(pk.x, pk.z)) + 0.05 + Math.abs(Math.sin(time * 2 + pk.x)) * 0.05; pk.mesh.rotation.y += dt * 0.6; });
+    updateCarry(dt);
+    updatePicks(dt);
 
     // Camera: first person (view model) or third person (behind and above the shoulders)
     const bob = moving ? Math.sin(bobT) * 0.045 : 0;
@@ -1696,7 +1800,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const kd = (e) => {
     const kk = e.key.toLowerCase(); keys[kk] = true; sfx.unlock();
     if (e.repeat) return;
-    if (kk === "e") action("interact");
+    if (kk === "e") action("interactDown");
     if (kk === "j") action("attack");
     if (kk === "c") action("sneak");
     if (kk === "v") action("camera");
@@ -1705,8 +1809,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (kk === "k") action("parry");
     if (kk === "q") action("quick");
   };
-  const ku = (e) => { const kk = e.key.toLowerCase(); keys[kk] = false; if (kk === "k") action("parryUp"); };   // (the guard: while K is held)
-  const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); guardHeld = false; guardBroken = false; };
+  const ku = (e) => { const kk = e.key.toLowerCase(); keys[kk] = false; if (kk === "k") action("parryUp"); if (kk === "e") action("interactUp"); };   // (held: the guard, carrying)
+  const blur = () => { Object.keys(keys).forEach((kk) => { keys[kk] = false; }); guardHeld = false; guardBroken = false; holdT = -1; if (carry) dropCarry(); };
   window.addEventListener("blur", blur);
   window.addEventListener("pointerdown", onDown);
   window.addEventListener("pointermove", onMove);

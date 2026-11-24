@@ -94,7 +94,7 @@ export const OBJECTS = [
 ];
 // [x, z, rotation]; index >= 6 are the stone houses of Valdoro
 export const HOUSES = [[-18, 10, 0.4], [-17, -9, 1.2], [17, 5, -1.4], [-4, 19, 3.1], [9, -16, 0], [21, -11, -0.6], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];
-export const CHESTS = [[["pane", 2], ["oro", 8]], [["cuoio", 1], ["torcia", 1]], [["acqua", 1], ["pane", 1], ["corda", 1]], [["oro", 15], ["libro", 1]], [["pozione", 1], ["cappuccio", 1]], [["spada_lunga", 1]], [["maglia", 1]], [["oro", 25], ["pozione", 1], ["gemma", 1]], [["carne", 1], ["vino", 2]], [["oro", 10], ["elmo_ferro", 1]]];
+export const CHESTS = [[["pane", 2], ["patata", 3], ["oro", 8]], [["cuoio", 1], ["torcia", 1]], [["acqua", 1], ["pane", 1], ["pomodoro", 2], ["corda", 1]], [["oro", 15], ["libro", 1]], [["pozione", 1], ["cappuccio", 1]], [["spada_lunga", 1]], [["maglia", 1]], [["oro", 25], ["pozione", 1], ["gemma", 1]], [["carne", 1], ["vino", 2]], [["oro", 10], ["elmo_ferro", 1]]];
 // The silver mine (mine.js): narrow tunnels from the portal in the rock face of the hill (CX + 17) going down and
 // branching into dead ends. Nodes [x, z, floor height]; tunnels [from, to, width]; silver veins on the walls
 // [from, to, how far along, side (1 left, -1 right)].
@@ -121,6 +121,7 @@ export const PICKUPS = [
   { id: "w8", item: "argento", x: CX - 3.2, z: CZ - 10.4 }, { id: "w9", item: "pozione", x: CX + 2.4, z: CZ + 10.8 }, { id: "w10", item: "acqua", x: CX - 10.8, z: CZ - 7.2 }, { id: "w14", item: "gemma", x: CX - 10.9, z: CZ + 10.5 },   // at the ends of the mine's tunnels
   { id: "w11", item: "oro", qty: 12, x: 2.2, z: WZ - 18, owned: true }, { id: "w12", item: "pane", x: -6.6, z: WZ - 22, owned: true },
   { id: "chiave_tavolo", item: "chiave_celle", x: KX + 21.0, z: KZ + 3.6, gy: -4.22, owned: true },   // on the jailer's table (gy: the table top)
+  { id: "w18", item: "pomodoro", x: -6.9, z: 10.1, owned: true }, { id: "w19", item: "patata", x: -6.1, z: 10.3, owned: true }, { id: "w20", item: "prosciutto", x: -9.4, z: 10.4, owned: true },
   { id: "w15", item: "pelliccia", x: -18, z: -70 }, { id: "w16", item: "mela", x: 16, z: -52 }, { id: "w17", item: "erbe", x: -20, z: -90 },
 ];
 

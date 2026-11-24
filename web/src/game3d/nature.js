@@ -78,9 +78,14 @@ export async function loadNature() {
   // village props (market stalls, crates, buckets, carts, lamp posts, torches, woodpile, campfire, fence: tools/build-props.mjs)
   propsOk = false;
   try { const props = await loadLib("props", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...props }; propsOk = true; } catch (e) { console.warn("Oggetti del villaggio non caricati: restano quelli fatti a codice", e); }
+  // the foods of the user's models (cibo_pane, cibo_prosciutto, cibo_pomodoro, cibo_patata: tools/build-food.mjs)
+  try { const food = await loadLib("cibo", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...food }; } catch (e) { console.warn("Cibi non caricati: restano quelli fatti a codice", e); }
   natureOk = !!lib && !!lib.pino_1;
   return natureOk;
 }
+
+/** The parts ({ geometry, material }) of a model of the loaded GLBs (natura, kit, props, cibo), or null. */
+export const libParts = (id) => lib?.[id] || null;
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 /**

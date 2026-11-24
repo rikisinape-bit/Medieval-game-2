@@ -4,6 +4,7 @@ import { ITEMS, SWORD_TIER, TWO_HANDED } from "./items";
 import { BODY_MAT, PALADIN_MAT, bodyGeometries, variantOf } from "./body";
 import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
 import { itemModel, toolModel, hasItemModel } from "./items3d";
+import { libParts } from "./nature";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -79,7 +80,18 @@ export function inFist(o, geo, left = false) {
 }
 // The sword never turns in the fist: for the horizontal cut the arm turns on itself (a quarter turn, palm down) so the
 // edge faces where the blade goes (anim.js, ATK.side); the overhead chop and the lunge use the edge as held.
+// Items whose model comes from a GLB (nature.js; the procedural one stays if it is not loaded): the foods of the
+// user's models. k: a scale (the bread in a hand is a roll).
+const GLB_ITEM = { pane: "cibo_pane", prosciutto: "cibo_prosciutto", pomodoro: "cibo_pomodoro", patata: "cibo_patata" };
+function glbItem(id, k = 1) {
+  const parts = GLB_ITEM[id] && libParts(GLB_ITEM[id]);
+  if (!parts) return null;
+  const g = new THREE.Group();
+  parts.forEach((pt) => { const m = new THREE.Mesh(pt.geometry, pt.material); m.castShadow = m.receiveShadow = true; m.scale.setScalar(k); g.add(m); });
+  return g;
+}
 export function makeTool(id, geo) {
+  if (id === "pane") { const r = glbItem("pane", 0.5); if (r) { r.position.set(geo.grip[0], geo.grip[1] - 0.05, geo.grip[2] + 0.02); return r; } }
   const t = toolModel(id);
   if (GRIP_TOOLS.has(id)) inFist(t, geo);
   else t.position.set(geo.grip[0], geo.grip[1] - 0.01, geo.grip[2] + 0.01);
@@ -87,6 +99,8 @@ export function makeTool(id, geo) {
 }
 // World representation of an inventory item lying on the ground.
 export function makeItem(id, color) {
+  const glb = glbItem(id);
+  if (glb) return glb;
   const g = new THREE.Group();
   if (hasItemModel(id)) { g.add(itemModel(id)); return g; }
   switch (id) {

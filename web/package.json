@@ -15,7 +15,8 @@
     "terreno": "node tools/build-ground.mjs",
     "nuvole": "node tools/build-clouds.mjs",
     "castello": "node tools/build-castle.mjs",
-    "luna": "node tools/build-moon.mjs"
+    "luna": "node tools/build-moon.mjs",
+    "cibo": "node tools/build-food.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",

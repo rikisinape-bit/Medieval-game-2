@@ -296,6 +296,23 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
     chiave e apri da solo (se ti vede uscire ti attacca). Chi ce l'ha con te mentre sei in cella si calma dopo 8 s.
     Nel castello il giocatore e i personaggi si muovono a passi di 0,2 m al massimo (`castle.move`): in un fotogramma
     lento un passo lungo saltava la porta chiusa;
+  - **oggetti con un peso** (`engine.js`: `addPick`, `updatePicks`, `throwPick`): ogni oggetto dell'inventario a terra è il
+    suo modello vero (quello delle immagini del menu) e sta fermo appoggiato (niente più oggetti che galleggiano e
+    girano); lasciato a terra dal menu cade dalla mano, gli oggetti lanciati o lasciati cadono con la gravità (9,81),
+    girano in aria, rimbalzano un poco e si posano sul loro lato (il modello è fatto già appoggiato); non entrano nei muri.
+    **Interagisci tenuto premuto** (tasto E, pulsante Usa: `interactDown`/`interactUp`): un tocco fa quello che faceva
+    (raccogli, fruga, parla); tenuto 0,35 s su un oggetto lo porti davanti a te (dove guardi), su un morto lo trascini
+    (più piano, un po' sollevato); lasciato, l'oggetto cade conservando il movimento (si può lanciare un poco), il corpo
+    ricade a terra. I vivi non si spostano. Dove resta un oggetto del mondo si salva (`S.flags.moved`), uno lasciato da te
+    in `S.drops`, un corpo in `deadX`/`deadZ`; per combattere lo lasci (attacca o para);
+  - **cibi nuovi** dai modelli dell'utente (`assets/sorgenti/cibo/`, fuori da git: tre file di Blender e un pacchetto Unity):
+    il **pane** nuovo (pagnotta tagliata, anche in mano a chi mangia) e tre cibi: **prosciutto** (+35, 9 oro, dalla
+    locanda di Bodo), **pomodoro** (+5, 1 oro) e **patata** (+6, 1 oro, dal banco di Lena), anche nel bottino dei
+    popolani e della locanda, nei bauli e tre vicino al banco di Lena. `tools/fbx-ascii-obj.py` (la patata è un FBX
+    testuale, che Blender non legge), `tools/food-export.py` (Python di Blender: dimensioni vere, appoggiati come stanno
+    su un tavolo, colori dei materiali, la texture della patata a 256 px), `npm run cibo` → `public/models/cibo.glb`
+    (83 KB, caricato con gli altri modelli in `nature.js`; senza, restano forme semplici fatte a codice); licenza dei
+    modelli da verificare;
   - **parata tenuta** (`engine.js` `GUARD`, `ai.js` `FIGHT`): la guardia resta alzata finché tieni premuto (tasto K, pulsante
     Para del telefono: `onRelease`); se il colpo arriva entro 0,2 s da quando l'hai alzata (0,28 con lo scudo) è una
     **parata perfetta** (nessun danno, il nemico barcolla 1,6 s, il tuo colpo dopo è un contrattacco doppio); altrimenti

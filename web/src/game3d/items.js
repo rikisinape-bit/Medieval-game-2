@@ -3,6 +3,9 @@
 // two: a two-handed sword (both hands on the grip: slower, heavier blows; no shield or torch in the other hand).
 export const ITEMS = {
   pane: { name: "Pane", kind: "food", heal: 15, price: 3, desc: "+15 vita" },
+  prosciutto: { name: "Prosciutto", kind: "food", heal: 35, price: 9, desc: "+35 vita" },
+  pomodoro: { name: "Pomodoro", kind: "food", heal: 5, price: 1, desc: "+5 vita" },
+  patata: { name: "Patata", kind: "food", heal: 6, price: 1, desc: "+6 vita" },
   formaggio: { name: "Formaggio", kind: "food", heal: 10, price: 2, desc: "+10 vita" },
   carne: { name: "Carne arrosto", kind: "food", heal: 25, price: 6, desc: "+25 vita" },
   mela: { name: "Mela", kind: "food", heal: 6, price: 1, desc: "+6 vita" },
@@ -58,18 +61,18 @@ export const TOOL_OF = { chop: "ascia", hammer: "martello", eat: "pane", drink: 
 
 // Shops: what the merchant sells (unlimited stock) and which kinds he buys from you.
 export const SHOPS = {
-  lena: { title: "Banco di Lena", sells: ["pane", "formaggio", "mela", "acqua", "pozione", "torcia", "corda"], buys: ["food", "ore", "misc", "tool"], orePrice: 10 },
+  lena: { title: "Banco di Lena", sells: ["pane", "pomodoro", "patata", "formaggio", "mela", "acqua", "pozione", "torcia", "corda"], buys: ["food", "ore", "misc", "tool"], orePrice: 10 },
   bruno: { title: "Forgia di Bruno", sells: ["spada_corta", "spada_lunga", "pugnale", "cuoio", "cappuccio", "ascia", "martello"], buys: ["sword", "armor", "helm", "tool", "ore"], orePrice: 8 },
   aldo: { title: "Armeria di Mastro Aldo", sells: ["cuoio", "maglia", "piastre", "cappuccio", "elmo_ferro", "elmo_piastre", "scudo_legno", "scudo_ferro"], buys: ["armor", "helm", "offhand", "ore"], orePrice: 12 },
   garrick: { title: "Lame di Garrick", sells: ["pugnale", "spada_corta", "ascia_guerra", "spada_lunga", "spadone"], buys: ["sword", "tool", "ore"], orePrice: 11 },
   mira: { title: "Spezieria di Mira", sells: ["erbe", "pozione", "pozione_grande", "torcia", "acqua"], buys: ["food", "misc"], orePrice: 0 },
-  bodo: { title: "Locanda del Cinghiale", sells: ["pane", "formaggio", "carne", "vino", "mela", "acqua"], buys: ["food"], orePrice: 0 },
+  bodo: { title: "Locanda del Cinghiale", sells: ["pane", "prosciutto", "formaggio", "carne", "vino", "mela", "acqua"], buys: ["food"], orePrice: 0 },
   osric: { title: "Emporio di Osric", sells: ["corda", "torcia", "libro", "pelliccia", "gemma", "pane"], buys: ["food", "sword", "armor", "helm", "offhand", "tool", "misc", "ore"], orePrice: 9 },
 };
 // What falls on the ground when an NPC dies (besides gold): [item, chance]
 export const LOOT_OF = {
   smith: [["martello", 0.7], ["cuoio", 0.3]], armorer: [["elmo_ferro", 0.5], ["scudo_legno", 0.4]], weaponsmith: [["pugnale", 0.6], ["ascia_guerra", 0.3]],
-  merchant: [["pane", 0.9], ["pozione", 0.4], ["corda", 0.5]], herbalist: [["erbe", 0.9], ["pozione", 0.5]], innkeeper: [["carne", 0.8], ["vino", 0.8]], trader: [["gemma", 0.4], ["libro", 0.5], ["pelliccia", 0.5]],
+  merchant: [["pane", 0.9], ["pozione", 0.4], ["corda", 0.5]], herbalist: [["erbe", 0.9], ["pozione", 0.5]], innkeeper: [["carne", 0.8], ["vino", 0.8], ["prosciutto", 0.5]], trader: [["gemma", 0.4], ["libro", 0.5], ["pelliccia", 0.5]],
   knight: [["elmo_ferro", 0.5], ["spada_lunga", 0.4]], soldier: [["spada_corta", 0.4], ["cappuccio", 0.4], ["pane", 0.5]], bandit: [["pugnale", 0.4], ["cuoio", 0.25], ["pane", 0.5], ["torcia", 0.3]],
-  noble: [["libro", 0.6], ["gemma", 0.3]], villager: [["pane", 0.6], ["mela", 0.5], ["acqua", 0.4]], miner: [["argento", 0.8], ["acqua", 0.5]], messenger: [["libro", 0.5], ["pane", 0.5], ["torcia", 0.4]],
+  noble: [["libro", 0.6], ["gemma", 0.3]], villager: [["pane", 0.6], ["mela", 0.5], ["acqua", 0.4], ["pomodoro", 0.3], ["patata", 0.3]], miner: [["argento", 0.8], ["acqua", 0.5]], messenger: [["libro", 0.5], ["pane", 0.5], ["torcia", 0.4]],
 };
