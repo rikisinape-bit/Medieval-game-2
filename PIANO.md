@@ -392,3 +392,19 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - Un file per messaggio, con il percorso in testa
 - Nomi in italiano per i contenuti di gioco, in inglese per il codice
 - Dopo ogni fase: l'utente prova e riporta gli errori
+
+## 10. Il mondo intero: Vasilad (proposta, da confermare con l'utente)
+
+Mappa dell'utente: `assets/mappa/vasilad.jpg` (2048 × 1536, "Vasilad, il mondo degli uomini"): Roccanera, Miniera,
+Valdoro (sulla costa, a sud-est di Roccanera), Sulus e Dimirot a sud oltre il fiume (due ponti), Varan sull'isola a est,
+un accampamento sulla penisola a nord-est, montagne con grotte a sud-est e a nord (neve), torre nei ghiacci a nord-ovest,
+foresta morta nella neve, grande foresta a sud-ovest, serpente marino a nord-est.
+- Scala proposta **1 pixel = 1 metro** (mondo ~2 × 1,5 km; Roccanera→Valdoro ~340 m, Valdoro→Sulus ~260 m, Sulus→Dimirot
+  ~300 m, Valdoro→Varan ~715 m di mare). Oggi Valdoro è a nord di Roccanera (mura a 104 m) e la miniera a ovest (45 m):
+  vanno spostate dove sono sulla mappa (i vecchi salvataggi ricominciano).
+- La mappa è la matrice: uno script ne ricava coste, mare e acqua bassa, neve, ghiaccio, foreste (prova riuscita per colore:
+  mare 43%, terra 33%, neve 12%, acqua bassa/ghiaccio 12%); montagne, fiumi, strade e luoghi in un file di dati in pixel
+  della mappa. Mondo a pezzi caricati intorno al giocatore; interni e grotte come stanze a parte. La mappa anche nel menu.
+- Fasi: 1) mondo intero spoglio (terreno, mare, strade, luoghi attuali spostati, mappa nel menu); 2) centro (Roccanera,
+  Miniera, Valdoro, colline, crepacci, ponti); 3) sud (Sulus, Dimirot, foresta); 4) est (accampamento, montagne e grotte,
+  Varan e traghetto); 5) nord (neve, ghiacci, torre, grotte; poi il serpente marino). Tutto in dati, riusabili anche in Godot.
