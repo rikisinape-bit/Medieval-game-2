@@ -1,44 +1,63 @@
 // The trees of the open country: the forests of the map (its drawn trees: the forest layer) and a few trees scattered on
 // its plains; never on the places' ground, on the roads, in the water or on the beach, on steep slopes and cliffs;
-// in the snow pines and dead trees. Placed a tile (64 m) at a time, always the same (from the tile's number).
-// Near the player (NEAR) they are the nature pack's trees, instanced (a dozen draws for all of them); farther, up to the
-// fog, simple low trees (a cone, a ball, a bare trunk) that cost almost nothing. Their trunks stop whoever walks into
-// them (push).
+// in the snow pines and dead trees. In the forests trees of every size (young ones, middling ones, old giants; in the
+// thick of them a second, young tree beside each) and undergrowth: bushes, ferns, big plants, tall grass, mushrooms.
+// Placed a tile (64 m) at a time, always the same (from the tile's number).
+// Near the player (NEAR) they are the nature pack's trees, instanced (a dozen draws for all of them), the undergrowth
+// nearer still (NEAR_U); farther, up to the fog, simple low trees (a cone, a ball, a bare trunk) that cost almost
+// nothing. Their trunks stop whoever walks into them (push); the undergrowth does not.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { libParts, natureScale } from "./nature";
 import { layersAt, surfaceAt, treeFree, nearRoad, SEA_Y } from "./terrain";
 import { MAP } from "./sites";
 
-const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 48, SHADE = 30, REBUILD = 5;
+const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 48, NEAR_U = 30, SHADE = 28, REBUILD = 5;
 const PINES = ["pino_1", "pino_2", "pino_3"], BROAD = ["albero_1", "albero_2", "albero_3"], MODELS = [...PINES, ...BROAD, "morto"];
+const UNDER = ["cespuglio", "felce", "pianta_grande", "erba_alta", "fungo"];
 const KIND = (id) => (id === "morto" ? 2 : id.startsWith("pino") ? 0 : 1);   // far: cone, ball, bare trunk
 const TX = Math.ceil(MAP.w / TILE), TZ = Math.ceil(MAP.h / TILE);
 const rand = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 
-// The trees of a tile: [{ x, y, z, id, ry, k, r }]
+const steep = (x, z) => Math.hypot(surfaceAt(x + 1.5, z) - surfaceAt(x - 1.5, z), surfaceAt(x, z + 1.5) - surfaceAt(x, z - 1.5)) / 3;
+// The trees of a tile [{ x, y, z, id, ry, k, r }] and its undergrowth [{ x, y, z, id, ry, k }]
 function tileTrees(ti, tj) {
-  const out = [], x0 = ti * TILE - MAP.ox, z0 = tj * TILE - MAP.oz;
+  const trees = [], under = [], x0 = ti * TILE - MAP.ox, z0 = tj * TILE - MAP.oz;
   for (let b = 0; b < N; b++) for (let a = 0; a < N; a++) {
-    const seed = (tj * TX + ti) * 128 + b * N + a;
-    const x = x0 + (a + 0.5 + (rand(seed, 1, 7) - 0.5) * 0.85) * CELL, z = z0 + (b + 0.5 + (rand(seed, 2, 7) - 0.5) * 0.85) * CELL;
-    const ly = layersAt(x, z);
-    let p = ly.forest > 0.05 ? Math.min(0.75, 0.06 + ly.forest * 1.05) : 0.022;
-    if (ly.snow > 0.5 && ly.forest < 0.3) p *= 0.15;                       // (the snow: only its forest)
-    if (ly.mount > 0.3) p *= Math.max(0, 1 - (ly.mount - 0.3) * 2.5);      // none high on the mountains
-    if (ly.ice > 0.3) p = 0;
-    if (rand(seed, 3, 7) > p) continue;
-    const y = surfaceAt(x, z);
-    if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 4.5)) continue;
-    if (Math.hypot(surfaceAt(x + 1.5, z) - surfaceAt(x - 1.5, z), surfaceAt(x, z + 1.5) - surfaceAt(x, z - 1.5)) / 3 > 0.65) continue;   // too steep
-    const r = rand(seed, 4, 7);
-    const id = ly.snow > 0.5 ? (r < 0.55 ? PINES[Math.floor(r * 5.4) % 3] : "morto")
-      : ly.forest > 0.35 ? (r < 0.84 ? PINES[Math.floor(r * 3.56) % 3] : r < 0.96 ? BROAD[Math.floor(r * 37) % 3] : "morto")
-        : r < 0.6 ? BROAD[Math.floor(r * 5) % 3] : PINES[Math.floor(r * 7) % 3];
-    const k = 0.82 + rand(seed, 5, 7) * 0.45;
-    out.push({ x, y, z, id, ry: rand(seed, 6, 7) * Math.PI * 2, k, r: (id === "morto" ? 0.3 : 0.4) * k });
+    const seed = (tj * TX + ti) * 128 + b * N + a, ly = layersAt(x0 + (a + 0.5) * CELL, z0 + (b + 0.5) * CELL);
+    if (ly.ice > 0.3) continue;
+    const thick = ly.forest > 0.45 && ly.snow < 0.5;
+    for (let n = 0; n < (thick ? 2 : 1); n++) {                            // (in the thick of a forest: a young tree too)
+      const s2 = seed * 3 + n;
+      const x = x0 + (a + 0.5 + (rand(s2, 1, 7) - 0.5) * 0.9) * CELL, z = z0 + (b + 0.5 + (rand(s2, 2, 7) - 0.5) * 0.9) * CELL;
+      let p = n ? (ly.forest - 0.45) * 1.3 : ly.forest > 0.05 ? Math.min(0.75, 0.06 + ly.forest * 1.05) : 0.022;
+      if (ly.snow > 0.5 && ly.forest < 0.3) p *= 0.15;                     // (the snow: only its forest)
+      if (ly.mount > 0.3) p *= Math.max(0, 1 - (ly.mount - 0.3) * 2.5);    // none high on the mountains
+      if (rand(s2, 3, 7) > p) continue;
+      const y = surfaceAt(x, z);
+      if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 4.5) || steep(x, z) > 0.65) continue;
+      const r = rand(s2, 4, 7), sz = rand(s2, 5, 7);
+      const id = ly.snow > 0.5 ? (r < 0.55 ? PINES[Math.floor(r * 5.4) % 3] : "morto")
+        : ly.forest > 0.35 ? (r < 0.84 ? PINES[Math.floor(r * 3.56) % 3] : r < 0.96 ? BROAD[Math.floor(r * 37) % 3] : "morto")
+          : r < 0.6 ? BROAD[Math.floor(r * 5) % 3] : PINES[Math.floor(r * 7) % 3];
+      // sizes: young ones beside the others; in the forests small, middling and old giants; on the plains grown trees
+      const k = n ? 0.42 + sz * 0.3 : ly.forest > 0.3 ? (sz < 0.25 ? 0.55 + sz * 0.9 : sz < 0.78 ? 0.85 + (sz - 0.25) * 0.66 : 1.3 + (sz - 0.78) * 2.8) : 0.85 + sz * 0.6;
+      trees.push({ x, y, z, id, ry: rand(s2, 6, 7) * Math.PI * 2, k, r: (id === "morto" ? 0.3 : 0.4) * k });
+    }
+    // the undergrowth: thick in the forests (the more the thicker), here and there on the plains
+    const f = ly.snow > 0.5 || ly.mount > 0.5 ? 0 : ly.forest;
+    const nu = f > 0.3 ? 2 + (rand(seed, 9, 7) < f ? 1 : 0) + (rand(seed, 10, 7) < f - 0.4 ? 1 : 0) : rand(seed, 9, 7) < 0.1 ? 1 : 0;
+    for (let u = 0; u < nu; u++) {
+      const s3 = seed * 7 + u + 11;
+      const x = x0 + (a + rand(s3, 1, 9)) * CELL, z = z0 + (b + rand(s3, 2, 9)) * CELL, y = surfaceAt(x, z);
+      if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 3.2) || steep(x, z) > 0.8) continue;
+      const r = rand(s3, 3, 9);
+      const id = f > 0.3 ? (r < 0.34 ? "cespuglio" : r < 0.7 ? "felce" : r < 0.84 ? "pianta_grande" : r < 0.95 ? "erba_alta" : "fungo") : r < 0.55 ? "cespuglio" : "erba_alta";
+      const k = (id === "felce" ? 1.0 : id === "cespuglio" ? 0.9 : 0.8) + rand(s3, 4, 9) * 0.6;
+      under.push({ x, y, z, id, ry: rand(s3, 5, 9) * Math.PI * 2, k });
+    }
   }
-  return out;
+  return { trees, under };
 }
 
 // the far trees: a cone, a ball, a bare trunk (low, flat-shaded, coloured like the nature pack's)
@@ -60,13 +79,30 @@ function farGeometry(kind) {
 export function createVegetation(scene) {
   const tiles = new Map(), cells = new Map(), group = new THREE.Group();
   group.userData.world = true; scene.add(group);
-  const ok = MODELS.every((id) => libParts(id));
+  const ok = MODELS.every((id) => libParts(id)), okU = UNDER.filter((id) => libParts(id));
   // near: one instanced mesh for each part of each model
   const near = [];
   if (ok) for (const shade of [true, false]) MODELS.forEach((id) => libParts(id).forEach((pt) => {
     const m = new THREE.InstancedMesh(pt.geometry, pt.material, shade ? 300 : 600);
     m.count = 0; m.frustumCulled = false; m.castShadow = shade; m.receiveShadow = true;
     group.add(m); near.push({ id, m, s: natureScale(id), shade });
+  }));
+  // the undergrowth near the player (no shadows of its own: it is under the trees' already)
+  const low = [];
+  // (the pack's bushes have the twisted trees' blood-red leaves, its ferns and grass odd tints: in the forests of the
+  // open country their leaves are green, as light or dark as they are)
+  const green = (mat, red) => {
+    const g = mat.clone();
+    const lum = red ? "( diffuseColor.r + 0.12 ) * 1.05" : "( dot( diffuseColor.rgb, vec3( 0.3, 0.55, 0.15 ) ) + 0.08 ) * 1.5";
+    g.onBeforeCompile = (sh) => { sh.fragmentShader = sh.fragmentShader.replace("#include <map_fragment>", `#include <map_fragment>\n\tdiffuseColor.rgb = vec3( 0.36, 0.62, 0.24 ) * ${lum};`); };
+    g.customProgramCacheKey = () => `leaf-green-${red ? 1 : 0}`;
+    return g;
+  };
+  okU.forEach((id) => libParts(id).forEach((pt) => {
+    const leaf = /Leaves|Grass/.test(pt.material.name), red = /TwistedTree/.test(pt.material.name);
+    const m = new THREE.InstancedMesh(pt.geometry, leaf ? green(pt.material, red) : pt.material, 700);
+    m.count = 0; m.frustumCulled = false; m.receiveShadow = true;
+    group.add(m); low.push({ id, m, s: natureScale(id) });
   }));
   const farMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
   const far = [0, 1, 2].map((kind) => {
@@ -81,29 +117,39 @@ export function createVegetation(scene) {
     let t = tiles.get(key);
     if (!t) {
       t = tileTrees(ti, tj); tiles.set(key, t);
-      t.forEach((tr) => { const ck = `${Math.floor(tr.x / 8)}|${Math.floor(tr.z / 8)}`; (cells.get(ck) || cells.set(ck, []).get(ck)).push(tr); });
+      t.trees.forEach((tr) => { const ck = `${Math.floor(tr.x / 8)}|${Math.floor(tr.z / 8)}`; (cells.get(ck) || cells.set(ck, []).get(ck)).push(tr); });
     }
     return t;
   };
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   let lx = Infinity, lz = Infinity, lfar = 0, pending = false;
-  const counts = { near: 0, far: 0 };
+  const counts = { near: 0, far: 0, under: 0 };
   function rebuild(px, pz, fogFar) {
     const R = fogFar + 8, a0 = Math.max(0, Math.floor((px + MAP.ox - R) / TILE)), a1 = Math.min(TX - 1, Math.floor((px + MAP.ox + R) / TILE));
     const b0 = Math.max(0, Math.floor((pz + MAP.oz - R) / TILE)), b1 = Math.min(TZ - 1, Math.floor((pz + MAP.oz + R) / TILE));
     let made = 0;
     pending = false;
-    near.forEach((n) => { n.m.count = 0; }); far.forEach((m) => { m.count = 0; });
+    near.forEach((n) => { n.m.count = 0; }); far.forEach((m) => { m.count = 0; }); low.forEach((n) => { n.m.count = 0; });
     for (let tj = b0; tj <= b1; tj++) for (let ti = a0; ti <= a1; ti++) {
       const cx = (ti + 0.5) * TILE - MAP.ox, cz = (tj + 0.5) * TILE - MAP.oz;
       if (Math.hypot(cx - px, cz - pz) > R + TILE * 0.71) continue;
       if (!tiles.has(tj * TX + ti)) { if (made >= 4) { pending = true; continue; } made++; }   // (a few new tiles a frame)
-      for (const t of tileOf(ti, tj)) {
+      const tile = tileOf(ti, tj);
+      for (const t of tile.under) {
+        if (Math.hypot(t.x - px, t.z - pz) > NEAR_U) continue;
+        q.setFromAxisAngle(UP, t.ry);
+        for (const n of low) {
+          if (n.id !== t.id || n.m.count >= n.m.instanceMatrix.count) continue;
+          const k = n.s * t.k;
+          n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.05, t.z), q, sc.set(k, k, k)));
+        }
+      }
+      for (const t of tile.trees) {
         const d = Math.hypot(t.x - px, t.z - pz);
         if (d > R) continue;
         q.setFromAxisAngle(UP, t.ry);
-        if (d < NEAR && ok) {
-          const shade = d < SHADE;
+        if (d < (t.k < 0.8 ? 30 : NEAR) && ok) {
+          const shade = d < SHADE && t.k >= 0.8;
           for (const n of near) {
             if (n.id !== t.id || n.shade !== shade || n.m.count >= n.m.instanceMatrix.count) continue;
             const k = n.s * t.k;
@@ -115,13 +161,13 @@ export function createVegetation(scene) {
         }
       }
     }
-    near.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; });
+    near.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; }); low.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; });
     far.forEach((m) => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
-    counts.near = near.reduce((s, n) => s + n.m.count, 0); counts.far = far.reduce((s, m) => s + m.count, 0);
+    counts.near = near.reduce((s, n) => s + n.m.count, 0); counts.far = far.reduce((s, m) => s + m.count, 0); counts.under = low.reduce((s, n) => s + n.m.count, 0);
     for (const [key] of tiles) {                                            // (far behind: forgotten)
       const ti = key % TX, tj = Math.floor(key / TX), cx = (ti + 0.5) * TILE - MAP.ox, cz = (tj + 0.5) * TILE - MAP.oz;
       if (Math.hypot(cx - px, cz - pz) > 420) {
-        tiles.get(key).forEach((tr) => { const ck = `${Math.floor(tr.x / 8)}|${Math.floor(tr.z / 8)}`, l = cells.get(ck); if (l) { l.splice(l.indexOf(tr), 1); if (!l.length) cells.delete(ck); } });
+        tiles.get(key).trees.forEach((tr) => { const ck = `${Math.floor(tr.x / 8)}|${Math.floor(tr.z / 8)}`, l = cells.get(ck); if (l) { l.splice(l.indexOf(tr), 1); if (!l.length) cells.delete(ck); } });
         tiles.delete(key);
       }
     }

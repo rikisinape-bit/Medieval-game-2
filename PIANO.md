@@ -479,5 +479,15 @@ torre, grotte; poi il serpente marino).
   `heightOf`; bosco `LOW`), con cui si spostano modelli, pezzi dei pacchetti e foglie; `FLATS` spiana alla quota del luogo.
 - **Acqua**: il mare è più basso (`SEA_Y = -12.5`), le rive scendono presto (0,32 m per metro), il fondo prende il colore
   dell'acqua e l'acqua è più coprente: fiumi e insenature si vedono (prima erano pochi cm d'acqua su sabbia).
-- **Terreno irregolare**: ovunque fuori dai luoghi onde lunghe (±2 m su 140 m), gobbe (±1,5 m su 38 m), dossi
-  (±0,45 m su 12 m, ±0,14 m su 5 m), smorzati sulle strade (`roadDist` dalle linee di `ROADS`).
+- **Terreno irregolare**: ovunque fuori dai luoghi onde lunghe (±2,2 m su 140 m), gobbe (±1,9 m su 38 m), dossi
+  (±0,5 m su 12 m, ±0,16 m su 5 m), smorzati sulle strade (`roadDist` dalle linee di `ROADS`).
+- **Piedi delle montagne e delle colline** (`mondo/pendii.png`, R montagne, G colline: i loro disegni sfumati larghi,
+  60 e 32 px): il terreno sale già 100–150 m prima (fino a ~24 m ai piedi delle montagne, ~6 m delle colline), più
+  ruvido (gobbe e dossi moltiplicati, creste e canaloni); le montagne hanno basi più larghe (sfumatura 22 px), così
+  avvicinandosi si sale davvero invece di trovare un cono che parte dal piano.
+- **Foresta fitta** (`vegetation.js`): alberi di tre taglie (giovani 0,55–0,77, medi 0,85–1,2, vecchi giganti
+  1,3–1,9) e nel folto un secondo alberello per cella; i piccoli sono modelli veri solo entro 30 m, ombre solo dai
+  cresciuti entro 28 m. **Sottobosco** entro 30 m: cespugli, felci, piante grandi, erba alta, funghi (2–4 per cella nel
+  folto, rari in pianura), foglie ricolorate verdi (i cespugli del pacchetto hanno le foglie rosse degli alberi
+  contorti). Sotto le foreste il terreno è più scuro (fino al 40%) e la luce più debole (`SELVA`: sole 0,75, cielo
+  0,55, nebbia 10–64 m).

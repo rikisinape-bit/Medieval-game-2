@@ -14,6 +14,7 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import COSTA from "./mondo/costa.png";
 import RILIEVO from "./mondo/rilievo.png";
 import SUOLO from "./mondo/suolo.png";
+import PENDII from "./mondo/pendii.png";
 import ERBA from "./terreno_erba.jpg";
 import ERBA_N from "./terreno_erba_n.jpg";
 import TERRA from "./terreno_terra.jpg";
@@ -40,8 +41,8 @@ async function readImage(src) {
 /** Loads the map's layers (once, before the game starts). */
 export async function loadTerrain() {
   if (L) return;
-  const [costa, rilievo, suolo] = await Promise.all([readImage(COSTA), readImage(RILIEVO), readImage(SUOLO)]);
-  L = { costa, rilievo, suolo };
+  const [costa, rilievo, suolo, pendii] = await Promise.all([readImage(COSTA), readImage(RILIEVO), readImage(SUOLO), readImage(PENDII)]);
+  L = { costa, rilievo, suolo, pendii };
 }
 // bilinear sample of channel ch of a layer at map pixel (px, py); out of the layer: def
 const sample = (lay, px, py, ch, def) => {
@@ -158,6 +159,7 @@ export function layersAt(x, z) {
   return {
     dry: sample(L.suolo, px, pz, 1, 0) / 255, snow: sample(L.suolo, px, pz, 0, 0) / 255, ice: sample(L.suolo, px, pz, 2, 0) / 255,
     forest: sample(L.rilievo, px, pz, 2, 0) / 255, mount: sample(L.rilievo, px, pz, 0, 0) / 255, hill: sample(L.rilievo, px, pz, 1, 0) / 255,
+    foot: sample(L.pendii, px, pz, 0, 0) / 255,
   };
 }
 /** The height of the ground at a world point (the smooth one; what is drawn and walked on is surfaceAt). */
@@ -171,13 +173,17 @@ export function heightAt(x, z) {
   else h = SEA_Y + 0.15 + (base - SEA_Y - 0.15) * smooth(0, 8 + (base - SEA_Y) * 2.2, d);   // the shore up to the land
   if (d > 2) {
     const inland = smooth(2, 40, d), road = 1 - smooth(3.5, 10, roadDist(x, z));
+    // towards the mountains and the hills the ground climbs long before them, rougher and rougher (their feet)
+    const foot = sample(L.pendii, px, pz, 0, 0) / 255, footH = sample(L.pendii, px, pz, 1, 0) / 255, rough = 1 + foot * 1.8 + footH * 1.1;
+    h += (foot ** 1.15 * 24 + footH ** 1.2 * 6) * (0.65 + 0.35 * fbm(x / 55 + 1.7, z / 55 + 4.2)) * inland;
+    if (foot > 0.05) h += (ridge(x / 46 + 2.2, z / 46 - 7.1) - 0.55) * 6 * foot * inland;     // (crests and gullies)
     // the ground is never flat: long swells, humps, little bumps (fewer on the roads)
-    h += (fbm(x / 140, z / 140) * 2.0 + 1.6) * smooth(6, 50, d);
-    h += (fbm(x / 38 + 7.7, z / 38 - 2.1) * 1.5 * (1 - road * 0.6) + (vnoise(x / 12.5, z / 12.5) * 0.45 + vnoise(x / 5.5 + 3.1, z / 5.5 - 8.4) * 0.14) * (1 - road)) * inland;
+    h += (fbm(x / 140, z / 140) * 2.2 + 1.6) * smooth(6, 50, d);
+    h += (fbm(x / 38 + 7.7, z / 38 - 2.1) * 1.9 * rough * (1 - road * 0.6) + (vnoise(x / 12.5, z / 12.5) * 0.5 * rough + vnoise(x / 5.5 + 3.1, z / 5.5 - 8.4) * 0.16) * (1 - road)) * inland;
     const hill = sample(L.rilievo, px, pz, 1, 0) / 255;
     if (hill > 0.01) h += 10 * hill ** 1.2 * (0.6 + 0.4 * fbm(x / 60 + 3.3, z / 60)) * inland;
     const m = sample(L.rilievo, px, pz, 0, 0) / 255;
-    if (m > 0.01) h += (78 * m ** 1.6 * (0.5 + 0.5 * ridge(x / 95, z / 95)) + 7 * m * fbm(x / 22, z / 22)) * inland;
+    if (m > 0.01) h += (70 * m ** 1.6 * (0.5 + 0.5 * ridge(x / 95, z / 95)) + 8 * m * fbm(x / 20, z / 20)) * inland;
     h += stepAt(x, z);
   }
   const [w, fy] = flatAt(x, z);
@@ -264,7 +270,7 @@ const TERRAIN_MAP = `
 	float tDry = clamp( vW.x * 0.85 + ( tNoise( tWP.xz * 0.045 + 11.3 ) - 0.5 ) * 0.35, 0.0, 1.0 );
 	vec3 tCol = mix( tG, mix( tG * vec3( 1.12, 1.0, 0.7 ), tD * vec3( 1.0, 0.92, 0.78 ), 0.55 ), tDry );
 	tCol *= 1.0 + 0.16 * ( tV * 2.0 - 1.0 );
-	tCol *= 1.0 - 0.22 * vW.w;                                                      // under the forests
+	tCol *= 1.0 - 0.4 * smoothstep( 0.05, 0.8, vW.w );                              // under the forests: their shade
 	float tRock = smoothstep( 0.82, 0.62, normalize( tWN ).y );                    // steep: bare rock
 	tCol = mix( tCol, mix( tD, vec3( tLum ), 0.35 ) * vec3( 1.08, 1.04, 1.0 ), tRock );
 	float tSand = smoothstep( ${(SEA_Y + 0.75).toFixed(2)}, ${(SEA_Y + 0.25).toFixed(2)}, tWP.y );   // by the water: sand

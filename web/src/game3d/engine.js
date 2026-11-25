@@ -751,7 +751,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 8, 48, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 30, 80, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 26, 70, 1.5, 0.9], wild: ["#9cc4e4", "#bcd2e2", 40, 130, 1.6, 0.9] };
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
   // in the great forests of the open country (the map's): darker, the fog nearer (wildF: how deep in one)
-  const SELVA = ["#86a296", "#6a8a76", 14, 78, 1.15, 0.72];
+  const SELVA = ["#6f8c7e", "#566e5e", 10, 64, 0.75, 0.55];   // (the leaves above let little sunlight through)
   let wildF = 0;
   // (in the mine the world keeps the village's light: the dark is in the mountain only, see mine.js)
   const cA = new THREE.Color(), cB = new THREE.Color();

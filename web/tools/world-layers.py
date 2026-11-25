@@ -7,6 +7,8 @@
 #   costa.png   1024 x 768 (2 m a pixel), grey: 128 + the distance from the coast in metres (more inland, less at sea)
 #   rilievo.png 512 x 384 (4 m a pixel): R mountains, G hills, B forest (0..255)
 #   suolo.png   512 x 384: R snow, G dry ground (brown on the map), B ice
+#   pendii.png  512 x 384: the feet of the mountains (R) and of the hills (G): their drawings widely blurred, so the
+#               ground rises, rough, long before them (terrain.js)
 # Usage: python3 tools/world-layers.py [preview.png]
 import sys
 from pathlib import Path
@@ -102,7 +104,7 @@ def field(mask, close, blur, gain=1.0):
     i = i.filter(ImageFilter.GaussianBlur(blur))
     return np.clip(np.asarray(i) / 255.0 * gain, 0, 1)
 
-fm = field(mount, 25, 12, 1.5)
+fm = field(mount, 25, 22, 1.6)   # (wide bases: the mountains rise from their feet, not straight up)
 low = np.zeros((H, W));
 for x0, y0, x1, y1 in LOW:
     low[y0:y1, x0:x1] = 1
@@ -114,15 +116,20 @@ fs = field(snow & land, 0, 4)
 dry = np.clip(((R - G) + 8) / 30.0, 0, 1) * land
 fd = np.asarray(Image.fromarray((dry * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(6))) / 255.0
 fi = field(ice & land, 0, 4)
+# the feet of the mountains and of the hills: how near one is to them (wide, soft)
+blur = lambda a, r: np.asarray(Image.fromarray(np.clip(a * 255, 0, 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(r))) / 255.0
+pm = np.clip(blur(fm, 60) * 2.0, 0, 1) * land
+ph = np.clip(blur(fh, 32) * 2.4, 0, 1) * land
 
 small = lambda a: np.asarray(Image.fromarray(np.clip(a * 255, 0, 255).astype(np.uint8)).resize((W // 4, H // 4), Image.BOX))
 OUT.mkdir(parents=True, exist_ok=True)
 Image.fromarray(coast, "L").save(OUT / "costa.png", optimize=True)
 Image.fromarray(np.dstack([small(fm), small(fh), small(ff)]), "RGB").save(OUT / "rilievo.png", optimize=True)
 Image.fromarray(np.dstack([small(fs), small(fd), small(fi)]), "RGB").save(OUT / "suolo.png", optimize=True)
+Image.fromarray(np.dstack([small(pm), small(ph), np.zeros((H // 4, W // 4), np.uint8)]), "RGB").save(OUT / "pendii.png", optimize=True)
 print("terra %.1f%%, montagne %.1f%%, colline %.1f%%, foreste %.1f%%, neve %.1f%%, ghiaccio %.1f%%" % tuple(
     100 * v for v in (land.mean(), (fm > 0.3).mean(), (fh > 0.3).mean(), (ff > 0.3).mean(), (fs > 0.5).mean(), (fi > 0.5).mean())))
-for f in ("costa.png", "rilievo.png", "suolo.png"):
+for f in ("costa.png", "rilievo.png", "suolo.png", "pendii.png"):
     print(f, (OUT / f).stat().st_size // 1024, "KB")
 
 if len(sys.argv) > 1:   # a picture to check: land shaded by a rough height, snow, ice, forests
