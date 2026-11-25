@@ -1,5 +1,5 @@
 // The trees of the open country: the forests of the map (its drawn trees: the forest layer) and a few trees scattered on
-// its plains; never on the places' ground, on the roads, in the water or on the beach, on steep slopes, in the ravines;
+// its plains; never on the places' ground, on the roads, in the water or on the beach, on steep slopes and cliffs;
 // in the snow pines and dead trees. Placed a tile (64 m) at a time, always the same (from the tile's number).
 // Near the player (NEAR) they are the nature pack's trees, instanced (a dozen draws for all of them); farther, up to the
 // fog, simple low trees (a cone, a ball, a bare trunk) that cost almost nothing. Their trunks stop whoever walks into
@@ -7,7 +7,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { libParts, natureScale } from "./nature";
-import { layersAt, surfaceAt, treeFree, nearRoad, ravineAt, SEA_Y } from "./terrain";
+import { layersAt, surfaceAt, treeFree, nearRoad, SEA_Y } from "./terrain";
 import { MAP } from "./sites";
 
 const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 48, SHADE = 30, REBUILD = 5;
@@ -29,7 +29,7 @@ function tileTrees(ti, tj) {
     if (ly.ice > 0.3) p = 0;
     if (rand(seed, 3, 7) > p) continue;
     const y = surfaceAt(x, z);
-    if (y < SEA_Y + 0.9 || !treeFree(x, z) || ravineAt(x, z) > 0.15 || nearRoad(x, z, 4.5)) continue;
+    if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 4.5)) continue;
     if (Math.hypot(surfaceAt(x + 1.5, z) - surfaceAt(x - 1.5, z), surfaceAt(x, z + 1.5) - surfaceAt(x, z - 1.5)) / 3 > 0.65) continue;   // too steep
     const r = rand(seed, 4, 7);
     const id = ly.snow > 0.5 ? (r < 0.55 ? PINES[Math.floor(r * 5.4) % 3] : "morto")

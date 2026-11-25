@@ -17,10 +17,14 @@ export const worldToMap = (x, z) => [x + MAP.ox, z + MAP.oz];
 
 // the turn (about the vertical, three.js' sense) that takes the direction (lx, lz) to (wx, wz)
 const turn = ([lx, lz], [wx, wz]) => Math.atan2(wx, wz) - Math.atan2(lx, lz);
-const site = (id, anchor, atMap, r, has) => {
+// y: how high its ground is (the old map's ground was at 0)
+const site = (id, anchor, atMap, r, has, y = 0) => {
   const [ax, az] = mapToWorld(...atMap);
-  return { id, anchor, ax, az, r, c: Math.cos(r), s: Math.sin(r), has };
+  return { id, anchor, ax, az, r, c: Math.cos(r), s: Math.sin(r), has, y };
 };
+// The land's two levels: the central highland (Roccanera, the hills, the mine, Valdoro: at 0, where the old map was) and
+// the low lands round it (the great forest, the west, beyond the river): LOW. The sea is lower still (terrain.js SEA_Y).
+export const LOW = -8;
 
 // The legacy mine: the mountain and the ground in front of its portal (the rock face, the lantern)
 const inMine = (x, z) => { const dx = x - CX, dz = z - CZ; return dx > -34 && dx < 21.5 && Math.abs(dz) < 31 && (mountainHeight(x, z) > 0 || (dx > 12 && Math.abs(dz) < 17)); };
@@ -31,7 +35,7 @@ export const SITES = {
   valdoro: site("valdoro", [0, WZ - 18], V_AT, turn([0, -1], mapToWorld(...V_AT)), (x, z) => z < WZ + 10 && z > -165 && Math.abs(x) < 46),
   // The forest of the bandits (its path, the camp): no longer before Valdoro's gate, but in the great forest south-west
   // of it, on the road from the hills to the western bridge (towards Dimirot); one walks its path southwards.
-  bosco: site("bosco", [0, -62], B_AT, turn([0, -1], [-0.12, 0.99]), (x, z) => z < -29 && z >= WZ + 10 && Math.abs(x) < 46),
+  bosco: site("bosco", [0, -62], B_AT, turn([0, -1], [-0.12, 0.99]), (x, z) => z < -29 && z >= WZ + 10 && Math.abs(x) < 46, LOW),
   // The mine: its mountain on the map's, the portal turned towards Roccanera
   miniera: site("miniera", [CX, CZ], M_AT, turn([1, 0], mapToWorld(...M_AT).map((v) => -v)), inMine),
 };
@@ -48,6 +52,8 @@ export function toWorld(lx, lz, id = siteOf(lx, lz)) {
   const dx = lx - s.anchor[0], dz = lz - s.anchor[1];
   return [s.ax + s.c * dx + s.s * dz, s.az - s.s * dx + s.c * dz];
 }
+/** How high a legacy point's site stands in the world. */
+export const heightOf = (lx, lz, id = siteOf(lx, lz)) => SITES[id]?.y || 0;
 /** How much a legacy point's site is turned in the world. */
 export const turnOf = (lx, lz, id = siteOf(lx, lz)) => SITES[id]?.r || 0;
 /** A world point in the site's own legacy coordinates (wherever it is). */
@@ -79,7 +85,7 @@ export const placeWorld = (lx, lz, ry = 0) => { const id = siteOf(lx, lz); retur
 export const FLATS = [
   { site: "roccanera", circle: [0, 0, 52], blend: 30 },
   { site: "valdoro", box: [-42, -160, 42, WZ + 12], blend: 24 },
-  { site: "bosco", box: [-36, WZ + 8, 36, -27], blend: 20, trees: 0.5 },   // (the great forest's trees right up to it)
+  { site: "bosco", box: [-36, WZ + 8, 36, -27], blend: 20, trees: 0.5, y: LOW },   // (the great forest's trees right up to it)
   { site: "miniera", box: [CX - 33, CZ - 32, CX + 25, CZ + 32], blend: 24 },
 ];
 // The ground has a hole where the mine's tunnels go down under its mountain (legacy, like the old meadow's)
@@ -105,9 +111,13 @@ export const ROADS = {
 export const roadWorld = (id) => ROADS[id].map(([px, py]) => mapToWorld(px, py));
 // Stone bridges over the river (map pixels, where it is narrowest by their drawings): from one bank to the other
 export const BRIDGES = [{ id: "nord", a: [1164.9, 1060.2], b: [1182.9, 1100.8] }, { id: "ovest", a: [875.4, 1227.6], b: [914.6, 1257.9] }];
-// The ravines drawn on the map (map pixels): their middle line, half their width, how deep
-export const RAVINES = [
-  { pts: [[965, 940], [995, 954], [1025, 967], [1048, 978], [1062, 990]], w: 7, depth: 9 },          // west of Valdoro
-  { pts: [[1045, 1024], [1040, 1045], [1032, 1060], [1010, 1070]], w: 2.6, depth: 4 },                   // (its thin crack)
-  { pts: [[715, 775], [713, 800], [718, 822], [735, 842], [760, 851], [785, 853], [805, 855]], w: 6, depth: 8 },   // south-west of Roccanera
+// The central highland (map pixels, clockwise): its edges are cliffs where the map draws them (the dark escarpments
+// south-west of Roccanera and of Valdoro: cliff true), elsewhere slopes down to the low lands or the sea.
+export const HIGHLAND = [
+  [690, 690], [715, 775, true], [713, 800, true], [718, 822, true], [735, 842, true], [760, 851, true], [785, 853, true], [805, 855],
+  [880, 890], [965, 938, true], [995, 954, true], [1025, 967, true], [1048, 978, true], [1062, 990],
+  [1080, 1030], [1150, 1045], [1230, 1030], [1320, 900], [1380, 650], [1320, 480], [1100, 470], [960, 520], [800, 560], [700, 620],
 ];
+// Smaller steps of the ground drawn on the map (the thin crack south of Valdoro's escarpment): along the line, the
+// ground on the side of the point `high` is higher by h, less and less over `fade` metres
+export const STEPS = [{ pts: [[1050, 1008], [1045, 1024], [1040, 1045], [1032, 1060], [1010, 1070]], h: 3.5, fade: 30, high: [1080, 1040] }];

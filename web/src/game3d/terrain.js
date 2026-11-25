@@ -5,8 +5,10 @@
 // around them; under the mine's mountain the ground has a hole (the tunnels go down there).
 // It is drawn in tiles of 64 m (a vertex every 2 m) built around the player as it moves and dropped when far away;
 // surfaceAt gives the height of the drawn surface itself (the same triangles), so feet stand on it. The sea is a
-// plane at SEA_Y following the camera. Roads (sites.js ROADS) are strips of dirt laid on the ground; the ravines of the
-// map (RAVINES) are cut into it; stone bridges (BRIDGES) cross the river, their decks walked on (groundAt).
+// plane at SEA_Y following the camera. Roads (sites.js ROADS) are strips of dirt laid on the ground; stone bridges
+// (BRIDGES) cross the river, their decks walked on (groundAt). The land has two levels: the central highland (HIGHLAND:
+// Roccanera, the hills, the mine, Valdoro, at 0) and the low lands round it (LOW), parted by cliffs where the map draws
+// its escarpments and by long slopes elsewhere; everywhere the ground rolls and is bumpy, flat only under the places.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import COSTA from "./mondo/costa.png";
@@ -16,10 +18,10 @@ import ERBA from "./terreno_erba.jpg";
 import ERBA_N from "./terreno_erba_n.jpg";
 import TERRA from "./terreno_terra.jpg";
 import TERRA_N from "./terreno_terra_n.jpg";
-import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, RAVINES, inSite, roadWorld, mapToWorld } from "./sites";
+import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, HIGHLAND, STEPS, LOW, inSite, roadWorld, mapToWorld } from "./sites";
 import { groundMat } from "./ground";
 
-export const SEA_Y = -1.3;
+export const SEA_Y = -12.5;
 const STEP = 2, TILE = 32;                       // a vertex every 2 m, 32 cells (64 m) a tile
 const GW = MAP.w / STEP + 1, GH = MAP.h / STEP + 1;   // vertices of the whole map
 const TX = MAP.w / STEP / TILE, TZ = MAP.h / STEP / TILE;
@@ -63,17 +65,17 @@ const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a
 
 // ---- the places' flat ground
 const FL = FLATS.map((f) => ({ ...f, s: SITES[f.site] }));
-/** How much of the places' flat ground is at a world point (1 on it, 0 out in the country). */
+/** How much of the places' flat ground is at a world point (1 on it, 0 out in the country) and its height. */
 export function flatAt(x, z) {
-  let w = 0;
+  let w = 0, y = 0;
   for (const f of FL) {
     const [lx, lz] = f.s ? inSite(f.s, x, z) : [x, z];
     let d;
     if (f.circle) d = Math.hypot(lx - f.circle[0], lz - f.circle[1]) - f.circle[2];
     else { const [x0, z0, x1, z1] = f.box, qx = Math.max(x0 - lx, lx - x1, 0), qz = Math.max(z0 - lz, lz - z1, 0); d = Math.hypot(qx, qz); }
-    if (d < f.blend) w = Math.max(w, 1 - smooth(0, f.blend, d));
+    if (d < f.blend) { const k = 1 - smooth(0, f.blend, d); if (k > w) { w = k; y = f.y || 0; } }
   }
-  return w;
+  return [w, y];
 }
 /** Whether trees of the open country may grow at a world point: not on the places' ground (nor too near it). */
 export function treeFree(x, z) {
@@ -86,26 +88,58 @@ export function treeFree(x, z) {
   }
   return true;
 }
-// ---- the ravines: a deep cut with steep sides along a line
-const RV = RAVINES.map((r) => {
-  const pts = r.pts.map(([px, py]) => mapToWorld(px, py)), xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
-  return { pts, w: r.w, depth: r.depth, x0: Math.min(...xs) - r.w, x1: Math.max(...xs) + r.w, z0: Math.min(...zs) - r.w, z1: Math.max(...zs) + r.w };
-});
 const segD = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1))); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
-/** How deep the ravines cut the ground at a world point (0 elsewhere). */
-export function ravineAt(x, z) {
-  let cut = 0;
-  for (const r of RV) {
-    if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
-    let d = Infinity;
-    for (let i = 1; i < r.pts.length; i++) d = Math.min(d, segD(x, z, r.pts[i - 1], r.pts[i]));
-    // the ends narrow to nothing
-    const e = Math.min(Math.hypot(x - r.pts[0][0], z - r.pts[0][1]), Math.hypot(x - r.pts.at(-1)[0], z - r.pts.at(-1)[1]));
-    const w = r.w * Math.min(1, 0.35 + e / (r.w * 3));
-    if (d < w) cut = Math.max(cut, r.depth * smooth(0, 0.5, 1 - d / w) * Math.min(1, 0.3 + e / (r.w * 4)));
+// ---- the central highland: inside its outline at 0, outside down at LOW; its edge a cliff near the drawn escarpments
+const HL = HIGHLAND.map(([px, py, cliff]) => [...mapToWorld(px, py), !!cliff]);
+const HSEG = HL.map((a, i) => { const b = HL[(i + 1) % HL.length]; return { a, b, cliff: a[2] && b[2] }; });
+const CLIFFS = HSEG.filter((sg) => sg.cliff);
+const inPoly = (x, z) => {
+  let inside = false;
+  for (let i = 0, j = HL.length - 1; i < HL.length; j = i++) {
+    const [xi, zi] = HL[i], [xj, zj] = HL[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
   }
-  return cut;
+  return inside;
+};
+/** How much a world point is up on the highland (1) or down in the low lands (0). */
+export function highlandAt(x, z) {
+  let d = Infinity, dc = Infinity;
+  for (const sg of HSEG) d = Math.min(d, segD(x, z, sg.a, sg.b));
+  for (const sg of CLIFFS) dc = Math.min(dc, segD(x, z, sg.a, sg.b));
+  const sd = inPoly(x, z) ? d : -d, sharp = 1 - smooth(8, 34, dc), w = 70 + (5 - 70) * sharp;
+  return smooth(-w / 2, w / 2, sd + (sharp > 0 ? fbm(x / 9, z / 9) * 2.4 * sharp : 0));   // (the cliff's line a little irregular)
 }
+// ---- the smaller steps: a short steep rise to the high side, its top sloping down again over `fade` metres
+const ST = STEPS.map((st) => {
+  const pts = st.pts.map(([px, py]) => mapToWorld(px, py)), [hx, hz] = mapToWorld(...st.high), xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+  let best = 0, bd = Infinity;
+  for (let i = 1; i < pts.length; i++) { const dd = segD(hx, hz, pts[i - 1], pts[i]); if (dd < bd) { bd = dd; best = i; } }
+  const [ax, az] = pts[best - 1], [bx, bz] = pts[best], sign = Math.sign((bx - ax) * (hz - az) - (bz - az) * (hx - ax)) || 1;
+  return { pts, h: st.h, fade: st.fade, sign, x0: Math.min(...xs) - st.fade, x1: Math.max(...xs) + st.fade, z0: Math.min(...zs) - st.fade, z1: Math.max(...zs) + st.fade };
+});
+function stepAt(x, z) {
+  let up = 0;
+  for (const st of ST) {
+    if (x < st.x0 || x > st.x1 || z < st.z0 || z > st.z1) continue;
+    let bd = Infinity, side = 0;
+    for (let i = 1; i < st.pts.length; i++) {
+      const [ax, az] = st.pts[i - 1], [bx, bz] = st.pts[i], dd = segD(x, z, st.pts[i - 1], st.pts[i]);
+      if (dd < bd) { bd = dd; side = Math.sign((bx - ax) * (z - az) - (bz - az) * (x - ax)) * st.sign; }
+    }
+    const s = side * bd, ends = Math.min(Math.hypot(x - st.pts[0][0], z - st.pts[0][1]), Math.hypot(x - st.pts.at(-1)[0], z - st.pts.at(-1)[1]));
+    up = Math.max(up, st.h * smooth(-1.2, 1.8, s) * (s > 0 ? 1 - smooth(1.8, st.fade, s) : 1) * smooth(0, 14, ends));
+  }
+  return up;
+}
+// ---- the roads (their drawn lines), so the ground under them is smoother
+const RSEG = [], RCELL = new Map();
+Object.values(ROADS).forEach((pts) => pts.forEach((p, i) => { if (i) RSEG.push([mapToWorld(...pts[i - 1]), mapToWorld(...p)]); }));
+RSEG.forEach((sg, k) => {
+  const [[ax, az], [bx, bz]] = sg;
+  for (let j = Math.floor((Math.min(az, bz) - 12) / 32); j <= Math.floor((Math.max(az, bz) + 12) / 32); j++)
+    for (let i = Math.floor((Math.min(ax, bx) - 12) / 32); i <= Math.floor((Math.max(ax, bx) + 12) / 32); i++) (RCELL.get(`${i}|${j}`) || RCELL.set(`${i}|${j}`, []).get(`${i}|${j}`)).push(k);
+});
+const roadDist = (x, z) => { let d = 40; for (const k of RCELL.get(`${Math.floor(x / 32)}|${Math.floor(z / 32)}`) || []) d = Math.min(d, segD(x, z, ...RSEG[k])); return d; };
 const inHole = (x, z) => {
   const [lx, lz] = inSite(SITES.miniera, x, z);
   let inside = false;
@@ -130,19 +164,25 @@ export function layersAt(x, z) {
 export function heightAt(x, z) {
   if (!L) return 0;
   const px = x + MAP.ox, pz = z + MAP.oz, d = sample(L.costa, px, pz, 0, 0) - 128;
-  // the coast: the sea floor going down, the beach up to the plains (height 0)
-  let h = d < 0 ? Math.max(SEA_Y - 8, SEA_Y + 0.1 + d * 0.14) : SEA_Y + 0.1 + (0 - SEA_Y - 0.1) * smooth(0, 12, d);
-  if (d > 4) {
-    const inland = smooth(4, 40, d);
-    h += (fbm(x / 150, z / 150) * 1.4 + 1.0) * smooth(10, 60, d);                         // the plains roll a little (never down to the sea)
+  // the land's level: the highland's (its places at 0) or the low lands'; the swells below bring each to its middle
+  const base = -1.6 + LOW * (1 - highlandAt(x, z));
+  let h;
+  if (d < 0) h = Math.max(SEA_Y - 12, SEA_Y - 0.25 + d * 0.32);                         // under the water: deep soon
+  else h = SEA_Y + 0.15 + (base - SEA_Y - 0.15) * smooth(0, 8 + (base - SEA_Y) * 2.2, d);   // the shore up to the land
+  if (d > 2) {
+    const inland = smooth(2, 40, d), road = 1 - smooth(3.5, 10, roadDist(x, z));
+    // the ground is never flat: long swells, humps, little bumps (fewer on the roads)
+    h += (fbm(x / 140, z / 140) * 2.0 + 1.6) * smooth(6, 50, d);
+    h += (fbm(x / 38 + 7.7, z / 38 - 2.1) * 1.5 * (1 - road * 0.6) + (vnoise(x / 12.5, z / 12.5) * 0.45 + vnoise(x / 5.5 + 3.1, z / 5.5 - 8.4) * 0.14) * (1 - road)) * inland;
     const hill = sample(L.rilievo, px, pz, 1, 0) / 255;
     if (hill > 0.01) h += 10 * hill ** 1.2 * (0.6 + 0.4 * fbm(x / 60 + 3.3, z / 60)) * inland;
     const m = sample(L.rilievo, px, pz, 0, 0) / 255;
     if (m > 0.01) h += (78 * m ** 1.6 * (0.5 + 0.5 * ridge(x / 95, z / 95)) + 7 * m * fbm(x / 22, z / 22)) * inland;
+    h += stepAt(x, z);
   }
-  const w = flatAt(x, z);
-  if (w > 0) h *= 1 - w;
-  return h - ravineAt(x, z);
+  const [w, fy] = flatAt(x, z);
+  if (w > 0) h += (fy - h) * w;
+  return h;
 }
 
 // ---- the heights of the grid (computed a tile at a time, when first needed)
@@ -229,7 +269,7 @@ const TERRAIN_MAP = `
 	tCol = mix( tCol, mix( tD, vec3( tLum ), 0.35 ) * vec3( 1.08, 1.04, 1.0 ), tRock );
 	float tSand = smoothstep( ${(SEA_Y + 0.75).toFixed(2)}, ${(SEA_Y + 0.25).toFixed(2)}, tWP.y );   // by the water: sand
 	tCol = mix( tCol, vec3( 0.80, 0.72, 0.54 ) * ( 0.75 + 0.5 * tLum ), tSand * ( 1.0 - tRock ) );
-	tCol *= mix( 1.0, 0.55, smoothstep( ${(SEA_Y - 0.2).toFixed(2)}, ${(SEA_Y - 2.5).toFixed(2)}, tWP.y ) );   // under the water: darker
+	tCol = mix( tCol, vec3( 0.13, 0.27, 0.31 ), smoothstep( ${(SEA_Y + 0.05).toFixed(2)}, ${(SEA_Y - 2.2).toFixed(2)}, tWP.y ) * 0.85 );   // under the water: its colour
 	float tSnow = vW.y * ( 1.0 - tRock * 0.6 );
 	tCol = mix( tCol, vec3( 0.9, 0.93, 0.97 ) * ( 0.82 + 0.36 * tLum ), tSnow );
 	tCol = mix( tCol, vec3( 0.62, 0.8, 0.9 ) * ( 0.85 + 0.3 * tLum ), vW.z );
@@ -340,22 +380,11 @@ export function createTerrain(scene, renderer, opts = {}) {
   const material = terrainMat(renderer), tiles = new Map(), group = new THREE.Group();
   group.userData.world = true; scene.add(group);
   // the sea: a wide plane following the camera, a little rippled
-  const seaMat = new THREE.MeshStandardMaterial({ color: "#2d5566", roughness: 0.32, metalness: 0.05, transparent: true, opacity: 0.86 });
-  // the ravines go below the sea's level, but inland they are dry: there the sea is not drawn
-  const DW = 512, DH = 384, dry = new Uint8Array(DW * DH);
-  for (const r of RV) for (let j = Math.floor((r.z0 + MAP.oz) / 4); j <= Math.ceil((r.z1 + MAP.oz) / 4); j++) for (let i = Math.floor((r.x0 + MAP.ox) / 4); i <= Math.ceil((r.x1 + MAP.ox) / 4); i++) {
-    if (i < 0 || j < 0 || i >= DW || j >= DH) continue;
-    const x = i * 4 + 2 - MAP.ox, z = j * 4 + 2 - MAP.oz;
-    if (ravineAt(x, z) > 0.05 && coastAt(x, z) > 8) dry[j * DW + i] = 255;
-  }
-  const dryTex = new THREE.DataTexture(dry, DW, DH, THREE.RedFormat, THREE.UnsignedByteType);
-  dryTex.magFilter = dryTex.minFilter = THREE.LinearFilter; dryTex.needsUpdate = true;
+  const seaMat = new THREE.MeshStandardMaterial({ color: "#2a5a6c", roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.9 });
   seaMat.onBeforeCompile = (sh) => {
-    sh.uniforms.sTime = { value: 0 }; sh.uniforms.sDry = { value: dryTex }; seaMat.userData.sh = sh;
-    sh.fragmentShader = sh.fragmentShader.replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
-	if ( texture2D( sDry, vec2( ( sWP.x + ${MAP.ox.toFixed(1)} ) / ${MAP.w.toFixed(1)}, ( sWP.z + ${MAP.oz.toFixed(1)} ) / ${MAP.h.toFixed(1)} ) ).r > 0.5 ) discard;`);
+    sh.uniforms.sTime = { value: 0 }; seaMat.userData.sh = sh;
     sh.vertexShader = "varying vec3 sWP;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tsWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
-    sh.fragmentShader = "uniform float sTime;\nuniform sampler2D sDry;\nvarying vec3 sWP;\n" + sh.fragmentShader.replace("#include <normal_fragment_maps>", `
+    sh.fragmentShader = "uniform float sTime;\nvarying vec3 sWP;\n" + sh.fragmentShader.replace("#include <normal_fragment_maps>", `
 	vec2 sP = sWP.xz * 0.35;
 	vec3 sN = normalize( vec3( sin( sP.x * 1.3 + sTime * 1.1 ) * 0.06 + sin( sP.y * 1.9 - sTime * 0.8 + sP.x * 0.4 ) * 0.05, 1.0,
 		cos( sP.y * 1.1 + sTime * 0.9 ) * 0.06 + sin( sP.x * 2.3 + sTime * 1.3 + sP.y * 0.6 ) * 0.04 ) );

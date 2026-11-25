@@ -456,10 +456,8 @@ torre, grotte; poi il serpente marino).
   costa): nord 44 m (1164.9, 1060.2)–(1182.9, 1100.8), ovest 49,5 m (875.4, 1227.6)–(914.6, 1257.9); impalcato di pietra
   (materiale del kit) che sale di 2 m al centro, parapetti, piloni nel fiume. `groundAt` = l'impalcato sopra l'acqua
   (`floorY` lo usa), `onDeck`/`bridgeKeep`: sul ponte si resta tra i parapetti.
-- **Crepacci** (`RAVINES`): i tre disegnati (ovest di Valdoro con la sua crepa sottile, sud-ovest di Roccanera), gole di
-  6–14 m con pareti ripide (roccia dal pendio) profonde 4–9 m, percorribili; il mare non si disegna dentro (maschera
-  `sDry` nel materiale del mare: sono sotto il suo livello ma all'interno). L'acqua profonda ora si decide dalla distanza
-  dalla costa (`coastAt < -4.5`), non dall'altezza.
+- I "crepacci" disegnati sono in realtà **scarpate** (correzione dell'utente: il castello sta su una specie di
+  altopiano): vedi sotto. L'acqua profonda si decide dalla distanza dalla costa (`coastAt < -4.5`), non dall'altezza.
 - **Alberi della campagna** (`vegetation.js`): per pezzi di 64 m, celle di 6,4 m, densità dallo strato foreste (fino a un
   albero ogni ~55 m² nelle foreste, rari in pianura), mai nei luoghi (`treeFree`, `FLATS.trees`), sulle strade
   (`nearRoad`), in acqua o sulla spiaggia, sui pendii ripidi, nei crepacci; nella neve pini e alberi morti. Entro 48 m i
@@ -470,3 +468,16 @@ torre, grotte; poi il serpente marino).
 - Il sole e le sue ombre seguono il giocatore anche in quota (montagne).
 - Da fare: fase 3 (Sulus, Dimirot, resto della grande foresta), fase 4, fase 5; montagne più varie; erba e cespugli nella
   campagna.
+
+**Correzioni dopo la fase 2 (richieste dell'utente):**
+- **Altopiano** (`sites.js HIGHLAND`, `terrain.js highlandAt`): il centro (Roccanera, colline, miniera, Valdoro) sta a
+  quota 0 come il vecchio mondo; le **terre basse** intorno (grande foresta, ovest, oltre il fiume) a `LOW = -8` (in
+  media). Il contorno dell'altopiano è un poligono in pixel della mappa: dove la mappa disegna le scarpate (a sud-ovest di
+  Roccanera e di Valdoro, `cliff: true`) il bordo è una **parete** di ~8 m larga pochi metri (linea un po' irregolare),
+  altrove un pendio lungo ~70 m. La crepa sottile sotto la scarpata di Valdoro è un gradino di 3,5 m (`STEPS`, lato alto
+  verso il punto `high`). Il bosco dei banditi sta nelle terre basse: i luoghi hanno ora un'**altezza** (`SITES.*.y`,
+  `heightOf`; bosco `LOW`), con cui si spostano modelli, pezzi dei pacchetti e foglie; `FLATS` spiana alla quota del luogo.
+- **Acqua**: il mare è più basso (`SEA_Y = -12.5`), le rive scendono presto (0,32 m per metro), il fondo prende il colore
+  dell'acqua e l'acqua è più coprente: fiumi e insenature si vedono (prima erano pochi cm d'acqua su sabbia).
+- **Terreno irregolare**: ovunque fuori dai luoghi onde lunghe (±2 m su 140 m), gobbe (±1,5 m su 38 m), dossi
+  (±0,45 m su 12 m, ±0,14 m su 5 m), smorzati sulle strade (`roadDist` dalle linee di `ROADS`).

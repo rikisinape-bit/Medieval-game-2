@@ -19,7 +19,7 @@ import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
 import { createSky, sunDir } from "./sky";
 import { shapeOf, tumble, middle, placeMiddle, settle } from "./tumble";
-import { regionOf, zoneOf, toWorld as siteToWorld, toLegacy, placeWorld, siteOf, SITES, inSite, worldToMap } from "./sites";
+import { regionOf, zoneOf, toWorld as siteToWorld, toLegacy, placeWorld, siteOf, heightOf, SITES, inSite, worldToMap } from "./sites";
 import { createTerrain, surfaceAt, groundAt, deepWater, onDeck, bridgeKeep, layersAt } from "./terrain";
 import { createVegetation } from "./vegetation";
 
@@ -75,7 +75,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // pieces of the nature, kit and props packs laid in the old map: moved with their place (sites.js), then merged
   const addNatureL = (items) => {
     const n0 = scene.children.length;
-    const tris = addNature(scene, items.map((it) => { const [x, z, ry] = placeWorld(it.x, it.z, it.ry || 0); return { ...it, x, z, ry }; }), natureMeshes);
+    const tris = addNature(scene, items.map((it) => { const [x, z, ry] = placeWorld(it.x, it.z, it.ry || 0); return { ...it, x, z, ry, y: (it.y || 0) + heightOf(it.x, it.z) }; }), natureMeshes);
     scene.children.slice(n0).forEach((o) => { o.userData.world = true; });
     return tris;
   };
@@ -418,7 +418,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   } else {
     // Fallback: the old procedural trees, baked into one mesh per material.
     const treeG = new THREE.Group();
-    treeSpots.forEach((t) => { if (t.gone) return; const o = makeTree(t.pine), [x, z, ry] = placeWorld(t.x, t.z, t.ry); at(o, x, 0, z, ry); treeG.add(o); });
+    treeSpots.forEach((t) => { if (t.gone) return; const o = makeTree(t.pine), [x, z, ry] = placeWorld(t.x, t.z, t.ry); at(o, x, heightOf(t.x, t.z), z, ry); treeG.add(o); });
     treeG.updateMatrixWorld(true);
     const byMat = new Map();
     treeG.traverse((o) => {
@@ -471,7 +471,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     && !solids.some((r) => { const dx = x - r.cx, dz = z - r.cz; return Math.abs(dx) < r.R && Math.abs(dz) < r.R && Math.abs(r.c * dx - r.s * dz) < r.hw + 0.05 && Math.abs(r.s * dx + r.c * dz) < r.hd + 0.05; })
     && !obstacles.some((o) => { const dx = x - o.x, dz = z - o.z, rr = o.r * 0.85; return Math.abs(dx) < rr && Math.abs(dz) < rr && dx * dx + dz * dz < rr * rr; });
   let ls = 777; const lr = () => { ls = (ls * 16807) % 2147483647; return (ls - 1) / 2147483646; };
-  const t0 = performance.now(), leaves = addLeaves(scene, edgeSpots(bare, leafSpot, meadowY, { rnd: lr }).map((sp) => { const [x, z, ry] = placeWorld(sp.x, sp.z, sp.ry); return { ...sp, x, z, ry }; }));
+  const t0 = performance.now(), leaves = addLeaves(scene, edgeSpots(bare, leafSpot, meadowY, { rnd: lr }).map((sp) => { const [x, z, ry] = placeWorld(sp.x, sp.z, sp.ry); return { ...sp, x, z, ry, y: (sp.y || 0) + heightOf(sp.x, sp.z) }; }));
   leaves.meshes.forEach((m) => { m.userData.world = true; });
   console.info(`Foglie ai bordi: ${leaves.count} ciuffi, ${Math.round(leaves.tris)} triangoli in ${leaves.chunks} blocchi (${Math.round(performance.now() - t0)} ms)`);
   if (import.meta.env.DEV) window.__leaves = { leaves, add: (spots) => addLeaves(scene, spots), bareAt: (x, z) => bare.some((b) => b.inside(x, z)), meadowY, leafSpot };   // dev only (tests)
@@ -495,7 +495,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (preBuild.has(o) || o.userData.world) return;
       const id = siteOf(o.position.x, o.position.z);
       if (!SITES[id]) return;
-      [o.position.x, o.position.z] = siteToWorld(o.position.x, o.position.z, id);
+      [o.position.x, o.position.z] = siteToWorld(o.position.x, o.position.z, id); o.position.y += SITES[id].y;
       o.quaternion.premultiply(qY.setFromAxisAngle(UPY, SITES[id].r)); o.updateMatrix(); o.updateMatrixWorld(true);
     });
     const move = (o, kx, kz) => { const id = siteOf(o[kx], o[kz]); if (!SITES[id]) return 0; [o[kx], o[kz]] = siteToWorld(o[kx], o[kz], id); return SITES[id].r; };
