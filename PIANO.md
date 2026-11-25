@@ -441,5 +441,32 @@ torre, grotte; poi il serpente marino).
   rosso dove sei e una freccia dove guardi (nel castello: alla sua porta). HUD: `map` = pixel della mappa e direzione.
 - Salvataggi: nuova chiave `vasilad.v1` (quelli del vecchio mondo compatto non si caricano più). Pagina pubblicata: le
   immagini di `mondo/` sono dentro il codice (vite.config.js), come le texture del terreno.
-- Da fare nelle prossime fasi: alberi ed erba nella campagna e nelle foreste della mappa (ora solo nei luoghi), ponti e
-  fiume, nuovi villaggi, grotte; montagne più varie; nomi delle zone nell'HUD; mura/rupi ai crepacci.
+
+**Fase 2, fatta:**
+- **Bosco dei banditi** staccato da Valdoro (richiesta dell'utente: non più davanti al castello): è un luogo a sé
+  (`SITES.bosco`, legacy z da -29 a WZ + 10) nella **grande foresta** a sud-ovest di Valdoro (centro al pixel 902, 1000),
+  il sentiero percorso verso sud. `SITES.valdoro` ora è solo la città e il prato davanti alla porta (cavalieri, lastricato:
+  regione "wild"). Gli alberi del vecchio bosco che cadrebbero davanti alla porta non si piantano. Agguato e pedaggio come
+  prima; alla fine del sentiero i banditi smettono di inseguire ("si fermano al limitare del bosco"; un cavaliere vicino
+  dice la sua battuta). Messaggeri: Roccanera → strada diretta → porta di Valdoro.
+- **Strade** (`sites.js ROADS`, pixel della mappa): Roccanera → Valdoro diretta sulle colline; da lì una diramazione nella
+  foresta fino al sentiero dei banditi (`bosco_n`), dal suo fondo al **ponte ovest** (`bosco_s`); dalla porta di Valdoro
+  intorno alle mura al **ponte nord** (`ponte_nord`); dopo i ponti un tratto verso Sulus e verso Dimirot (fase 3).
+- **Ponti** (`BRIDGES`, `terrain.js`): dove il fiume è più stretto vicino ai disegni (calcolato dalla distanza dalla
+  costa): nord 44 m (1164.9, 1060.2)–(1182.9, 1100.8), ovest 49,5 m (875.4, 1227.6)–(914.6, 1257.9); impalcato di pietra
+  (materiale del kit) che sale di 2 m al centro, parapetti, piloni nel fiume. `groundAt` = l'impalcato sopra l'acqua
+  (`floorY` lo usa), `onDeck`/`bridgeKeep`: sul ponte si resta tra i parapetti.
+- **Crepacci** (`RAVINES`): i tre disegnati (ovest di Valdoro con la sua crepa sottile, sud-ovest di Roccanera), gole di
+  6–14 m con pareti ripide (roccia dal pendio) profonde 4–9 m, percorribili; il mare non si disegna dentro (maschera
+  `sDry` nel materiale del mare: sono sotto il suo livello ma all'interno). L'acqua profonda ora si decide dalla distanza
+  dalla costa (`coastAt < -4.5`), non dall'altezza.
+- **Alberi della campagna** (`vegetation.js`): per pezzi di 64 m, celle di 6,4 m, densità dallo strato foreste (fino a un
+  albero ogni ~55 m² nelle foreste, rari in pianura), mai nei luoghi (`treeFree`, `FLATS.trees`), sulle strade
+  (`nearRoad`), in acqua o sulla spiaggia, sui pendii ripidi, nei crepacci; nella neve pini e alberi morti. Entro 48 m i
+  modelli del pacchetto natura (istanziati, quelli entro 30 m fanno ombra), oltre fino alla nebbia alberi semplici (pino a
+  palchi di coni, chioma a sfere, tronco secco) con tinta variata. I tronchi fermano chi cammina (`veg.push` in
+  `pushOut`) e la telecamera. Nella grande foresta la luce e la nebbia diventano da bosco (`SELVA`, `wildF`), HUD
+  "Grande foresta".
+- Il sole e le sue ombre seguono il giocatore anche in quota (montagne).
+- Da fare: fase 3 (Sulus, Dimirot, resto della grande foresta), fase 4, fase 5; montagne più varie; erba e cespugli nella
+  campagna.

@@ -5,8 +5,10 @@
 // around them; under the mine's mountain the ground has a hole (the tunnels go down there).
 // It is drawn in tiles of 64 m (a vertex every 2 m) built around the player as it moves and dropped when far away;
 // surfaceAt gives the height of the drawn surface itself (the same triangles), so feet stand on it. The sea is a
-// plane at SEA_Y following the camera. Roads (sites.js ROADS) are strips of dirt laid on the ground.
+// plane at SEA_Y following the camera. Roads (sites.js ROADS) are strips of dirt laid on the ground; the ravines of the
+// map (RAVINES) are cut into it; stone bridges (BRIDGES) cross the river, their decks walked on (groundAt).
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import COSTA from "./mondo/costa.png";
 import RILIEVO from "./mondo/rilievo.png";
 import SUOLO from "./mondo/suolo.png";
@@ -14,7 +16,7 @@ import ERBA from "./terreno_erba.jpg";
 import ERBA_N from "./terreno_erba_n.jpg";
 import TERRA from "./terreno_terra.jpg";
 import TERRA_N from "./terreno_terra_n.jpg";
-import { MAP, SITES, FLATS, MINE_HOLE, inSite, roadWorld } from "./sites";
+import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, RAVINES, inSite, roadWorld, mapToWorld } from "./sites";
 import { groundMat } from "./ground";
 
 export const SEA_Y = -1.3;
@@ -73,6 +75,37 @@ export function flatAt(x, z) {
   }
   return w;
 }
+/** Whether trees of the open country may grow at a world point: not on the places' ground (nor too near it). */
+export function treeFree(x, z) {
+  for (const f of FL) {
+    const [lx, lz] = f.s ? inSite(f.s, x, z) : [x, z];
+    let d;
+    if (f.circle) d = Math.hypot(lx - f.circle[0], lz - f.circle[1]) - f.circle[2];
+    else { const [x0, z0, x1, z1] = f.box, qx = Math.max(x0 - lx, lx - x1, 0), qz = Math.max(z0 - lz, lz - z1, 0); d = Math.hypot(qx, qz); }
+    if (d < (f.trees ?? f.blend * 0.45)) return false;
+  }
+  return true;
+}
+// ---- the ravines: a deep cut with steep sides along a line
+const RV = RAVINES.map((r) => {
+  const pts = r.pts.map(([px, py]) => mapToWorld(px, py)), xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
+  return { pts, w: r.w, depth: r.depth, x0: Math.min(...xs) - r.w, x1: Math.max(...xs) + r.w, z0: Math.min(...zs) - r.w, z1: Math.max(...zs) + r.w };
+});
+const segD = (x, z, [ax, az], [bx, bz]) => { const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1))); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
+/** How deep the ravines cut the ground at a world point (0 elsewhere). */
+export function ravineAt(x, z) {
+  let cut = 0;
+  for (const r of RV) {
+    if (x < r.x0 || x > r.x1 || z < r.z0 || z > r.z1) continue;
+    let d = Infinity;
+    for (let i = 1; i < r.pts.length; i++) d = Math.min(d, segD(x, z, r.pts[i - 1], r.pts[i]));
+    // the ends narrow to nothing
+    const e = Math.min(Math.hypot(x - r.pts[0][0], z - r.pts[0][1]), Math.hypot(x - r.pts.at(-1)[0], z - r.pts.at(-1)[1]));
+    const w = r.w * Math.min(1, 0.35 + e / (r.w * 3));
+    if (d < w) cut = Math.max(cut, r.depth * smooth(0, 0.5, 1 - d / w) * Math.min(1, 0.3 + e / (r.w * 4)));
+  }
+  return cut;
+}
 const inHole = (x, z) => {
   const [lx, lz] = inSite(SITES.miniera, x, z);
   let inside = false;
@@ -108,7 +141,8 @@ export function heightAt(x, z) {
     if (m > 0.01) h += (78 * m ** 1.6 * (0.5 + 0.5 * ridge(x / 95, z / 95)) + 7 * m * fbm(x / 22, z / 22)) * inland;
   }
   const w = flatAt(x, z);
-  return w > 0 ? h * (1 - w) : h;
+  if (w > 0) h *= 1 - w;
+  return h - ravineAt(x, z);
 }
 
 // ---- the heights of the grid (computed a tile at a time, when first needed)
@@ -130,8 +164,40 @@ export function surfaceAt(x, z) {
   const a = gridH(i, j), b = gridH(i, j + 1), c = gridH(i + 1, j + 1), d = gridH(i + 1, j);
   return fx + fz <= 1 ? a + (d - a) * fx + (b - a) * fz : c + (b - c) * (1 - fx) + (d - c) * (1 - fz);
 }
-/** Water too deep to wade at a world point (the sea; out of the map). */
-export const deepWater = (x, z) => surfaceAt(x, z) < SEA_Y - 0.55;
+// ---- the bridges: a deck from bank to bank (3 m more on each), rising in the middle
+const ARCH = 2.0, HALF = 1.9;                     // the deck's rise in the middle; half the walkable width
+const BR = BRIDGES.map((b) => {
+  const [ax, az] = mapToWorld(...b.a), [bx, bz] = mapToWorld(...b.b), l = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / l, uz = (bz - az) / l;
+  return { id: b.id, ax: ax - ux * 3, az: az - uz * 3, ux, uz, L: l + 6, yaw: Math.atan2(ux, uz), hA: null, hB: null };
+});
+const deckH = (b, t) => {
+  if (b.hA === null) { b.hA = surfaceAt(b.ax, b.az) + 0.12; b.hB = surfaceAt(b.ax + b.ux * b.L, b.az + b.uz * b.L) + 0.12; }
+  return b.hA + (b.hB - b.hA) * t + ARCH * Math.sin(Math.PI * Math.min(1, Math.max(0, t)));
+};
+const onBridge = (x, z, m = 0) => {
+  for (const b of BR) {
+    const dx = x - b.ax, dz = z - b.az, t = (dx * b.ux + dz * b.uz) / b.L, lat = -dx * b.uz + dz * b.ux;
+    if (t >= 0 && t <= 1 && Math.abs(lat) <= HALF + 0.35 + m) return { b, t, lat };
+  }
+  return null;
+};
+/** The ground one stands on at a world point: a bridge's deck, or the drawn ground. */
+export function groundAt(x, z) {
+  const s = surfaceAt(x, z), o = onBridge(x, z);
+  return o ? Math.max(s, deckH(o.b, o.t)) : s;
+}
+/** On a bridge's deck (between its parapets). */
+export const onDeck = (x, z) => { const o = onBridge(x, z); return !!o && Math.abs(o.lat) <= HALF + 0.05; };
+/** On a bridge (or right by it): the point kept between its parapets; else null. */
+export function bridgeKeep(x, z) {
+  const o = onBridge(x, z, 1.2);
+  if (!o || Math.abs(o.lat) <= HALF) return null;
+  const lat = Math.sign(o.lat) * HALF, along = o.t * o.b.L;
+  return [o.b.ax + o.b.ux * along - o.b.uz * lat, o.b.az + o.b.uz * along + o.b.ux * lat];
+}
+/** Water too deep to wade at a world point (the sea, the river; out of the map), not on a bridge (the ravines are
+ *  dry, however deep). */
+export const deepWater = (x, z) => coastAt(x, z) < -4.5 && !onBridge(x, z);
 
 // ---- the material: grass and dry ground by the map's colours, rock on the steep slopes, snow, ice, sand by the sea
 const TERRAIN_V = `attribute vec4 aW;
@@ -231,16 +297,65 @@ function buildTile(ti, tj, material) {
   return mesh;
 }
 
-/** The ground, the sea and the roads: call update(camera position) every frame. */
-export function createTerrain(scene, renderer) {
+// the roads' points, by cells of 8 m (whether a point is near a road)
+const roadCells = new Map();
+/** Whether a world point is within r metres of a road. */
+export function nearRoad(x, z, r) {
+  const ci = Math.floor(x / 8), cj = Math.floor(z / 8), n = Math.ceil(r / 8);
+  for (let j = cj - n; j <= cj + n; j++) for (let i = ci - n; i <= ci + n; i++) {
+    const list = roadCells.get(`${i}|${j}`);
+    if (list) for (const p of list) if (Math.hypot(p.x - x, p.z - z) < r) return true;
+  }
+  return false;
+}
+function bridgeMesh(b, stone) {
+  const mat = stone || new THREE.MeshStandardMaterial({ color: "#8f8a80", roughness: 0.95 });
+  const geos = [], n = Math.max(10, Math.round(b.L / 2)), m4 = new THREE.Matrix4(), e = new THREE.Euler(0, 0, 0, "YXZ");
+  const box = (w, h, d, x, y, z, pitch) => { const g = new THREE.BoxGeometry(w, h, d); e.set(pitch, b.yaw, 0); g.applyMatrix4(m4.makeRotationFromEuler(e).setPosition(x, y, z)); geos.push(g); };
+  const at = (t) => [b.ax + b.ux * b.L * t, deckH(b, t), b.az + b.uz * b.L * t];
+  for (let k = 0; k < n; k++) {
+    const [x0, y0, z0] = at(k / n), [x1, y1, z1] = at((k + 1) / n), len = Math.hypot(x1 - x0, y1 - y0, z1 - z0) + 0.06, pitch = -Math.atan2(y1 - y0, Math.hypot(x1 - x0, z1 - z0));
+    const mx = (x0 + x1) / 2, my = (y0 + y1) / 2, mz = (z0 + z1) / 2;
+    box(4.7, 0.8, len, mx, my - 0.4, mz, pitch);                                                   // the deck
+    [-1, 1].forEach((sd) => box(0.38, 0.95, len, mx + b.uz * 2.16 * sd, my + 0.44, mz - b.ux * 2.16 * sd, pitch));   // parapets
+  }
+  // piers where the river is under the deck, from its bed up to the deck
+  for (const t of b.L > 30 ? [0.27, 0.5, 0.73] : [0.5]) {
+    const [x, y, z] = at(t), bed = surfaceAt(x, z);
+    if (bed > SEA_Y) continue;
+    const h = y - 0.8 - (bed - 0.5);
+    box(4.9, h, 2.6, x, bed - 0.5 + h / 2, z, 0);
+  }
+  const geo = mergeGeometries(geos);
+  geos.forEach((g) => g.dispose());
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.castShadow = mesh.receiveShadow = true; mesh.userData.world = true;
+  return mesh;
+}
+
+/** The ground, the sea, the roads and the bridges: call update(camera position) every frame. opts.stone: the bridges'
+ *  material. */
+export function createTerrain(scene, renderer, opts = {}) {
+  roadCells.clear();
   const material = terrainMat(renderer), tiles = new Map(), group = new THREE.Group();
   group.userData.world = true; scene.add(group);
   // the sea: a wide plane following the camera, a little rippled
   const seaMat = new THREE.MeshStandardMaterial({ color: "#2d5566", roughness: 0.32, metalness: 0.05, transparent: true, opacity: 0.86 });
+  // the ravines go below the sea's level, but inland they are dry: there the sea is not drawn
+  const DW = 512, DH = 384, dry = new Uint8Array(DW * DH);
+  for (const r of RV) for (let j = Math.floor((r.z0 + MAP.oz) / 4); j <= Math.ceil((r.z1 + MAP.oz) / 4); j++) for (let i = Math.floor((r.x0 + MAP.ox) / 4); i <= Math.ceil((r.x1 + MAP.ox) / 4); i++) {
+    if (i < 0 || j < 0 || i >= DW || j >= DH) continue;
+    const x = i * 4 + 2 - MAP.ox, z = j * 4 + 2 - MAP.oz;
+    if (ravineAt(x, z) > 0.05 && coastAt(x, z) > 8) dry[j * DW + i] = 255;
+  }
+  const dryTex = new THREE.DataTexture(dry, DW, DH, THREE.RedFormat, THREE.UnsignedByteType);
+  dryTex.magFilter = dryTex.minFilter = THREE.LinearFilter; dryTex.needsUpdate = true;
   seaMat.onBeforeCompile = (sh) => {
-    sh.uniforms.sTime = { value: 0 }; seaMat.userData.sh = sh;
+    sh.uniforms.sTime = { value: 0 }; sh.uniforms.sDry = { value: dryTex }; seaMat.userData.sh = sh;
+    sh.fragmentShader = sh.fragmentShader.replace("#include <clipping_planes_fragment>", `#include <clipping_planes_fragment>
+	if ( texture2D( sDry, vec2( ( sWP.x + ${MAP.ox.toFixed(1)} ) / ${MAP.w.toFixed(1)}, ( sWP.z + ${MAP.oz.toFixed(1)} ) / ${MAP.h.toFixed(1)} ) ).r > 0.5 ) discard;`);
     sh.vertexShader = "varying vec3 sWP;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tsWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
-    sh.fragmentShader = "uniform float sTime;\nvarying vec3 sWP;\n" + sh.fragmentShader.replace("#include <normal_fragment_maps>", `
+    sh.fragmentShader = "uniform float sTime;\nuniform sampler2D sDry;\nvarying vec3 sWP;\n" + sh.fragmentShader.replace("#include <normal_fragment_maps>", `
 	vec2 sP = sWP.xz * 0.35;
 	vec3 sN = normalize( vec3( sin( sP.x * 1.3 + sTime * 1.1 ) * 0.06 + sin( sP.y * 1.9 - sTime * 0.8 + sP.x * 0.4 ) * 0.05, 1.0,
 		cos( sP.y * 1.1 + sTime * 0.9 ) * 0.06 + sin( sP.x * 2.3 + sTime * 1.3 + sP.y * 0.6 ) * 0.04 ) );
@@ -252,13 +367,13 @@ export function createTerrain(scene, renderer) {
   // the roads: a strip of dirt following the ground (a little above it), 3.4 m wide, smoothed between the points
   const roadMat = groundMat(renderer, "terra", { scale: 2.6, tint: "#efe6d8", vary: 0.12, dry: 0 });
   roadMat.polygonOffset = true; roadMat.polygonOffsetFactor = -2; roadMat.polygonOffsetUnits = -2;
-  const roads = ["valdoro", "miniera"].map((id) => {
+  const roads = Object.keys(ROADS).map((id) => {
     const pts = roadWorld(id).map(([x, z]) => new THREE.Vector3(x, 0, z));
     const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal"), len = curve.getLength(), n = Math.max(2, Math.round(len / 2));
     const half = 1.7, ps = [], idx = [], uv = [];
     for (let k = 0; k <= n; k++) {
       const p = curve.getPointAt(k / n), t = curve.getTangentAt(k / n), sx = -t.z, sz = t.x, l = Math.hypot(sx, sz) || 1;
-      [-1, -0.5, 0, 0.5, 1].forEach((f) => { const x = p.x + (sx / l) * half * f, z = p.z + (sz / l) * half * f; ps.push(x, surfaceAt(x, z) + 0.05, z); uv.push(0, 0); });
+      [-1, -0.5, 0, 0.5, 1].forEach((f) => { const x = p.x + (sx / l) * half * f, z = p.z + (sz / l) * half * f; ps.push(x, groundAt(x, z) + 0.05, z); uv.push(0, 0); });
       if (k) for (let c = 0; c < 4; c++) { const a = (k - 1) * 5 + c, b = a + 5; idx.push(a, a + 1, b, b, a + 1, b + 1); }   // (facing up)
     }
     const geo = new THREE.BufferGeometry();
@@ -267,6 +382,9 @@ export function createTerrain(scene, renderer) {
     const m = new THREE.Mesh(geo, roadMat); m.receiveShadow = true; m.userData.world = true; scene.add(m);
     return { id, mesh: m, points: Array.from({ length: n + 1 }, (_, k) => curve.getPointAt(k / n)) };
   });
+  roads.forEach((r) => r.points.forEach((pt) => { const key = `${Math.floor(pt.x / 8)}|${Math.floor(pt.z / 8)}`; (roadCells.get(key) || roadCells.set(key, []).get(key)).push(pt); }));
+  // the bridges: stone deck and parapets following its rise, piers down into the river
+  BR.forEach((b) => group.add(bridgeMesh(b, opts.stone)));
   let ct = -1, cj = -1;
   const t0 = performance.now();
   return {

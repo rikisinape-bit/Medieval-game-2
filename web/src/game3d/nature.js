@@ -84,6 +84,8 @@ export async function loadNature() {
   return natureOk;
 }
 
+/** How a model of the nature pack is scaled when placed (addNature). */
+export const natureScale = (id) => NATURE[id]?.s || 1;
 /** The parts ({ geometry, material }) of a model of the loaded GLBs (natura, kit, props, cibo), or null. */
 export const libParts = (id) => lib?.[id] || null;
 

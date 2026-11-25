@@ -12,7 +12,7 @@ import ItemPic from "@/components/ItemPic";
 import Shop from "@/components/Shop";
 import { loadSave, writeSave, clearSave } from "@/lib/save";
 
-const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro", castello: "Castello di Valdoro", wild: "Vasilad" };
+const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro", castello: "Castello di Valdoro", wild: "Vasilad", selva: "Grande foresta" };
 const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - h) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
 
 
