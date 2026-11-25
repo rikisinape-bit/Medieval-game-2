@@ -1,12 +1,15 @@
-// Single open-world map: village at the centre, winding forest path north (-z) to the walls of Valdoro, mine cave in the hill to the west (-x).
+// The places of the world, as first made in one compact map ("legacy" coordinates): the village at the centre, the
+// winding forest path north (-z) to the walls of Valdoro, the mine in the hill to the west (-x). In the world of Vasilad
+// each place stands where the user's map draws it: sites.js moves and turns them (toWorld, toLegacy, regionOf).
 import { SWORD_DMG, SWORD_ITEM, SWORD_TIER } from "./items";
 export const FZ = -36;            // forest start
 export const WZ = FZ - 68;        // Valdoro wall
 export const CX = -45, CZ = 0;    // cave centre
-// The castle of Valdoro, inside (castle.js): a "room" a kilometre away, where nothing of the world is in sight
-export const CASTLE = [1000, 0];
-export const regionOf = (x, z) => (x > CASTLE[0] - 100 ? "castello" : x < CX + 17 && x > CX - 15 && Math.abs(z - CZ) < 13.6 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
-export const zoneOf = (x, z) => { const r = regionOf(x, z); return r === "mine" || r === "castello" ? r : "out"; };
+// The castle of Valdoro, inside (castle.js): a "room" far away (beyond the map's east edge), where nothing of the
+// world is in sight
+export const CASTLE = [4000, 0];
+// the region of a legacy point (sites.js regionOf: of a world point)
+export const legacyRegionOf = (x, z) => (Math.abs(x - CASTLE[0]) < 300 && Math.abs(z - CASTLE[1]) < 300 ? "castello" : x < CX + 17 && x > CX - 15 && Math.abs(z - CZ) < 13.6 ? "mine" : z < WZ ? "valdoro" : z < -30 && Math.abs(x) < 32 ? "forest" : "village");
 export const angDiff = (a, b) => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 export const SWORDS = Object.fromEntries(Object.keys(SWORD_DMG).map((k) => [k, { dmg: SWORD_DMG[k], tier: SWORD_TIER[k], item: SWORD_ITEM[k] }]));
 // Winding path through the forest (centre line); walkable area is the whole forest.
@@ -19,7 +22,7 @@ const [KX, KZ] = CASTLE;
 
 export const NPC_DEFS = [
   { id: "torin", name: "Torin", role: "miner", look: "miner", old: true, pos: [-11, -20], hp: 40, dmg: 5, loot: 6, home: 1,
-    routine: [R(-12.2, -22, "chop", 7, { face: [-12.2, -25] }), R(-6.4, 5.6, "talk", 4, { face: [-8, 5.9], carry: true }), R(-11, -19, "eat", 4), R(-26, 0.8, "look", 4, { face: [-31, 0] })] },
+    routine: [R(-12.2, -22, "chop", 7, { face: [-12.2, -25] }), R(-6.4, 5.6, "talk", 4, { face: [-8, 5.9], carry: true }), R(-11, -19, "eat", 4), R(25, -2.6, "look", 4, { face: [31, -4] })] },   // (towards the mine's road)
   { id: "bruno", name: "Bruno il Fabbro", role: "smith", look: "smith", pos: [14.6, -3.5], hp: 70, dmg: 12, loot: 15, weapon: "short", fights: true, home: 5,
     routine: [R(14.6, -3.5, "hammer", 8, { face: [14.6, -4.6] }), R(12.8, -4.4, "pump", 4, { face: [12.8, -6] }), R(15.5, -2.2, "drink", 3)] },
   { id: "lena", name: "Lena", role: "merchant", look: "merchant", female: true, pos: [-8, 5.9], hp: 40, dmg: 4, loot: 20, home: 0,

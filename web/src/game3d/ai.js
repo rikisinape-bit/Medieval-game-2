@@ -1,4 +1,5 @@
-import { angDiff, zoneOf } from "./world";
+import { angDiff } from "./world";
+import { zoneOf } from "./sites";
 
 // Attack styles (poseHuman): overhead chop, horizontal cut, lunge, rising backhand. Each NPC blow picks one.
 const ATTACKS = ["over", "side", "thrust", "rise"];

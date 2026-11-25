@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { LOOKS, makeHuman, poseHuman, showTool, makeHorse, makeCarriage, makeHouse, HOUSE_RECTS, CHEST_LOCAL, HOUSE_H, makeTree, makeForge, makeSwordRack, makeStall, makeWell, makeSword, makeDummy, makeCage, makeBench, makeWoodpile, makeField, makeCamp, makeSignpost, makeCityWall, makeFountain, makeValdoroWalls, makeItem, makeTorch, makeShield, makeLantern, makeFlame, makeViewmodel, makePlayerModel, playerLook, VM_REST, poseDeath, followSkirt, DEATH_TIME, saddleY, box, at } from "./models";
 import { getDialog, applyEffect, CONTINUES, RANSOM, RANSOM_CAGE } from "./dialogs";
-import { FZ, WZ, CX, CZ, regionOf, zoneOf, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE, CAGE, CAGE_GUARDS, CAGE_WATCH } from "./world";
+import { FZ, WZ, CX, CZ, angDiff, SWORDS, NPC_DEFS, OBJECTS, HOUSES, CHESTS, DUMMIES, PICKUPS, ROUTE, RIDER_ROUTE, PATH, CAMP, LANTERNS, CASTLE, CAGE, CAGE_GUARDS, CAGE_WATCH } from "./world";
 import { ITEMS, SWORD_ITEM, SHOPS, LOOT_OF, dmgReduction, sellPrice, buyPrice, TOOL_OF, TWO_HANDED, SLOW_2H } from "./items";
 import { createAI } from "./ai";
 import { rng, hashStr, PALADIN_MAT, setupPaladinEnv } from "./body";
@@ -19,6 +19,8 @@ import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
 import { createSky, sunDir } from "./sky";
 import { shapeOf, tumble, middle, placeMiddle, settle } from "./tumble";
+import { regionOf, zoneOf, toWorld as siteToWorld, toLegacy, placeWorld, siteOf, SITES, inSite, worldToMap } from "./sites";
+import { createTerrain, surfaceAt, deepWater } from "./terrain";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -51,6 +53,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const sky = createSky(scene), _sunV = new THREE.Vector3();          // the sun and the moon going round the sky
   const fx = createFx(scene);
   const sfx = createAudio();
+  // Everything below is built in the old map's coordinates (world.js), then each place is moved where the map of
+  // Vasilad draws it (sites.js; see "The places move" further down). What is in the scene already does not move.
+  const preBuild = new Set(scene.children);
+  // the things one can use (well, carriage, the castle's door...) where their place now is
+  const OBJS = OBJECTS.map((o) => { const [x, z] = siteToWorld(o.x, o.z); return { ...o, x, z }; });
 
   const obstacles = [], rects = [];
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
@@ -63,6 +70,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
+  // pieces of the nature, kit and props packs laid in the old map: moved with their place (sites.js), then merged
+  const addNatureL = (items) => {
+    const n0 = scene.children.length;
+    const tris = addNature(scene, items.map((it) => { const [x, z, ry] = placeWorld(it.x, it.z, it.ry || 0); return { ...it, x, z, ry }; }), natureMeshes);
+    scene.children.slice(n0).forEach((o) => { o.userData.world = true; });
+    return tris;
+  };
   // The ground (ground.js): grass on the meadows (darker under the trees of the forest), dirt on the square, the roads
   // and the forest path, cracked earth in the bandits' camp, flagstones in Valdoro and before its gate. Laid in world
   // space at their real size.
@@ -73,17 +87,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     stone: groundMat(renderer, "pietra", { scale: 3.6, tint: "#ffffff", vary: 0.1, dry: 0, mix: 0 }),
   };
   const flat = (geo, m) => { const o = new THREE.Mesh(geo, m); o.receiveShadow = true; return o; };
-  // the meadow: a disc with a hole where the mine's tunnels go down under the mountain (the shape is turned flat: its
-  // y is the world's -z)
-  const meadow = new THREE.Shape().absarc(0, 0, 80, 0, Math.PI * 2, false), hole = new THREE.Path();
-  [[CX - 14, 13.6], [CX + 14, 13.6], [CX + 14, 2.6], [CX + 17, 2.6], [CX + 17, -2.6], [CX + 14, -2.6], [CX + 14, -13.6], [CX - 14, -13.6]].forEach(([x, z], i) => hole[i ? "lineTo" : "moveTo"](x, -(CZ + z)));
-  meadow.holes.push(hole);
-  const ground = new THREE.Mesh(new THREE.ShapeGeometry(meadow, 48), G.meadow);
-  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  // (the ground itself is the terrain of the whole world, terrain.js: laid once the places have moved)
   const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), G.square);
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
-  const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-21, 0, 14, 3]];   // [x, z, width, depth] (the last one up to the mine)
-  ROADS.forEach(([x, z, w, d]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z));
+  // [x, z, width, depth, turn]: north (to the fields), to the coach's stop, on to the road to Valdoro (south-east), the
+  // road to the mine (east)
+  const ROADS = [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [18.7, 17.2, 3.4, 14.6, 0.93], [18.5, -1.9, 3.4, 15.6, 1.703]];
+  const inRoad = (x, z, [cx, cz, w, d, ry = 0], m = 0) => { const dx = x - cx, dz = z - cz, c = Math.cos(ry), sn = Math.sin(ry); return Math.abs(c * dx - sn * dz) < w / 2 + m && Math.abs(sn * dx + c * dz) < d / 2 + m; };
+  ROADS.forEach(([x, z, w, d, ry = 0]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z, ry));
 
   // Houses: hinged doors, interiors, chests, beds
   // Roccanera (option A): our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
@@ -108,14 +119,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const beds = [{ bed: [bx, bz], edge: [ex, ez, r + Math.PI], y: 0.62 }, { bed: [mx, mz], edge: [mex, mez, r + Math.PI], y: 0.2 }];
     return { i, x, z, r, g, door: g.userData.door, dx, dz, chx, chz, beds, via: [[vx, vz], [ix, iz]], open: 0 };
   });
-  if (houseTops.length) addNature(scene, houseTops, natureMeshes);
+  if (houseTops.length) addNatureL(houseTops);
   // Valdoro: whole kit houses (not enterable) against the town walls, facing the square, with their collisions:
   // tall narrow ones on the side walls, low ones in the corners by the gate. [kit house, x, z, turn, scale]
   const TOWN = [["house_05", 14.05, WZ - 17.1, -Math.PI / 2, 1.3], ["house_05", -14.05, WZ - 17.1, Math.PI / 2, 1.3],
     ["house_07", 12.6, WZ - 3.4, Math.PI, 1.3], ["house_07", -12.6, WZ - 3.4, Math.PI, 1.3]];
   const townKit = hasKit() ? TOWN.filter(([id]) => kitSize(id)) : [];
   if (townKit.length) {
-    addNature(scene, townKit.map(([id, x, z, ry, k]) => ({ id, x, z, ry, k })), natureMeshes);
+    addNatureL(townKit.map(([id, x, z, ry, k]) => ({ id, x, z, ry, k })));
     townKit.forEach(([id, x, z, ry, k]) => { const [w, , d] = kitSize(id); rects.push({ cx: x, cz: z, hw: (w * k) / 2 - 0.1, hd: (d * k) / 2 - 0.1, ry }); });
   }
   const houseOf = (x, z) => {
@@ -159,7 +170,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   else put(makeWoodpile(), 5.5, -12, 0, 0.7);
   put(makeField(), -10, -4.8, 0);
   put(makeSignpost(), 3.2, -27, Math.PI);
-  put(makeSignpost(), -27, -2.4, Math.PI / 2);
+  put(makeSignpost(), 25.6, 18.3, 0.93); put(makeSignpost(), 26.4, -5.2, 1.7);   // to Valdoro, to the mine
   // lamp posts: the lamp hangs towards the square (in Valdoro: towards the fountain); its light and its glass (lit at night)
   const lampGlass = PROPS && kitPartBox("props_lamppost_01", "Props_Light"), LAMP_K = 0.85, lampMat = lampGlass && kitMaterial("Props_Light");
   const lanterns = lampGlass ? [] : LANTERNS.map(([x, z]) => put(makeLantern(), x, z, 0, 0.3));
@@ -210,7 +221,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     wall("wood_wall_01", 5.3, -8.0, 0, 4.02); wall("wood_wall_01", 1.3, -8.2, 0.05, 4.02);
     wall("wood_wall_02", -1.7, -8.35, 0.08, 2.03);
     [[8.6, 0.0], [6.0, -8.25], [2.6, -8.45], [-2.5, -8.6]].forEach(([dx, dz], i) => kit("wood_wall_support", dx, dz, i ? -Math.PI / 2 : Math.PI));   // props behind the stakes
-    addNature(scene, campKit, natureMeshes);
+    addNatureL(campKit);
   } else { put(box(10, 0.115, 9, "#6a5a3a"), CX0, CZ0); put(makeCamp(), CX0, CZ0, 0, 0.6); }
   const banditDefs = NPC_DEFS.filter((d) => d.role === "bandit");
   let seed = 7; const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
@@ -242,7 +253,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     // The keep, behind the back wall
     add("castle_part_019", 0, WZ - 39.5); add("castle_part_013", 0, WZ - 39.5, 0, 10.5);
     add("tower_03", -10.5, WZ - 38.5); add("tower_08", 10.2, WZ - 37.6); add("castle_part_017", 7.2, WZ - 43.5, 0, 0, 1.3); add("castle_part_020", -4, WZ - 46.5);
-    addNature(scene, kit, natureMeshes);
+    addNatureL(kit);
     // Portcullis: its own object so it can be raised; the part that goes up inside the gatehouse is clipped away.
     renderer.localClippingEnabled = true;
     const clip = [new THREE.Plane(new THREE.Vector3(0, -1, 0), 7.2)];
@@ -261,6 +272,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     put(makeValdoroWalls(), 0, WZ);
   }
   rects.push(gateRect);
+  // the town's side walls, its back wall and the keep, the ends of the front wall: closed all round
+  [-1, 1].forEach((sd) => rects.push({ cx: sd * 17.7, cz: WZ - 16.5, hw: 1.2, hd: 16.6, ry: 0 }, { cx: sd * 34.2, cz: WZ, hw: 3.2, hd: 2.4, ry: 0 }));
+  rects.push({ cx: 0, cz: WZ - 32.2, hw: 19, hd: 1.2, ry: 0 }, { cx: 0, cz: WZ - 41.5, hw: 14, hd: 8.2, ry: 0 });
   put(flat(new THREE.BoxGeometry(34, 0.13, 30), G.stone), 0, WZ - 16);                    // Valdoro's flagstones
   put(flat(new THREE.BoxGeometry(10, 0.14, 7), G.stone), 0, WZ + 2.5);                     // and before its gate
   put(makeFountain(), 0, WZ - 16, 0, 2.0);
@@ -293,24 +307,40 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   put(makeBench(), -6, WZ - 25.2, 0.3);
   [[-14, WZ - 4], [14, WZ - 4], [-14, WZ - 28], [14, WZ - 28]].forEach(([x, z], i) => { if (!(hasKit() && i < 2)) putTree(i % 2, x, z, i, 0.9); });   // by the gate: town houses instead
   // The silver mine in the western hill (mine.js): tunnels going down from the portal, silver veins on the walls
-  const mine = buildMine(scene);
+  const mineRoot = new THREE.Group(); mineRoot.userData.world = true;
+  mineRoot.rotation.y = SITES.miniera.r; { const [mx, mz] = siteToWorld(0, 0, "miniera"); mineRoot.position.set(mx, 0, mz); }
+  scene.add(mineRoot);
+  const mineL = buildMine(mineRoot);
+  // (the same mine, asked with world coordinates)
+  const inMine = (x, z) => inSite(SITES.miniera, x, z), fromMine = (x, z) => siteToWorld(x, z, "miniera");
+  mineL.ores.forEach((o) => { [o.x, o.z] = fromMine(o.x, o.z); });
+  const mine = {
+    ores: mineL.ores, flames: mineL.flames,
+    inZone: (x, z) => mineL.inZone(...inMine(x, z)), inside: (x, z, m) => mineL.inside(...inMine(x, z), m),
+    floorY: (x, z) => mineL.floorY(...inMine(x, z)), roofY: (x, z) => mineL.roofY(...inMine(x, z)),
+    constrain: (x, z) => fromMine(...mineL.constrain(...inMine(x, z))),
+    route: (x, z, tx, tz) => { const r = mineL.route(...inMine(x, z), ...inMine(tx, tz)); return r && fromMine(...r); },
+    update: (cam) => { const [x, z] = inMine(cam.x, cam.z); mineL.update({ x, y: cam.y, z }); },
+    keepOut: (x, z) => { const [lx, lz] = inMine(x, z); return fromMine(Math.max(lx, CX + 17.7), lz); },   // (horses stay out)
+  };
   // The castle of Valdoro, inside (castle.js): its lights and furniture are known from the start, its models come the
   // first time one goes in. The floor under any point: the castle's, the mine's (0 elsewhere).
   castleAnchors(scene); obstacles.push(...castleSolids);
-  const floorY = (x, z) => (castle.inZone(x, z) ? castle.floorY(x, z) : mine.floorY(x, z));
+  const floorY = (x, z) => (castle.inZone(x, z) ? castle.floorY(x, z) : mine.inZone(x, z) ? mine.floorY(x, z) : surfaceAt(x, z));
   if (import.meta.env.DEV) { window.__mine = mine; window.__castle = castle; }   // dev only (tests)
-  scene.add(makeMountain());                                   // the mountain that covers the mine
+  mineRoot.add(makeMountain());                               // the mountain that covers the mine
   // Rock face on both sides of the portal and the portal's own sides: nobody walks into the slope
   [-1, 1].forEach((sd) => rects.push({ cx: CX + 15, cz: sd * 9.6, hw: 2.2, hd: 6.9, ry: 0 }, { cx: CX + 16.45, cz: sd * 1.9, hw: 0.6, hd: 0.45, ry: 0 }));
   const ores = mine.ores;
   for (let i = 0; i < 46; i++) {
     const a = (i / 46) * Math.PI * 2, d = 31 + (i * 7) % 9, x = Math.cos(a) * d, z = Math.sin(a) * d;
-    if ((z < -27 && Math.abs(x) < 9) || (x < -27 && Math.abs(z) < 14)) continue;
+    const a2 = Math.atan2(z, x);
+    if ((z < -27 && Math.abs(x) < 9) || Math.abs(a2 - 0.72) < 0.27 || Math.abs(a2 + 0.12) < 0.25) continue;
     putTree(i % 3 === 0, x, z, i, 0.9);
   }
-  [[-22, 2], [22, -2], [-6, -18], [24, 12], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
+  [[-22, 2], [-6, -18], [24, 9], [-20, -22], [20, -24]].forEach(([x, z], i) => putTree(i % 2, x, z, i, 0.9));
 
-  if (propItems.length) addNature(scene, propItems, natureMeshes);   // all the props in a few meshes (one material, by chunk)
+  if (propItems.length) addNatureL(propItems);   // all the props in a few meshes (one material, by chunk)
   if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
   // ---- Vegetation ----
   if (hasNature()) {
@@ -357,9 +387,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     for (let i = items.length - 1; i >= 0; i--) if (/^sasso_/.test(items[i].id) && Math.abs(items[i].x) < 5.4 && items[i].z < WZ + 6.4) items.splice(i, 1);
     // Village surroundings (outside the square and the dirt roads)
     const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
-    const villageOk = (m) => (x, z) => !ROADS.some(([cx, cz, w, d]) => Math.abs(x - cx) < w / 2 + 1 && Math.abs(z - cz) < d / 2 + 1)
+    const villageOk = (m) => (x, z) => !ROADS.some((r) => inRoad(x, z, r, 1))
       && !HOUSES.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 4.3) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
-      && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && !(x < -24 && Math.abs(z) < 3) && mountainHeight(x - 1.5, z) < 0.1 && freeOf(x, z, m);
+      && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && mountainHeight(x - 1.5, z) < 0.1 && freeOf(x, z, m);
     scatter("erba", 55, villagePt, villageOk(0.4));
     scatter("erba_alta", 36, villagePt, villageOk(0.4));
     scatter("cespuglio_fiorito", 9, villagePt, villageOk(1));
@@ -380,13 +410,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       ring(0, 0, 2.1, 9); ring(0, WZ - 16, 3.4, 12);
       [-1.6, 0, 1.6].forEach((x) => [2.2, 3.5, -2.2].forEach((dz) => items.push({ id: "selciato", x: x + (nr() - 0.5) * 0.3, z: WZ + dz, ry: nr() < 0.5 ? 0 : 1.57, k: 1.3 })));
     }
-    S_nature.tris = addNature(scene, items, natureMeshes);
+    S_nature.tris = addNatureL(items);
     S_nature.count = items.length;
     console.info(`Vegetazione: ${S_nature.count} elementi, ${S_nature.tris} triangoli in ${natureMeshes.length} gruppi`);
   } else {
     // Fallback: the old procedural trees, baked into one mesh per material.
     const treeG = new THREE.Group();
-    treeSpots.forEach((t) => { if (t.gone) return; const o = makeTree(t.pine); at(o, t.x, 0, t.z, t.ry); treeG.add(o); });
+    treeSpots.forEach((t) => { if (t.gone) return; const o = makeTree(t.pine), [x, z, ry] = placeWorld(t.x, t.z, t.ry); at(o, x, 0, z, ry); treeG.add(o); });
     treeG.updateMatrixWorld(true);
     const byMat = new Map();
     treeG.traverse((o) => {
@@ -399,7 +429,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     });
     byMat.forEach((geos, m) => {
       const merged = new THREE.Mesh(mergeGeometries(geos), m);
-      merged.castShadow = true; merged.receiveShadow = true;
+      merged.castShadow = true; merged.receiveShadow = true; merged.userData.world = true;
       scene.add(merged);
       geos.forEach((g) => g.dispose());
     });
@@ -421,14 +451,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       }
     };
     pave(-3.4, 3.4, -3.4, 3.4, (x, z) => { const d = Math.hypot(x, z); return d > 1.3 && d < 3.3; }, 0.01);   // round the well
-    S_nature.paving = addNature(scene, paving, natureMeshes);
+    S_nature.paving = addNatureL(paving);
   }
 
   // ---- Ground-cover leaves (leaves.js) where the dirt, the camp and the flagstones before the gate meet the meadow
   const meadowY = (x, z) => (Math.abs(x) < 33 && z < FZ + 5 && z > FZ - 71 ? 0.05 : Math.hypot(x, z) < 79.5 ? 0 : -1);   // forest floor, meadow, nothing
   const bare = [
     circleShape(0, 0, 11, 0.01),                                                                // Roccanera's square
-    ...ROADS.map(([x, z, w, d]) => rectShape(x, z, w / 2, d / 2, 0, 0.01)),
+    ...ROADS.map(([x, z, w, d, ry = 0]) => rectShape(x, z, w / 2, d / 2, ry, 0.01)),
     ...pathBoxes.map(([x, z, ry, L]) => rectShape(x, z, 3.5, L / 2, ry, 0.06)),               // the forest path
     rectShape(0, WZ + 2.5, 5, 3.5, 0, 0.07),                                                    // the flagstones before the gate
     { ...rectShape(0, WZ - 16, 17, 15, 0, 0.065), len: 0 },                                     // Valdoro (its edges are under the walls)
@@ -439,7 +469,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     && !solids.some((r) => { const dx = x - r.cx, dz = z - r.cz; return Math.abs(dx) < r.R && Math.abs(dz) < r.R && Math.abs(r.c * dx - r.s * dz) < r.hw + 0.05 && Math.abs(r.s * dx + r.c * dz) < r.hd + 0.05; })
     && !obstacles.some((o) => { const dx = x - o.x, dz = z - o.z, rr = o.r * 0.85; return Math.abs(dx) < rr && Math.abs(dz) < rr && dx * dx + dz * dz < rr * rr; });
   let ls = 777; const lr = () => { ls = (ls * 16807) % 2147483647; return (ls - 1) / 2147483646; };
-  const t0 = performance.now(), leaves = addLeaves(scene, edgeSpots(bare, leafSpot, meadowY, { rnd: lr }));
+  const t0 = performance.now(), leaves = addLeaves(scene, edgeSpots(bare, leafSpot, meadowY, { rnd: lr }).map((sp) => { const [x, z, ry] = placeWorld(sp.x, sp.z, sp.ry); return { ...sp, x, z, ry }; }));
+  leaves.meshes.forEach((m) => { m.userData.world = true; });
   console.info(`Foglie ai bordi: ${leaves.count} ciuffi, ${Math.round(leaves.tris)} triangoli in ${leaves.chunks} blocchi (${Math.round(performance.now() - t0)} ms)`);
   if (import.meta.env.DEV) window.__leaves = { leaves, add: (spots) => addLeaves(scene, spots), bareAt: (x, z) => bare.some((b) => b.inside(x, z)), meadowY, leafSpot };   // dev only (tests)
 
@@ -450,13 +481,46 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   scene.add(car.group);
   const carObs = [{ x: car.x, z: car.z, r: 1.6 }, { x: car.x, z: car.z, r: 1.1 }];
   obstacles.push(...carObs);
-  const carObj = OBJECTS.find((o) => o.id === "carriage");
+  const carObj = OBJS.find((o) => o.id === "carriage");
   const horses = [[4.5, 13.5], [-8, -12]].map(([x, z], i) => ({ id: `horse${i}`, x, z, yaw: 0, mesh: put(makeHorse(i ? "#e8e0d0" : "#6a4426"), x, z) }));
 
+  // ---- The places move to where the map of Vasilad draws them (sites.js): everything built above in the old map's
+  // coordinates (models, walls and obstacles, the houses' doors, chests and beds) goes with its place, turned with it.
+  // Roccanera (and the castle's rooms) stay where they are.
+  {
+    const qY = new THREE.Quaternion(), UPY = new THREE.Vector3(0, 1, 0);
+    scene.children.forEach((o) => {
+      if (preBuild.has(o) || o.userData.world) return;
+      const id = siteOf(o.position.x, o.position.z);
+      if (!SITES[id]) return;
+      [o.position.x, o.position.z] = siteToWorld(o.position.x, o.position.z, id);
+      o.quaternion.premultiply(qY.setFromAxisAngle(UPY, SITES[id].r)); o.updateMatrix(); o.updateMatrixWorld(true);
+    });
+    const move = (o, kx, kz) => { const id = siteOf(o[kx], o[kz]); if (!SITES[id]) return 0; [o[kx], o[kz]] = siteToWorld(o[kx], o[kz], id); return SITES[id].r; };
+    rects.forEach((r) => { r.ry += move(r, "cx", "cz"); });
+    obstacles.forEach((o) => move(o, "x", "z"));
+    houses.forEach((h) => {
+      const id = siteOf(h.x, h.z); if (!SITES[id]) return;
+      const W = ([x, z]) => siteToWorld(x, z, id), r = SITES[id].r;
+      [h.x, h.z] = W([h.x, h.z]); h.r += r; [h.dx, h.dz] = W([h.dx, h.dz]); [h.chx, h.chz] = W([h.chx, h.chz]);
+      h.via = h.via.map(W); h.beds.forEach((b) => { b.bed = W(b.bed); b.edge = [...W(b.edge), b.edge[2] + r]; });
+    });
+  }
+  // The ground of the whole world, the sea and the roads (terrain.js)
+  const terrain = createTerrain(scene, renderer);
+  if (import.meta.env.DEV) window.__terrain = { terrain, surfaceAt, toWorld: siteToWorld, toLegacy, regionOf, camera };   // dev only (tests)
+  // the messengers ride from Ser Alaric's post down the lane, along the road and the forest path to the knights at the gate
+  const RIDERS = [[4, 9], [8, 14], [14, 14.2], [21, 19.2], ...terrain.roads.find((r) => r.id === "valdoro").points.filter((_, i) => i % 6 === 3).map((p) => [p.x, p.z]),
+    ...PATH.slice(0, -1).map(([x, z]) => siteToWorld(x, z, "valdoro")), siteToWorld(1.5, WZ + 9, "valdoro")];
+  const GATE_W = siteToWorld(0, WZ, "valdoro"), CASTLE_DOOR = siteToWorld(0, WZ - 30, "valdoro");
+  // the people of the old map where their place now is: where they stand, where their days take them
+  const mapP = (pt) => (pt ? siteToWorld(pt[0], pt[1]) : pt);
+  const DEFS = NPC_DEFS.map((d) => ({ ...d, pos: mapP(d.pos), routine: d.routine && d.routine.map((r) => ({ ...r, at: mapP(r.at), face: mapP(r.face) })) }));
+  const pickW = (p) => { const [x, z, yaw] = placeWorld(p.x, p.z, p.yaw ?? p.x * 1.7); return { ...p, x, z, yaw }; };
+
   const sp = saved?.player || {};
-  const farAway = Math.abs(sp.z ?? 0) > 150;
   const S = {
-    player: { hp: 100, gold: 30, ore: 0, inv: { pane: 1, torcia: 1 }, mounted: null, x: 0, z: 5, yaw: Math.PI, ...sp, ...(farAway ? { x: 0, z: 5, yaw: Math.PI } : {}),
+    player: { hp: 100, gold: 30, ore: 0, inv: { pane: 1, torcia: 1 }, mounted: null, x: 0, z: 5, yaw: Math.PI, ...sp,
       eq: { hand: sp.eq?.hand || sp.sword || "corta", body: sp.eq?.body || sp.armor || null, head: sp.eq?.head || null, off: sp.eq?.off || null,
         quick: ITEMS[sp.eq?.quick]?.kind === "food" ? sp.eq.quick : null } },
     rep: { village: 0, crown: 0, ...(saved?.rep || {}) },
@@ -467,6 +531,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     chests: CHESTS, npcs: {}, gateOpen: false, night: false,
   };
   const P = S.player;
+  terrain.update(P, 0, true);                                           // (the ground round the player, at once)
   if (!SWORDS[P.eq.hand]) P.eq.hand = "corta";
   if (TWO_HANDED.has(P.eq.hand) && P.eq.off) { P.inv[P.eq.off] = (P.inv[P.eq.off] || 0) + 1; P.eq.off = null; }   // (a save from before: two hands on the sword)
   ["body", "head", "off"].forEach((k) => { if (P.eq[k] && !ITEMS[P.eq[k]]) P.eq[k] = null; });
@@ -541,25 +606,25 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const wornOf = (d) => { const L = LOOKS[d.look] || {}; return [WEAR[L.armor], helmOf(L), L.shield && (L.shieldKind === "round" ? "scudo_legno" : "scudo_ferro"), d.weapon && (d.weapon === "long" ? "spada_lunga" : "spada_corta"), d.boss && "testa_morn"].filter(Boolean); };
   const weaponOf = (d, inv) => (d.weapon && (!inv || inv[d.weapon === "long" ? "spada_lunga" : "spada_corta"]) ? d.weapon : null);
   const dressBody = (n) => {
-    const d = NPC_DEFS.find((x) => x.id === n.id), dead = !n.alive;
+    const d = DEFS.find((x) => x.id === n.id), dead = !n.alive;
     if (n.mesh) scene.remove(n.mesh);
     n.mesh = makeHuman(lookOf(d, dead ? n.inv : null), weaponOf(d, dead ? n.inv : null), d.id);
     if (dead && d.boss && !n.inv.testa_morn) n.mesh.userData.headGone = true;                       // the head went to Ser Alaric
     scene.add(n.mesh); n.poseP = null;
   };
-  const npcs = NPC_DEFS.map((d) => {
+  const npcs = DEFS.map((d) => {
     const sv = saved?.npcs?.[d.id] || {};
     const n = { hp: 30, dmg: 4, loot: 3, ...d, x: d.pos[0], z: d.pos[1], yaw: 0, hpMax: d.hp || 30, alive: true, looted: false, discovered: false, witnessed: false, cd: 0, state: "idle", k: 0, stagger: 0, flash: 0, kb: 0, ...sv };
     Object.assign(n, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, sleepAt: null });
     n.inv = sv.inv ? { ...sv.inv } : n.looted ? {} : belongings(d);
     n.purse = sv.purse ?? (n.looted ? 0 : n.loot);
-    if (!n.alive && (sv.deadX == null || Math.abs(sv.deadZ) > 150)) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
+    if (!n.alive && sv.deadX == null) { n.x = d.pos[0]; n.z = d.pos[1]; } else if (!n.alive) { n.x = sv.deadX; n.z = sv.deadZ; }
     // All NPCs use the procedural low-poly humans (body.js); seed = id gives each one stable variation.
     dressBody(n);
     if (d.rider) {
-      const start = RIDER_ROUTE[d.rider > 0 ? 0 : RIDER_ROUTE.length - 1];
+      const start = RIDERS[d.rider > 0 ? 0 : RIDERS.length - 1];
       n.horse = { x: start[0] + 1.5, z: start[1], yaw: 0, mesh: put(makeHorse(d.rider > 0 ? "#2a2218" : "#8a6a4a"), start[0] + 1.5, start[1]) };
-      Object.assign(n, { x: n.horse.x, z: n.horse.z, riding: n.alive, ms: n.alive ? "ride" : "dead", ri: d.rider > 0 ? 1 : RIDER_ROUTE.length - 2, dir: d.rider, wait: 0, news: null, beat: 0 });
+      Object.assign(n, { x: n.horse.x, z: n.horse.z, riding: n.alive, ms: n.alive ? "ride" : "dead", ri: d.rider > 0 ? 1 : RIDERS.length - 2, dir: d.rider, wait: 0, news: null, beat: 0 });
     }
     S.npcs[d.id] = n;
     return n;
@@ -584,7 +649,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     m.position.set(pk.x, pk.y, pk.z); m.quaternion.copy(pk.q); scene.add(m); picks.push(pk);
     return pk;
   };
-  PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...p }); });
+  PICKUPS.forEach((p) => { if (!S.flags.taken?.[p.id]) addPick({ qty: 1, ...pickW(p) }); });
   S.drops.forEach((d, i) => addPick({ id: `d${i}`, qty: 1, ...d, drop: true }, d));
   if (import.meta.env.DEV) window.__picks = picks;                  // dev only (tests)
   // let go (or thrown): it flies on as it was moving, turning a little (more the faster it goes)
@@ -679,7 +744,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const hasShield = () => !!(P.eq.off && ITEMS[P.eq.off].block);
 
   // Day/night + region atmosphere
-  const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 8, 48, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 30, 80, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 26, 70, 1.5, 0.9] };
+  const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 8, 48, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 30, 80, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 26, 70, 1.5, 0.9], wild: ["#9cc4e4", "#bcd2e2", 40, 130, 1.6, 0.9] };
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
   // (in the mine the world keeps the village's light: the dark is in the mountain only, see mine.js)
   const cA = new THREE.Color(), cB = new THREE.Color();
@@ -689,7 +754,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const d = DAYLOOK[region === "mine" || region === "castello" ? "village" : region];
     cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); const bg = cA.clone();
     cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
-    const near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
+    let near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
+    if (import.meta.env.DEV && window.__nofog) { near = 4000; far = 8000; }   // dev only: no fog (tests: the whole map from above)
     // the light comes from the sun by day, from the moon by night (sky.js: opposite to it; pale blue, weak): the
     // shadows follow them round the sky
     const L = sunDir(S.dayT, _sunV), byDay = L.y > -0.03;
@@ -1006,7 +1072,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (n.alive && P.sneak) { if (!n.riding && near(x, z, 1.9)) list.push({ kind: "steal", id: n.id, x, z, label: `Ruba a ${n.name}` }); return; }   // sneaking: pickpocket instead of talking
       list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name} (tieni: trascina)` });
     });
-    OBJECTS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
+    OBJS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
     houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
     picks.forEach((pk) => { if (!pk.carried && near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""} (tieni: sposta)` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
@@ -1173,7 +1239,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // Searching a body: both inventories side by side (LootPanel). Things move one at a time, or all together.
   let lootId = null;
   // Pickpocketing (sneaking): only what someone carries, not what it wears; every thing taken can give you away.
-  const stealable = (n) => { const w = wornOf(NPC_DEFS.find((x) => x.id === n.id)); return Object.fromEntries(Object.entries(n.inv).filter(([it]) => !w.includes(it) && ITEMS[it]?.kind !== "quest")); };
+  const stealable = (n) => { const w = wornOf(DEFS.find((x) => x.id === n.id)); return Object.fromEntries(Object.entries(n.inv).filter(([it]) => !w.includes(it) && ITEMS[it]?.kind !== "quest")); };
   const stealRisk = (it) => Math.min(0.6, Math.max(0.04, (it === "oro" ? 0.12 : 0.06) + (it === "oro" ? 0 : (ITEMS[it]?.price || 2) * 0.004) - (S.night ? 0.03 : 0)));
   const lootInfo = (id) => {
     const n = S.npcs[id], steal = n.alive, inv = steal ? stealable(n) : { ...n.inv };
@@ -1205,7 +1271,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     else if (kind === "give") { if (!P.inv[item] || ITEMS[item]?.kind === "quest") return lootInfo(id); take(item); n.inv[item] = (n.inv[item] || 0) + 1; sfx.pick(0.5); }
     n.looted = !Object.keys(n.inv).length && !n.purse;
     if (kind !== "gold") {                                                 // something visible came off (or went back on)?
-      if (kind === "all" || wornOf(NPC_DEFS.find((x) => x.id === id)).includes(item)) dressBody(n);
+      if (kind === "all" || wornOf(DEFS.find((x) => x.id === id)).includes(item)) dressBody(n);
     }
     return lootInfo(id);
   }
@@ -1290,7 +1356,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   };
   const freeFromCage = () => {
     const k = S.npcs[S.flags.cageKeeper];
-    if (k) Object.assign(k, { routine: NPC_DEFS.find((d) => d.id === k.id).routine, ri: 0, actT: null, walkT: 0 });
+    if (k) Object.assign(k, { routine: DEFS.find((d) => d.id === k.id).routine, ri: 0, actT: null, walkT: 0 });
     S.flags.cage = null; S.flags.cageKeeper = null;
   };
   async function toCage() {
@@ -1315,7 +1381,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       take("chiave_celle", P.inv.chiave_celle);
       const j = S.npcs.carceriere; if (j?.alive && !j.inv.chiave_celle) j.inv.chiave_celle = 1;
       if (S.flags.taken?.chiave_tavolo && !picks.some((pk) => pk.id === "chiave_tavolo")) {
-        delete S.flags.taken.chiave_tavolo; addPick({ qty: 1, ...PICKUPS.find((p) => p.id === "chiave_tavolo") });
+        delete S.flags.taken.chiave_tavolo; addPick({ qty: 1, ...pickW(PICKUPS.find((p) => p.id === "chiave_tavolo")) });
       }
     }
     setCell(castleJail.cell, false, true);
@@ -1334,8 +1400,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     await new Promise((r) => setTimeout(r, 350));
     if (inside) { try { await buildCastle(scene); } catch (e) { console.error("castello:", e); } }
     if (!keepSpot) {
-      const to = inside ? castleSpawn : { x: 0, z: WZ - 26.8, yaw: 0 };
+      const [ox, oz, oy] = placeWorld(0, WZ - 26.8, 0), to = inside ? castleSpawn : { x: ox, z: oz, yaw: oy };
       P.x = to.x; P.z = to.z; P.yaw = to.yaw;
+      if (!inside) terrain.update(P, 0, true);
     }
     pitch = 0; lightT = 0; region = regionOf(P.x, P.z);
     renderer.compile(scene, camera);
@@ -1411,11 +1478,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     [x, z] = pushOut(x, z);
     if (S.flags.cage && !S.flags.cageOpen) { const m = CAGE.half - 0.46; return [clamp(x, CAGE.x - m, CAGE.x + m), clamp(z, CAGE.z - m, CAGE.z + m)]; }   // locked in the cage
     if (castle.inZone(x, z)) return castle.inZone(P.x, P.z) ? castle.move(P.x, P.z, x, z) : castle.constrain(x, z);   // in the castle's rooms (step by step)
-    if (mine.inZone(x, z)) return P.mounted ? [Math.max(x, CX + 17.7), z] : mine.constrain(x, z);   // in the tunnels (horses stay out)
-    if (z < WZ - 1) return [clamp(x, -15.8, 15.8), Math.max(WZ - 29.8, z)];
-    if (z < -24 && Math.abs(x) < 30.5) return [clamp(x, -30, 30), z];
-    const r = Math.hypot(x, z);
-    return r > 31 ? [(x / r) * 31, (z / r) * 31] : [x, z];
+    if (mine.inZone(x, z)) return P.mounted ? mine.keepOut(x, z) : mine.constrain(x, z);   // in the tunnels (horses stay out)
+    // inside Valdoro's walls: its square (in the old map's coordinates)
+    const Lp = toLegacy(P.x, P.z);
+    if (Lp?.site === "valdoro" && Lp.z < WZ - 1 && Lp.z > WZ - 31 && Math.abs(Lp.x) < 16.6) {
+      const [lx, lz] = inSite(SITES.valdoro, x, z);
+      if (lz < WZ - 1) return siteToWorld(clamp(lx, -15.8, 15.8), Math.max(WZ - 29.8, lz), "valdoro");
+    }
+    // the sea: wading, not swimming (yet)
+    if (deepWater(x, z)) return !deepWater(x, P.z) ? [x, P.z] : !deepWater(P.x, z) ? [P.x, z] : [P.x, P.z];
+    return [x, z];
   };
 
   const enc = { state: "idle", rescued: false };
@@ -1430,7 +1502,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (region !== "forest" || dialogOpen) return;
     const bs = bandits(), boss = S.npcs.bandit3;
     if (!bs.length) return;
-    if (enc.state === "fight" && !enc.rescued && P.z < FZ - 54 && bs.some((b) => b.hostile)) {
+    const Lz = toLegacy(P.x, P.z)?.z ?? 0;                               // (how far along the forest path)
+    if (enc.state === "fight" && !enc.rescued && Lz < FZ - 54 && bs.some((b) => b.hostile)) {
       enc.rescued = true;
       const kn = npcs.find((n) => n.alive && n.id === "brann") || npcs.find((n) => n.alive && n.id === "oswin");
       bs.forEach((b) => Object.assign(b, { hostile: false, goTo: null, state: "idle", actT: null }));
@@ -1441,7 +1514,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     // the bandits notice the player close by, when they see it (sneaking: much closer) or when they hear it (running,
     // a galloping horse: from far away; a sneaking player is not heard)
     const noticed = (b) => Math.hypot(b.x - P.x, b.z - P.z) < (P.sneak ? 4 : 8) || ai.sees(b, P.x, P.z, 18) || b.heardT > 0;
-    if (enc.state === "idle" && P.z < FZ - 8 && P.z > FZ - 52 && bs.some(noticed)) {
+    if (enc.state === "idle" && Lz < FZ - 8 && Lz > FZ - 52 && bs.some(noticed)) {
       if (boss.alive && Math.random() < (S.night ? 0.2 : 0.5)) {
         enc.state = "approach";
         bs.forEach((b) => { if (b !== boss) { const dx = P.x - b.x, dz = P.z - b.z, d = Math.hypot(dx, dz) || 1; b.goTo = [P.x - (dx / d) * 3.5, P.z - (dz / d) * 3.5]; } });
@@ -1507,11 +1580,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (n.ms === "walk") { if (walkTo(n, n.horse.x, n.horse.z, 2.6, dt)) { n.riding = true; n.ms = "ride"; } else out.walk = true; return out; }
     if (n.ms === "ride") {
       out.mode = "sit";
-      const t = RIDER_ROUTE[n.ri], dx = t[0] - n.x, dz = t[1] - n.z, dd = Math.hypot(dx, dz);
+      const t = RIDERS[n.ri], dx = t[0] - n.x, dz = t[1] - n.z, dd = Math.hypot(dx, dz);
       if (dd < 0.6) {
-        const end = n.ri === 0 || n.ri === RIDER_ROUTE.length - 1;
+        const end = n.ri === 0 || n.ri === RIDERS.length - 1;
         if (end) { n.riding = false; n.ms = "visit"; n.visitT = 0; n.target = n.ri === 0 ? (S.npcs.alaric.alive ? S.npcs.alaric : S.npcs.soldier1) : (S.npcs.brann.alive ? S.npcs.brann : S.npcs.oswin); n.dir = n.ri === 0 ? 1 : -1; return out; }
-        n.ri = clamp(n.ri + n.dir, 0, RIDER_ROUTE.length - 1); return out;
+        n.ri = clamp(n.ri + n.dir, 0, RIDERS.length - 1); return out;
       }
       const spd = Math.min(dd, 7 * dt);
       n.x += (dx / dd) * spd; n.z += (dz / dd) * spd;
@@ -1534,7 +1607,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         else if (alive && n.news != null) { const ch = S.known.crown !== n.news; S.known.crown = n.news; n.news = null; if (near) (ch ? say : note)(ch ? `${n.name} smonta e parla con ${tg.name}: a Valdoro ora sanno di te.` : `${n.name} parla con ${tg.name}: nulla di nuovo da Roccanera.`); }
         else if (near) note(`${n.name} cerca i cavalieri alle mura, ma nessuno ascolta.`);
       }
-      if (n.visitT > 7) { n.ms = "walk"; n.said = false; n.ri = clamp(n.ri + n.dir, 0, RIDER_ROUTE.length - 1); }
+      if (n.visitT > 7) { n.ms = "walk"; n.said = false; n.ri = clamp(n.ri + n.dir, 0, RIDERS.length - 1); }
       return out;
     }
     return out;
@@ -1543,7 +1616,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const sleepTime = () => S.dayT > 0.84 || S.dayT < 0.21;
   // Each resident of a house gets their own sleeping place (before, two NPCs shared the same bed).
   const bedSlot = {};
-  { const count = {}; NPC_DEFS.forEach((d) => { if (d.home == null) return; bedSlot[d.id] = count[d.home] || 0; count[d.home] = bedSlot[d.id] + 1; }); }
+  { const count = {}; DEFS.forEach((d) => { if (d.home == null) return; bedSlot[d.id] = count[d.home] || 0; count[d.home] = bedSlot[d.id] + 1; }); }
   function updateHomes() {
     const night = sleepTime();
     npcs.forEach((n) => {
@@ -1572,7 +1645,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const open = (S.known.crown >= 30 || !!S.flags.gateBribed) && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile);
     if (open !== S.gateOpen) {
       S.gateOpen = open; gateRect.off = open;
-      if (Math.hypot(P.x, P.z - WZ) < 45) { sfx.gate(0.8); say(open ? "Le porte di Valdoro si aprono cigolando!" : "Le porte di Valdoro si chiudono con un tonfo."); }
+      if (Math.hypot(P.x - GATE_W[0], P.z - GATE_W[1]) < 45) { sfx.gate(0.8); say(open ? "Le porte di Valdoro si aprono cigolando!" : "Le porte di Valdoro si chiudono con un tonfo."); }
     }
     gate.position.y += ((open ? 5.2 : 0) - gate.position.y) * Math.min(1, dt * 1.2);
   }
@@ -1591,6 +1664,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
         hp: P.hp, gold: P.gold, ore: P.ore, eq: { ...P.eq }, inv: { ...P.inv }, rep: { ...S.rep }, known: S.known.crown, gateOpen: S.gateOpen, mounted: !!P.mounted, zone: region, wanted, combo, sneak: !!P.sneak, view, running, combat: inCombat(),
         stamina: P.stamina, winded, heard: heardT > 0,
         dayT: S.dayT, night: S.night, places: repSummary(S),
+        map: [...worldToMap(...(region === "castello" ? CASTLE_DOOR : [P.x, P.z])), region === "castello" ? 0 : P.yaw],   // (in the castle: at its door)
         foe: foe && Math.hypot(foe.x - P.x, foe.z - P.z) < 14 ? { name: foe.spar ? `${foe.name} (allenamento)` : foe.name, hp: Math.max(0, foe.hp), hpMax: foe.hpMax } : null,
       });
     }
@@ -1617,7 +1691,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     graceT -= dt;
     region = regionOf(P.x, P.z);
     // back in the forest from the village: the bandits are again where they wait (not while they are chasing you)
-    if (region !== lastRegion) { if (region === "forest" && P.z > FZ - 5 && !bandits().some((b) => b.hostile)) resetForest(); lastRegion = region; }
+    if (region !== lastRegion) { if (region === "forest" && (toLegacy(P.x, P.z)?.z ?? 0) > FZ - 5 && !bandits().some((b) => b.hostile)) resetForest(); lastRegion = region; }
     atmosphere(dt);
     updateCarriage(dt, time);
     updateHomes();
@@ -1674,14 +1748,14 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const beat = h ? Math.floor(time * 4) : Math.floor((time * 9) / Math.PI);
     if (moving && beat !== P.beat) { if (h) sfx.hoof(0.7); else sfx.step(P.sneak ? 0.2 : P.running ? 0.85 : 0.6); }   // (as loud as the noise they make)
     P.beat = beat;
-    horses.forEach((ho) => at(ho.mesh, ho.x, 0, ho.z, ho.yaw));
+    horses.forEach((ho) => at(ho.mesh, ho.x, floorY(ho.x, ho.z), ho.z, ho.yaw));
 
     scanT -= dt;
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
     const seeFar = scene.fog.far + 4;   // characters hidden by the fog are not drawn (the simulation still runs)
     npcs.forEach((n) => {
       n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
-      if (n.horse) { at(n.horse.mesh, n.horse.x, 0, n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }
+      if (n.horse) { at(n.horse.mesh, n.horse.x, floorY(n.horse.x, n.horse.z), n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }
       if (!n.alive) {                                                   // falling (once), then lying still
         const kind = n.deathKind ?? n.id.length % DEATH_TIME.length;      // dead since a saved game: always the same pose
         n.deathT = n.deathT == null ? 99 : n.deathT + dt;
@@ -1707,7 +1781,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       else {
         n.mesh.userData.atk = n.atk;
         const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, r.mode, r.k)) : n.lastY ?? 0;
-        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + floorY(n.x, n.z) + (r.seat || 0), n.z, n.yaw);
+        at(n.mesh, n.x, n.riding ? saddleY(n.mesh, 1.87) + floorY(n.x, n.z) : n.ms === "seat" ? saddleY(n.mesh, 1.17) : y + floorY(n.x, n.z) + (r.seat || 0), n.z, n.yaw);
         n.mesh.rotation.x = 0;
         n.mesh.userData.hipL.rotation.z = n.riding ? 0.5 : 0; n.mesh.userData.hipR.rotation.z = n.riding ? -0.5 : 0; followSkirt(n.mesh.userData);
       }
@@ -1735,7 +1809,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const pm = playerMesh;
       pm.userData.atk = blow === "thrust" ? "thrust" : ["side", "rise", "over"][Math.max(0, combo - 1)];     // the three blows of the combo, or a lunge
       const ny = poseHuman(pm, bobT / 9 * (P.mounted ? 0 : 1), moving && !P.mounted, P.mounted ? "sit" : pStag > 0 ? "stagger" : atkT >= 0 ? "swing" : guardK > 0.5 ? "block" : P.sneak ? "sneak" : P.running ? "run" : null, Math.min(1, k));
-      at(pm, P.x, P.mounted ? saddleY(pm, 1.87) : gy + ny, P.z, P.yaw);
+      at(pm, P.x, P.mounted ? saddleY(pm, 1.87) + gy : gy + ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
       // Camera behind the right shoulder; pulled in if a wall is in the way.
@@ -1777,6 +1851,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
     if (talk) updateTalk(dt);
     mine.update(camera.position);
+    terrain.update(camera.position, dt, false, scene.fog.far + 4); terrain.sea.visible = zoneOf(camera.position.x, camera.position.z) === "out";
     sky.update(camera.position, S.dayT);
     if (import.meta.env.DEV && window.__topcam) { const c = window.__topcam; camera.position.set(c[0], c[1], c[2]); camera.lookAt(c[3], c[4], c[5]); }   // dev only: free camera (tests)
     updateHud(dt);

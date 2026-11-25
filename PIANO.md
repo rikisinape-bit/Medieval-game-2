@@ -393,18 +393,53 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 - Nomi in italiano per i contenuti di gioco, in inglese per il codice
 - Dopo ogni fase: l'utente prova e riporta gli errori
 
-## 10. Il mondo intero: Vasilad (proposta, da confermare con l'utente)
+## 10. Il mondo intero: Vasilad
 
-Mappa dell'utente: `assets/mappa/vasilad.jpg` (2048 × 1536, "Vasilad, il mondo degli uomini"): Roccanera, Miniera,
-Valdoro (sulla costa, a sud-est di Roccanera), Sulus e Dimirot a sud oltre il fiume (due ponti), Varan sull'isola a est,
-un accampamento sulla penisola a nord-est, montagne con grotte a sud-est e a nord (neve), torre nei ghiacci a nord-ovest,
-foresta morta nella neve, grande foresta a sud-ovest, serpente marino a nord-est.
-- Scala proposta **1 pixel = 1 metro** (mondo ~2 × 1,5 km; Roccanera→Valdoro ~340 m, Valdoro→Sulus ~260 m, Sulus→Dimirot
-  ~300 m, Valdoro→Varan ~715 m di mare). Oggi Valdoro è a nord di Roccanera (mura a 104 m) e la miniera a ovest (45 m):
-  vanno spostate dove sono sulla mappa (i vecchi salvataggi ricominciano).
-- La mappa è la matrice: uno script ne ricava coste, mare e acqua bassa, neve, ghiaccio, foreste (prova riuscita per colore:
-  mare 43%, terra 33%, neve 12%, acqua bassa/ghiaccio 12%); montagne, fiumi, strade e luoghi in un file di dati in pixel
-  della mappa. Mondo a pezzi caricati intorno al giocatore; interni e grotte come stanze a parte. La mappa anche nel menu.
-- Fasi: 1) mondo intero spoglio (terreno, mare, strade, luoghi attuali spostati, mappa nel menu); 2) centro (Roccanera,
-  Miniera, Valdoro, colline, crepacci, ponti); 3) sud (Sulus, Dimirot, foresta); 4) est (accampamento, montagne e grotte,
-  Varan e traghetto); 5) nord (neve, ghiacci, torre, grotte; poi il serpente marino). Tutto in dati, riusabili anche in Godot.
+Mappa dell'utente: `assets/mappa/vasilad.jpg` (con disegni e nomi) e `assets/mappa/vasilad_pulita.jpg` (solo terreno),
+2048 × 1536, allineate. Scala decisa con l'utente: **1 pixel = 1 metro** (mondo ~2 × 1,5 km). Luoghi sulla mappa (pixel):
+Roccanera (860, 708), castello di Valdoro (1132, 940), montagna della miniera (1170, 615), Sulus (1188, 1150), Dimirot
+(949, 1332), Varan (1837, 1033), torre nei ghiacci (457, 184), ponti (1141, 1064) e (861, 1239), grotte (949, 237),
+(1258, 183). Fasi: 1) mondo intero spoglio — **fatta**; 2) centro (dintorni, crepacci, fiume e due ponti); 3) sud
+(Sulus, Dimirot, grande foresta); 4) est (accampamento, montagne e grotte, Varan e traghetto); 5) nord (neve, ghiacci,
+torre, grotte; poi il serpente marino).
+
+**Fase 1, fatta:**
+- `web/tools/world-layers.py` (Python, numpy + Pillow): dalle due mappe ricava gli strati in `web/src/game3d/mondo/`:
+  `costa.png` (1024 × 768, 2 m/pixel: 128 + distanza dalla costa in metri, + all'interno; jump flooding), `rilievo.png`
+  (512 × 384: R montagne, G colline, B foreste) e `suolo.png` (R neve, G terreno secco/marrone, B ghiaccio). Le montagne e
+  gli alberi sono i disegni (differenza tra le due mappe; alberi = verde scuro, il resto rilievo), tolti luoghi, nomi,
+  ponti, torre, legenda, crepacci, montagna della miniera (rettangoli `NOT_RELIEF`); foresta innevata a nord-ovest, colline
+  e dune, montagne basse (a ovest di Sulus) in rettangoli; ghiaccio solo nelle tre coste ghiacciate (`ICE_AREAS`). Da
+  rilanciare se la mappa cambia (`python3 tools/world-layers.py anteprima.png`).
+- `sites.js`: il mondo ha origine nel pozzo di Roccanera (= pixel `MAP.ox, MAP.oz`), x verso est, z verso sud. Il vecchio
+  mondo compatto resta scritto com'era ("coordinate legacy", `world.js`); ogni luogo si sposta come un pezzo rigido
+  (`SITES`): **valdoro** (bosco dei banditi + Valdoro insieme: il sentiero arriva ancora alla porta; la piazza sul castello
+  della mappa, la porta verso Roccanera, il mastio verso il mare) e **miniera** (la montagna su quella della mappa, il
+  portale verso Roccanera). Roccanera non si muove; il castello interno è ora a `CASTLE = [4000, 0]` (fuori dalla mappa).
+  `toWorld`/`toLegacy`, `regionOf`/`zoneOf` (nuova regione **"wild"**: la campagna, HUD "Vasilad", nebbia 40–130 m),
+  `FLATS` (terreno piano a quota 0 sotto i luoghi, raccordato in 24–30 m), `MINE_HOLE`, `ROADS` (pixel della mappa).
+- `terrain.js`: altezza = costa (fondale, spiaggia fino a quota 0) + pianura ondulata + colline (10 m) + montagne (fino a
+  ~80 m, creste da rumore), smorzate verso il mare e spianate sotto i luoghi; griglia di 2 m calcolata a pezzi quando
+  serve; **pezzi da 64 m** costruiti entro 190 m dal giocatore (2 per fotogramma; tutti insieme all'avvio e all'uscita dal
+  castello), tolti oltre 260 m, nascosti oltre la nebbia; `surfaceAt` = l'altezza dei triangoli disegnati (piedi
+  sopra); buco sopra le gallerie della miniera. Materiale: erba e terreno secco secondo la mappa, roccia sui pendii,
+  neve, ghiaccio, sabbia sulla riva, più scuro sott'acqua e sotto le foreste. **Mare**: piano a `SEA_Y = -1.3` che segue
+  la telecamera, increspato; nascosto in miniera e nel castello. **Strade**: strisce di terra battuta sul terreno
+  (Roccanera → bosco/Valdoro, Roccanera → miniera); a Roccanera due nuove uscite (sud-est dalla fermata della carrozza,
+  est), tolta quella verso ovest, cartelli spostati.
+- `engine.js`: tutto il vecchio mondo si costruisce come prima, poi "**The places move**": i figli della scena aggiunti
+  dopo `preBuild` si spostano e girano col loro luogo (per posizione), così ostacoli e rettangoli, porte/bauli/letti delle
+  case; i pezzi dei pacchetti (`addNatureL`), le foglie e gli alberi si spostano prima di essere uniti. La miniera è in un
+  gruppo spostato e girato (`mineRoot`), interrogata con coordinate del mondo (involucro `mine`); la sua luce (GLSL in
+  `mine.js`) usa le coordinate della miniera. Persone (`DEFS`: posizioni e giornate), oggetti a terra (`pickW`), cose
+  usabili (`OBJS`), messaggeri (`RIDERS`: viottolo, strada, sentiero del bosco, porta), uscita dal castello (`placeWorld`).
+  Controlli rimasti in coordinate legacy (`toLegacy`): l'agguato dei banditi lungo il sentiero, il ritorno nel bosco, la
+  piazza dentro le mura. Valdoro ora è chiusa tutto intorno (rettangoli per mura laterali, retro, mastio, estremità delle
+  mura). Niente più recinto del vecchio mondo; l'acqua profonda (più di ~0,5 m) non si attraversa. Cavalli e cavalieri
+  alla quota del terreno (`saddleY + floorY`).
+- Menu: scheda **Mappa** (`GameMenu.jsx` `MapTab`): il disegno della mappa (`mondo/mappa.jpg`, 1152 × 864) con un segno
+  rosso dove sei e una freccia dove guardi (nel castello: alla sua porta). HUD: `map` = pixel della mappa e direzione.
+- Salvataggi: nuova chiave `vasilad.v1` (quelli del vecchio mondo compatto non si caricano più). Pagina pubblicata: le
+  immagini di `mondo/` sono dentro il codice (vite.config.js), come le texture del terreno.
+- Da fare nelle prossime fasi: alberi ed erba nella campagna e nelle foreste della mappa (ora solo nei luoghi), ponti e
+  fiume, nuovi villaggi, grotte; montagne più varie; nomi delle zone nell'HUD; mura/rupi ai crepacci.

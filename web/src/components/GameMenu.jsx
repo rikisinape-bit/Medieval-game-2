@@ -4,6 +4,8 @@ import { ITEMS, SWORD_ITEM, TWO_HANDED, dmgReduction, sellPrice } from "@/game3d
 import CharacterPreview from "@/components/CharacterPreview";
 import ItemPic from "@/components/ItemPic";
 import RepFace from "@/components/RepFace";
+import MAPPA from "@/game3d/mondo/mappa.jpg";
+import { MAP } from "@/game3d/sites";
 
 // ---- Inventory and equipment tabs ----------------------------------------------------------------------------------
 // Inventario: every thing carried (what is worn too, marked with a gold dot), pictures only, one next to the other.
@@ -225,11 +227,27 @@ function ReputationTab({ hud }) {
   );
 }
 
+// ---- Map tab: the map of Vasilad (the user's drawing), with where the player is and which way it faces ----------
+function MapTab({ hud }) {
+  const [px, py, yaw] = hud.map || [MAP.ox, MAP.oz, 0];
+  return (
+    <div className="h-full min-h-0 flex items-center justify-center rounded-sm border border-[#3a2a17] bg-black/30" data-testid="map-tab">
+      <svg viewBox={`0 0 ${MAP.w} ${MAP.h}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full" role="img" aria-label="Mappa di Vasilad">
+        <image href={MAPPA} x="0" y="0" width={MAP.w} height={MAP.h} />
+        <g transform={`translate(${px.toFixed(1)} ${py.toFixed(1)}) rotate(${(180 - (yaw * 180) / Math.PI).toFixed(1)})`} data-testid="map-me">
+          <circle r="42" fill="#b3261e" stroke="#fff3d0" strokeWidth="10" />
+          <path d="M0 -76 L24 -32 L-24 -32 Z" fill="#fff3d0" stroke="#3a1a12" strokeWidth="4" />
+        </g>
+      </svg>
+    </div>
+  );
+}
+
 // ---- Menu shell ----------------------------------------------------------------
 export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps = false, onFps, power = 0, onPower }) {
   const [tab, setTab] = useState("inv");
   if (!hud) return null;
-  const tabs = [["inv", "Inventario"], ["equip", "Equipaggiamento"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
+  const tabs = [["inv", "Inventario"], ["equip", "Equipaggiamento"], ["map", "Mappa"], ["rep", "Reputazione"], ["log", "Diario"], ["game", "Partita"]];
   return (
     <div className="fixed inset-0 z-40 flex items-stretch justify-center bg-black/70 p-1 sm:p-3" data-ui="" data-testid="game-menu">
       <div className="parchment rounded-md w-full max-w-5xl flex flex-col p-1.5 sm:p-3 min-h-0">
@@ -243,6 +261,7 @@ export default function GameMenu({ hud, log = [], onAct, onClose, onReset, fps =
         <div className="flex-1 min-h-0">
           {tab === "inv" && <InventoryTab hud={hud} onAct={onAct} />}
           {tab === "equip" && <EquipmentTab hud={hud} onAct={onAct} />}
+          {tab === "map" && <MapTab hud={hud} />}
           {tab === "rep" && <ReputationTab hud={hud} />}
           {tab === "log" && (
             <div className="h-full overflow-y-auto space-y-1 font-pixel text-[17px] leading-tight" data-testid="menu-log">

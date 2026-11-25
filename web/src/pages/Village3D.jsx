@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear, FlaskConical } from "lucide-react";
 import { createGame, POWER_FPS } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
+import { loadTerrain } from "@/game3d/terrain";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import LootPanel from "@/components/LootPanel";
@@ -11,7 +12,7 @@ import ItemPic from "@/components/ItemPic";
 import Shop from "@/components/Shop";
 import { loadSave, writeSave, clearSave } from "@/lib/save";
 
-const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro", castello: "Castello di Valdoro" };
+const ZONE = { village: "Roccanera", forest: "Bosco", mine: "Miniera", valdoro: "Valdoro", castello: "Castello di Valdoro", wild: "Vasilad" };
 const clockOf = (t) => { const h = Math.floor(t * 24), m = Math.floor((t * 24 - h) * 60); return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; };
 
 
@@ -132,6 +133,7 @@ export default function Village3D() {
     (async () => {
       const saved = loadSave();
       await loadNature(); // trees, bushes, rocks... (falls back to procedural trees if it fails)
+      await loadTerrain(); // the ground of the whole world, from the map of Vasilad
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,

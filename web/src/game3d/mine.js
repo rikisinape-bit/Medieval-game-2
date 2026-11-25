@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { triTable } from "three/addons/objects/MarchingCubes.js";
 import { CX, CZ, CASTLE, MINE_NODES, MINE_TUNNELS, MINE_ORES } from "./world";
+import { SITES } from "./sites";
 import { vnoise3 } from "./body";
 import { makeFlame } from "./models";
 import ROCCIA from "./terreno_terra.jpg";
@@ -18,11 +19,15 @@ const ZONE = { x0: CX - 14.3, x1: PX + 0.05, hz: 13.6, top: 4.2 };
 const f1 = (v) => v.toFixed(2);
 
 // ---- Light inside the mountain (every lit material: Lambert, Phong, Standard, Toon) ----
+// (the mine stands moved and turned in the world, sites.js: its own coordinates from the world's)
+const MS = SITES.miniera, f4 = (v) => v.toFixed(5);
 const SKY_GLSL = `
 float mineSkyAt( vec3 w ) {
-	if ( w.x > ${f1(CASTLE[0] - 100)} ) return 0.3;    // inside the castle (castle.js): no sky, no sun, a little light
-	vec3 d = w - vec3( ${f1(PX)}, 1.4, ${f1(CZ)} );
-	if ( d.x > - 0.04 || w.x < ${f1(ZONE.x0)} || w.y > ${f1(ZONE.top)} || abs( d.z ) > ${f1(ZONE.hz)} || ( d.x > - 5.4 && abs( d.z ) > 2.5 ) ) return 1.0;
+	if ( abs( w.x - ${f1(CASTLE[0])} ) < 300.0 && abs( w.z - ${f1(CASTLE[1])} ) < 300.0 ) return 0.3;    // inside the castle (castle.js): no sky, no sun, a little light
+	vec2 mq = w.xz - vec2( ${f4(MS.ax)}, ${f4(MS.az)} );
+	vec3 l = vec3( ${f4(MS.anchor[0])} + ${f4(MS.c)} * mq.x - ${f4(MS.s)} * mq.y, w.y, ${f4(MS.anchor[1])} + ${f4(MS.s)} * mq.x + ${f4(MS.c)} * mq.y );
+	vec3 d = l - vec3( ${f1(PX)}, 1.4, ${f1(CZ)} );
+	if ( d.x > - 0.04 || l.x < ${f1(ZONE.x0)} || l.y > ${f1(ZONE.top)} || abs( d.z ) > ${f1(ZONE.hz)} || ( d.x > - 5.4 && abs( d.z ) > 2.5 ) ) return 1.0;
 	return mix( 0.085, 1.0, exp( - length( d ) * 0.42 ) );
 }
 `;
