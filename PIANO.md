@@ -171,6 +171,8 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
 
 ## 9. Dove siamo arrivati (per riprendere in una nuova sessione)
 
+> **Ultimo stato: vedi la sezione 10 (il mondo di Vasilad), in fondo: "Per riprendere in una nuova chat" e "Fase 3 — prossimi passi".**
+
 - **Gioco giocabile**: `web/` (React + Three.js, Vite). `cd web && npm install && npm run dev`; versione per la pagina
   pubblicata: `npm run build:artifact` (crea `web/dist`, i modelli come moduli JS). Pagina pubblicata: "Roccanera e Valdoro".
   Per aggiornarla, confrontare TUTTI i file di `web/dist` con quelli pubblicati (impronte sha256) e caricare ogni file cambiato:
@@ -491,3 +493,58 @@ torre, grotte; poi il serpente marino).
   folto, rari in pianura), foglie ricolorate verdi (i cespugli del pacchetto hanno le foglie rosse degli alberi
   contorti). Sotto le foreste il terreno è più scuro (fino al 40%) e la luce più debole (`SELVA`: sole 0,75, cielo
   0,55, nebbia 10–64 m).
+
+### Per riprendere in una nuova chat (dopo la fase 2)
+
+- **Ramo**: `ccr-e44170b1-a6k7yi` (tutto salvato e spinto). **Pagina pubblicata** (privata dell'utente): artifact
+  "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
+  confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
+  (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
+  solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
+  dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `produzione.cjs`.
+- **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
+  resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
+- **Livelli**: altopiano a 0 (Roccanera, colline, miniera, Valdoro), terre basse a `LOW = -8`, mare a `SEA_Y = -12.5`.
+  Un luogo nuovo nelle terre basse va a quota `LOW` (come il bosco dei banditi).
+- **Dati della mappa**: `python3 web/tools/world-layers.py [anteprima.png]` rigenera `web/src/game3d/mondo/*.png` dalle due
+  mappe in `assets/mappa/` (da rifare se l'utente cambia la mappa; i rettangoli di eccezione sono in pixel della mappa).
+- **Pezzi del kit non ancora usati**: case `house_01`, `house_06`, `house_08`, `house_09`, `house_10`; torri e mura;
+  `wood_wall_*`/`wood_tower` (palizzate), `tent_1..3`; dei props: `props_fence_01`, bancarelle. **Niente mulino** nel kit
+  (la mappa disegna mulini a Roccanera e Sulus): va costruito in codice o chiesto all'utente come modello.
+
+### Fase 3 — prossimi passi: Sulus, Dimirot e il resto della grande foresta
+
+Domande da fare all'utente prima di cominciare (una volta, brevi): chi vive a Sulus e a Dimirot e che mestieri fanno;
+sono della Corona di Valdoro o indipendenti; quanto grandi (case, abitanti); botteghe e cose da comprare; missioni o
+storie che vuole lì; se Sulus ha davvero il mulino del disegno.
+
+1. **Un modo per i luoghi nuovi** (prima di tutto, poi lo si usa per tutti i villaggi delle fasi 3–5): oggi case,
+   persone, bauli, oggetti e botteghe sono negli elenchi di `world.js` (`HOUSES`, `NPC_DEFS`, `CHESTS`, `PICKUPS`,
+   `SHOPS` in `items.js`) e il motore li costruisce in coordinate legacy; i luoghi nuovi non hanno coordinate legacy.
+   Proposta: un file per villaggio (es. `web/src/game3d/villaggi/sulus.js`) con i suoi dati in coordinate **locali** al
+   villaggio e un `SITES.sulus` (pixel della mappa, rotazione, `y = LOW`); `sites.js` sa dire a quale luogo appartiene
+   un dato (campo `site` invece che dalla posizione) e lo porta nel mondo con lo stesso `toWorld`. Il motore aggiunge
+   case, persone, bauli, oggetti, lanterne e bancarelle dei villaggi agli stessi elenchi (case con porte, letti e bauli
+   come ora: `houses`, `HOUSE_RECTS`, `kitHouseTop`), così routine, sonno, crimini, testimoni, negozi e bottino
+   funzionano senza codice nuovo. Una voce `FLATS` per ogni villaggio (terreno piano alla sua quota; alberi fuori).
+2. **Sulus** (icona al pixel 1188, 1150, terre basse oltre il **ponte nord**): villaggio con mulino a vento (da
+   costruire), campi, recinti (`props_fence_01`), 6–8 case del kit, pozzo, bancarella, 8–12 abitanti con giornata
+   (contadini, mugnaio, un mercante, una guardia?). La strada `sulus` in `sites.js ROADS` (oggi un tratto dal ponte)
+   va portata dentro il villaggio; nome "Sulus" nell'HUD (regione nuova in `regionOf` e `ZONE` di `Village3D.jsx`).
+3. **Dimirot** (icona al pixel 949, 1332, terre basse oltre il **ponte ovest**): stesso schema, carattere diverso (da
+   chiedere: villaggio di pescatori sul fiume? taglialegna della foresta?). Strada `dimirot` fino al villaggio.
+4. **Strada Sulus–Dimirot** (~300 m) sulla stessa terra, ai piedi delle montagne di sud-est (che restano fase 4).
+5. **Il resto della grande foresta** (pixel ~640–973 × 850–1455): sentieri tra gli alberi (strisce di terra come le
+   strade, più strette e senza cartelli), radure, una capanna di cacciatore o taglialegna, tronchi caduti e rocce
+   (`roccia`, `sasso_*` del pacchetto natura, sparsi da `vegetation.js` per pezzi), funghi e erbe da raccogliere
+   (oggetti a terra che ricrescono?), più avanti animali (cervi, lupi). La foresta oggi c'è già (alberi, sottobosco,
+   luce): si tratta di riempirla.
+6. **Messaggeri e strade**: valutare un messaggero Valdoro → Sulus; cartelli agli incroci (bivio per il bosco dei
+   banditi, i ponti).
+7. **Provare e pubblicare** come sempre (prove in `web/tools/prove/`, misurare triangoli e chiamate nei villaggi nuovi:
+   Valdoro è già il punto più pesante con ~330 chiamate).
+
+Ancora aperto dalle fasi 1–2 (se l'utente lo chiede): verso delle scarpate da confermare con l'utente (oggi in alto il
+lato verso Roccanera e Valdoro); montagne ancora un po' tondeggianti; erba e cespugli in campagna aperta (ora il
+sottobosco è solo nelle foreste); peso della foresta sul telefono (~120–180 mila triangoli nel folto).
