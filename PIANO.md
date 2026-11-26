@@ -24,6 +24,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `world.js` | Dati mondo: `NPC_DEFS` (25 PNG con routine), `HOUSES`, `CHESTS`, `PICKUPS`, `ROUTE`, regioni |
 | `items.js` | `ITEMS`, `SHOPS`, `LOOT_OF`, riduzione danni, prezzi |
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
+| `nav.js` | La strada dei personaggi intorno agli ostacoli: A* su una griglia di 0,5 m fatta al bisogno (case, mura, alberi, rocce, acqua profonda), porte che solo alcuni possono aprire |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
 | `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
 | `castle.js`, `castle_layout.js` | Interno del castello di Valdoro, "stanza a parte" lontana dal mondo (`CASTLE`): pezzi, aree calpestabili, ostacoli e luci (`castle_layout.js`, solo dati); caricamento dei modelli alla prima entrata, pavimenti, strade da stanza a stanza (`castle.js`) |
@@ -44,7 +45,7 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 - PNG con routine, sonno nei letti di notte, case con porte
 - Crimini con testimoni, grida, guardie che si allertano, cadaveri scoperti
 - Reputazione doppia: `rep.village` e `rep.crown`; `known.crown` = ciò che Valdoro sa (portato dai messaggeri a cavallo)
-- Porte di Valdoro: si aprono con `known.crown >= 30`
+- Porte di Valdoro: si aprono con `known.crown >= 30` (e per le sue guardie quando vengono a prenderti)
 - Negozi, inventario, equipaggiamento (mano, corpo, testa, mano sinistra), bottino dai morti
 - Imboscate dei banditi nel bosco (pedaggio, intimidazione, combattimento), Capo Morn, missione testa
 - Miniera con argento, carrozza della Corona derubabile, cavalli montabili
@@ -536,19 +537,37 @@ torre, grotte; poi il serpente marino).
   folto, rari in pianura), foglie ricolorate verdi (i cespugli del pacchetto hanno le foglie rosse degli alberi
   contorti). Sotto le foreste il terreno è più scuro (fino al 40%) e la luce più debole (`SELVA`: sole 0,75, cielo
   0,55, nebbia 10–64 m).
+- **Inseguimenti (27/11, richiesta dell'utente: "i personaggi ostili si bloccano se davanti c'è qualcosa")**: chi
+  insegue il giocatore, una guardia in allerta che va a vedere, un bandito che si avvicina cerca la **strada più breve**
+  intorno a quello che ha davanti (`nav.js`): A* a 8 direzioni su una griglia di 0,5 m fatta al momento intorno a dove
+  è e dove vuole andare (+14 m di margine, al massimo 115 m di lato), con gli ostacoli del motore (cerchi e rettangoli
+  di case, mura, bancarelle, alberi dei luoghi), i tronchi della campagna (`vegetation.js trunksIn`) e l'acqua profonda,
+  allargati del raggio del corpo (0,4 m); la strada poi raddrizzata (da ogni punto al più lontano in vista). Si
+  ricalcola ogni 0,8 s, quando il bersaglio si sposta di 2,5 m o quando non avanza da 1 s; al massimo 2 calcoli per
+  fotogramma (~0,1–1 ms l'uno). Nella miniera e nel castello restano le loro strade (`route`). Le porte delle case si
+  aprono anche per chi insegue o è in allerta.
+- **Porte che si aprono per chi ha il diritto ("ai cavalieri le porte si possono aprire")**: la **saracinesca di
+  Valdoro** (chiusa quando la Corona non ti conosce o quando le sue guardie danno la caccia a qualcuno) è per gli altri
+  un muro, per le guardie e i cavalieri di Valdoro una porta (`gate: "valdoro"` nel suo rettangolo): se la loro strada ci
+  passa, le guardie la alzano ("Le guardie alzano la saracinesca di Valdoro!", `gateCall`), escono o entrano e lei si
+  richiude dietro di loro. Chi ti insegue e tu sei dall'altra parte della **porta del castello** va alla porta e la
+  attraversa (dentro ↔ piazza). Le guardie di Valdoro aprono le **celle delle prigioni** (le chiavi del carceriere) e
+  quelle di Roccanera la **gabbia** (girano fino alla sua porta) per venirti a prendere, da fuori o da dentro; non la
+  cella o la gabbia dove ti hanno chiuso loro (lì ti lasciano marcire, come prima). Prova: `inseguimento.cjs`.
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
-- **Ramo**: tutto è nel ramo `ccr-56033106-oyy5p3` e nella sua PR #14 (fasi 1–2 dalla PR #13, alberi nuovi, erba
-  fotografica, sagome degli alberi, vista lontana), da unire nel ramo principale `claude/threejs-godot-port-83bphh`: il
-  26–27/11 l'unione fatta da Claude è stata bloccata dai permessi, la unisce l'utente da GitHub. Controllare sempre che
-  le PR aperte siano unite. **Pagina pubblicata** (privata dell'utente): artifact
+- **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
+  `claude/threejs-godot-port-83bphh`; le PR le unisce l'utente da GitHub (l'unione fatta da Claude è bloccata dai
+  permessi). Unite: #13 (fasi 1–2), #14 (alberi nuovi, erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa
+  ingrandibile, schermo intero). Aperta: #16 (inseguimenti e porte). Controllare sempre che le PR aperte siano unite;
+  se la PR del ramo è stata unita, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
   solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
   dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
-- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `produzione.cjs`.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `produzione.cjs`.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
 - **Livelli**: altopiano a 0 (Roccanera, colline, miniera), **Valdoro sul suo altopiano a `VALDORO_Y = 12`**, terre basse

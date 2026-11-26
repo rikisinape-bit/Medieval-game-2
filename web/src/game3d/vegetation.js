@@ -338,6 +338,15 @@ export function createVegetation(scene, renderer) {
       }
       return [x, z];
     },
+    /** The trunks [{ x, z, r }] in a box of the world (nav.js: the characters' way round them). */
+    trunksIn(x0, z0, x1, z1) {
+      const out = [];
+      for (let j = Math.floor(z0 / 8); j <= Math.floor(z1 / 8); j++) for (let i = Math.floor(x0 / 8); i <= Math.floor(x1 / 8); i++) {
+        const list = cells.get(`${i}|${j}`);
+        if (list) for (const t of list) if (t.x > x0 && t.x < x1 && t.z > z0 && t.z < z1) out.push(t);
+      }
+      return out;
+    },
     /** Whether a point is inside a trunk (the camera keeps out of them). */
     blocked(x, z) {
       const list = cells.get(`${Math.floor(x / 8)}|${Math.floor(z / 8)}`);
