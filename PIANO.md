@@ -557,10 +557,11 @@ torre, grotte; poi il serpente marino).
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
-- **Ramo**: tutto è nel ramo `ccr-56033106-oyy5p3` e nella sua PR #14 (fasi 1–2 dalla PR #13, alberi nuovi, erba
-  fotografica, sagome degli alberi, vista lontana), da unire nel ramo principale `claude/threejs-godot-port-83bphh`: il
-  26–27/11 l'unione fatta da Claude è stata bloccata dai permessi, la unisce l'utente da GitHub. Controllare sempre che
-  le PR aperte siano unite. **Pagina pubblicata** (privata dell'utente): artifact
+- **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
+  `claude/threejs-godot-port-83bphh`; le PR le unisce l'utente da GitHub (l'unione fatta da Claude è bloccata dai
+  permessi). Unite: #13 (fasi 1–2), #14 (alberi nuovi, erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa
+  ingrandibile, schermo intero). Aperta: #16 (inseguimenti e porte). Controllare sempre che le PR aperte siano unite;
+  se la PR del ramo è stata unita, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
