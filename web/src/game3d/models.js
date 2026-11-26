@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { ITEMS, SWORD_TIER } from "./items";
+import { ITEMS, SWORD_TIER, TWO_HANDED } from "./items";
 import { BODY_MAT, PALADIN_MAT, bodyGeometries, variantOf } from "./body";
 import { makeWeapon, makeShieldMesh, SHIELD_KIND } from "./weapons";
 import { itemModel, toolModel, hasItemModel } from "./items3d";
+import { libParts } from "./nature";
 
 const mats = {};
 export const mat = (c, emissive) => {
@@ -79,7 +80,18 @@ export function inFist(o, geo, left = false) {
 }
 // The sword never turns in the fist: for the horizontal cut the arm turns on itself (a quarter turn, palm down) so the
 // edge faces where the blade goes (anim.js, ATK.side); the overhead chop and the lunge use the edge as held.
+// Items whose model comes from a GLB (nature.js; the procedural one stays if it is not loaded): the foods of the
+// user's models. k: a scale (the bread in a hand is a roll).
+const GLB_ITEM = { pane: "cibo_pane", prosciutto: "cibo_prosciutto", pomodoro: "cibo_pomodoro", patata: "cibo_patata" };
+function glbItem(id, k = 1) {
+  const parts = GLB_ITEM[id] && libParts(GLB_ITEM[id]);
+  if (!parts) return null;
+  const g = new THREE.Group();
+  parts.forEach((pt) => { const m = new THREE.Mesh(pt.geometry, pt.material); m.castShadow = m.receiveShadow = true; m.scale.setScalar(k); g.add(m); });
+  return g;
+}
 export function makeTool(id, geo) {
+  if (id === "pane") { const r = glbItem("pane", 0.5); if (r) { r.position.set(geo.grip[0], geo.grip[1] - 0.05, geo.grip[2] + 0.02); return r; } }
   const t = toolModel(id);
   if (GRIP_TOOLS.has(id)) inFist(t, geo);
   else t.position.set(geo.grip[0], geo.grip[1] - 0.01, geo.grip[2] + 0.01);
@@ -87,6 +99,8 @@ export function makeTool(id, geo) {
 }
 // World representation of an inventory item lying on the ground.
 export function makeItem(id, color) {
+  const glb = glbItem(id);
+  if (glb) return glb;
   const g = new THREE.Group();
   if (hasItemModel(id)) { g.add(itemModel(id)); return g; }
   switch (id) {
@@ -116,6 +130,10 @@ const BONE_PARENT = {
   skirtFR: "pelvis", skirtBR: "pelvis", skirtFL: "pelvis", skirtBL: "pelvis", skirtKR: "skirtFR", skirtKL: "skirtFL",
 };
 const HELPER_AT = { skirtFR: "thighR", skirtBR: "thighR", skirtFL: "thighL", skirtBL: "thighL", skirtKR: "shinR", skirtKL: "shinL" };   // where the helpers sit
+// the cape's bones, after the helpers (body.js puts their joints, geo.capeJoints, and weighs the cape on them; anim.js
+// moves them): one under the other down the back, the first on the chest
+const CAPE_BONES = ["capeU", "capeM", "capeL"];
+Object.assign(BONE_PARENT, { capeU: "chest", capeM: "capeU", capeL: "capeM" });
 export function makeHuman(look, weapon, seed) {
   const v = variantOf(look, seed || JSON.stringify(look));
   const geo = bodyGeometries(look, v);
@@ -123,8 +141,8 @@ export function makeHuman(look, weapon, seed) {
   const body = new THREE.Group(); // scaled for per-NPC height; the outer group's scale is used by the engine (hit flash)
   body.scale.setScalar(v.height);
   g.add(body);
-  const names = [...geo.bones, ...Object.keys(HELPER_AT)];                 // the order of the skin's bone indices
-  const J = (n) => geo.joints[geo.bones.indexOf(HELPER_AT[n] || n)];
+  const names = [...geo.bones, ...Object.keys(HELPER_AT), ...CAPE_BONES];  // the order of the skin's bone indices
+  const J = (n) => (CAPE_BONES.includes(n) ? geo.capeJoints?.[n] || geo.joints[geo.bones.indexOf("chest")] : geo.joints[geo.bones.indexOf(HELPER_AT[n] || n)]);
   const B = {};
   names.forEach((n) => { B[n] = new THREE.Bone(); B[n].name = n; });
   names.forEach((n) => { const p = BONE_PARENT[n], j = J(n), q = p ? J(p) : [0, 0, 0]; B[n].position.set(j[0] - q[0], j[1] - q[1], j[2] - q[2]); (p ? B[p] : body).add(B[n]); });
@@ -152,7 +170,8 @@ export function makeHuman(look, weapon, seed) {
   const tools = {};
   ["ascia", "martello", "scopa", "pane", "acqua", "secchio"].forEach((id) => { const t = makeTool(id, geo); t.position.sub(wristR); t.visible = false; B.handR.add(t); tools[id] = t; });
   g.userData = { hipL: B.thighL, hipR: B.thighR, kneeL: B.shinL, kneeR: B.shinR, armL: B.upperArmL, armR: B.upperArmR, head: B.head, B, mesh, wristR, wristL,
-    skirt: { FR: B.skirtFR, BR: B.skirtBR, FL: B.skirtFL, BL: B.skirtBL, KR: B.skirtKR, KL: B.skirtKL }, shield: !!look.shield, sword, prop, tools, tool: null, variant: v, geo, body };
+    skirt: { FR: B.skirtFR, BR: B.skirtBR, FL: B.skirtFL, BL: B.skirtBL, KR: B.skirtKR, KL: B.skirtKL }, shield: !!look.shield, sword, prop, tools, tool: null, variant: v, geo, body,
+    twoHand: TWO_HANDED.has(weapon) };   // (a two-handed sword: anim.js puts both hands on it; the NPCs' "long" is held in one)
   return g;
 }
 export const showTool = (g, id) => {
@@ -194,11 +213,19 @@ export function makeField() {
   return bake(g);
 }
 
-export function makeCamp() {
+// The bandits' camp around its fire (centre). kit: the tents and the fire are pieces of the medieval kit (engine.js):
+// here only the logs to sit on, a crate, a sack and the fire's light.
+export function makeCamp(kit = false, props = false) {
   const g = new THREE.Group();
-  const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
-  add(g, at(tent, 2.5, 1.1, -2.6), at(cyl(0.5, 0.6, 0.2, "#3a3a3a", 8), 0, 0.1, 0), at(box(0.4, 0.4, 0.4, "#ff7a20", "#ff5a10"), 0, 0.35, 0),
-    at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
+  if (!kit) {
+    const tent = cone(1.8, 2.2, "#4a3a26", 4); tent.rotation.y = Math.PI / 4;
+    add(g, at(tent, 2.5, 1.1, -2.6), at(cyl(0.5, 0.6, 0.2, "#3a3a3a", 8), 0, 0.1, 0), at(box(0.4, 0.4, 0.4, "#ff7a20", "#ff5a10"), 0, 0.35, 0),
+      at(box(1.4, 0.3, 0.4, "#5e3c1e"), -1.6, 0.15, 1.6), at(box(0.6, 0.5, 0.6, "#7a5434"), 1.6, 0.25, 1.4));
+  } else {
+    const log = (x, z, ry, len) => { const l = cyl(0.17, 0.19, len, "#4e3420", 7); l.rotation.set(0, ry, Math.PI / 2); return at(l, x, 0.17, z, ry); };
+    add(g, log(0.3, 2.0, 0, 1.5), log(-2.1, -1.4, Math.PI / 2, 1.5), log(2.6, 2.6, 0.5, 1.1), at(cyl(0.22, 0.3, 0.55, "#5c5240", 6), -2.6, 0.27, 0.9));
+    if (!props) add(g, at(box(0.6, 0.5, 0.6, "#6a4a2e"), 3.3, 0.25, -0.4), at(box(0.45, 0.4, 0.45, "#5a3e26"), 3.35, 0.7, -0.35));   // (else: crates of the props pack)
+  }
   lightAnchor(g, "#ff8a30", 5, 9, 0, 1.2, 0);
   return bake(g);
 }
@@ -295,30 +322,7 @@ export function makeHouse(wall = "#b89a6a", roof = "#7a4a22", stone = false, kit
   return bake(g);
 }
 
-export function makeCave() {
-  const g = new THREE.Group();
-  const rock = "#4a443c";
-  add(g, at(box(26, 1.2, 26, rock), 0, 6.4, 0), at(box(1.2, 3.3, 6.6, "#45423c"), 16.45, 6.1, 0),   // roof slab; rock face above the portal (the mountain covers the rest)
-    at(box(26, 6, 1, rock), 0, 3, -12.5), at(box(26, 6, 1, rock), 0, 3, 12.5), at(box(1, 6, 26, rock), -12.5, 3, 0),
-    at(box(1, 6, 10.3, rock), 12.5, 3, -6.85), at(box(1, 6, 10.3, rock), 12.5, 3, 6.85), at(box(1, 2.5, 3.4, rock), 12.5, 4.75, 0),
-    at(box(5, 5, 1, rock), 14.5, 2.5, -2.2), at(box(5, 5, 1, rock), 14.5, 2.5, 2.2), at(box(5, 1, 5.4, rock), 14.5, 4, 0),
-    at(box(24, 0.1, 24, "#2a2420"), 0, 0.05, 0), at(box(5, 0.1, 3.4, "#2a2420"), 14.5, 0.05, 0),
-    at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, -1.6), at(box(0.25, 3.6, 0.25, "#5a3a1a"), 17, 1.8, 1.6), at(box(0.3, 0.3, 3.6, "#5a3a1a"), 17, 3.55, 0),
-    at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, -0.5), at(box(0.1, 0.05, 7, "#6a6a72"), 10, 0.1, 0.5), at(box(1.2, 0.8, 1.6, "#4a3020"), 6, 0.5, -5));
-  // Mine timbering: frames against the walls with beams under the roof, a second frame in the entrance tunnel
-  const TIMBER = "#4a3018";
-  [-7.5, 0, 7.5].forEach((x) => add(g, at(box(0.3, 5.6, 0.3, TIMBER), x, 2.8, -11.8), at(box(0.3, 5.6, 0.3, TIMBER), x, 2.8, 11.8), at(box(0.34, 0.34, 23.9, TIMBER), x, 5.6, 0)));
-  [-7.5, 7.5].forEach((z) => add(g, at(box(0.3, 5.6, 0.3, TIMBER), -11.8, 2.8, z), at(box(23.9, 0.3, 0.3, TIMBER), 0, 5.75, z)));
-  add(g, at(box(0.22, 3.4, 0.22, TIMBER), 14.5, 1.7, -1.55), at(box(0.22, 3.4, 0.22, TIMBER), 14.5, 1.7, 1.55), at(box(0.26, 0.26, 3.4, TIMBER), 14.5, 3.4, 0));
-  // Rubble heaps along the walls and rough rock on them (no collisions: they hug the walls)
-  [[-10.6, -10.4, 1.5], [10.4, -10.6, 1.2], [-10.8, 10.2, 1.3], [10.6, 10.5, 1.6], [-11, -1, 1.1], [3, -11.2, 1.2], [-3, 11.2, 1.0], [11.2, -6, 0.9]].forEach(([x, z, r], i) => {
-    const m = mesh(new THREE.DodecahedronGeometry(r, 0), i % 2 ? "#3e3a34" : "#46413a"); m.scale.y = 0.75; g.add(at(m, x, r * 0.35, z, i));
-  });
-  [[-8, -8], [8, -2], [-8, 6], [6, 9], [2, 0]].forEach(([x, z]) => { lightAnchor(g, "#ffb050", 8, 12, x, 3, z); g.add(at(box(0.15, 0.5, 0.15, "#ffb050", "#ff8a20"), x, 2.6, z)); });
-  lightAnchor(g, "#ffb050", 3, 6, 16.5, 3, 0);
-  return bake(g);
-}
-
+// torches: false when the props pack puts torches on poles in their places (engine.js); the lights stay here.
 export function makeFountain() {
   const g = new THREE.Group();
   add(g, at(cyl(1.8, 1.9, 0.6, "#8a8478", 12), 0, 0.3, 0), at(cyl(1.6, 1.6, 0.1, "#2b4868", 12), 0, 0.62, 0), at(cyl(0.3, 0.4, 1.4, "#8a8478", 8), 0, 1.2, 0),
@@ -362,23 +366,46 @@ export function makeSwordRack() {
   return g;
 }
 
+// Roccanera's cage (engine.js, world.js CAGE): wooden corner posts and rails, iron bars on every side, a roof of planks
+// on two beams, a barred door in the middle of the front (-z) that turns on its hinge (userData.door: rotation.y 0 shut,
+// PI / 2 open, outwards). half: half the side, dw: half the doorway.
+export function makeCage(half = 1.1, dw = 0.45) {
+  const g = new THREE.Group(), H = 2.35, W = half * 2, WOOD = "#4a3220", DARK = "#33261a", IRON = "#34363b";
+  for (const [x, z] of [[-half, -half], [half, -half], [-half, half], [half, half]]) g.add(at(box(0.15, H + 0.12, 0.15, WOOD), x, (H + 0.12) / 2, z));
+  for (const y of [0.07, H]) {                                                       // the frame: bottom and top rails
+    for (const z of [-half, half]) g.add(at(box(W, 0.11, 0.11, WOOD), 0, y, z));
+    for (const x of [-half, half]) g.add(at(box(0.11, 0.11, W, WOOD), x, y, 0));
+  }
+  const bar = (x, z) => g.add(at(box(0.034, H - 0.12, 0.034, IRON), x, H / 2 + 0.01, z));
+  const strap = (w, d, x, y, z) => g.add(at(box(w, 0.045, d, IRON), x, y, z));
+  for (let s = -half + 0.17; s < half - 0.08; s += 0.17) { bar(s, half); bar(-half, s); bar(half, s); if (Math.abs(s) > dw + 0.05) bar(s, -half); }
+  for (const y of [0.8, 1.55]) {                                                     // iron bands round the bars
+    strap(W, 0.05, 0, y, half); strap(0.05, W, -half, y, 0); strap(0.05, W, half, y, 0);
+    for (const sd of [-1, 1]) strap(half - dw, 0.05, sd * (half + dw) / 2, y, -half);
+  }
+  [-half + 0.45, half - 0.45].forEach((x) => g.add(at(box(0.12, 0.1, W + 0.3, DARK), x, H + 0.1, 0)));   // roof beams
+  for (let i = 0; i < 7; i++) {                                                      // roof planks, a little uneven
+    const p = at(box(W + 0.36, 0.05, 0.36, i % 2 ? WOOD : DARK), 0, H + 0.18, -half - 0.08 + i * 0.37);
+    p.rotation.z = (i % 3 - 1) * 0.015; g.add(p);
+  }
+  // the door: bars in a frame of iron, the lock on its free edge
+  const door = new THREE.Group();
+  for (let x = 0.09; x < dw * 2 - 0.04; x += 0.15) door.add(at(box(0.034, H - 0.25, 0.034, IRON), x, H / 2, 0));
+  for (const y of [0.15, 0.8, 1.55, H - 0.1]) door.add(at(box(dw * 2 - 0.04, 0.05, 0.05, IRON), dw, y, 0));
+  for (const x of [0.02, dw * 2 - 0.04]) door.add(at(box(0.05, H - 0.15, 0.05, IRON), x, H / 2, 0));
+  door.add(at(box(0.1, 0.16, 0.08, "#26272b"), dw * 2 - 0.08, 1.1, -0.05));          // the lock
+  g.add(at(door, -dw, 0, -half));
+  bake(g);
+  g.userData.door = door;
+  return g;
+}
+
 export function makeStall() {
   const g = new THREE.Group();
   add(g, at(box(3, 0.9, 1.2, "#6a4426"), 0, 0.45, 0), at(box(3.2, 0.1, 1.8, "#c9a24a"), 0, 2.4, 0), at(box(3.2, 0.1, 1.8, "#8b1e1e"), 0, 2.5, 0.05),
     at(box(0.5, 0.35, 0.5, "#c9a24a"), -0.8, 1.07, 0), at(box(0.4, 0.3, 0.4, "#e8c890"), 0.3, 1.05, 0), at(box(0.6, 0.6, 0.6, "#7a5434"), 1.8, 0.3, 0.6));
   [[-1.5, 0.8], [1.5, 0.8], [-1.5, -0.8], [1.5, -0.8]].forEach(([x, z]) => g.add(at(box(0.1, 2.4, 0.1, "#3a2410"), x, 1.2, z)));
   return bake(g);
-}
-
-export function makeOreRock() {
-  const g = new THREE.Group();
-  g.add(mesh(new THREE.DodecahedronGeometry(0.8, 0), "#6a6258"));
-  const crystals = new THREE.Group();
-  [[0.3, 0.5, 0.4], [-0.4, 0.4, 0.3], [0, 0.7, -0.2]].forEach(([x, y, z]) => crystals.add(at(mesh(new THREE.OctahedronGeometry(0.22, 0), "#d8e4f0", "#6a8aa8"), x, y, z)));
-  g.add(crystals);
-  g.position.y = 0.5;
-  g.userData.crystals = crystals;
-  return g;
 }
 
 export function makeWell() {
@@ -415,6 +442,8 @@ export function makeCityWall() {
 
 const FLAME_MAT = new THREE.MeshStandardMaterial({ color: "#ffb048", emissive: "#ff7a18", emissiveIntensity: 1.6, flatShading: true });
 const FLAME_GEO = new THREE.ConeGeometry(0.055, 0.16, 5);
+// a flame on its own (on the torches on poles of the props pack): k = how big
+export const makeFlame = (k = 1) => { const f = new THREE.Mesh(FLAME_GEO, FLAME_MAT); f.scale.setScalar(k); f.castShadow = false; return f; };
 export function makeTorch(lit = true) {
   const g = new THREE.Group();
   add(g, at(cyl(0.022, 0.027, 0.5, "#3a2618", 6), 0, 0, 0), at(cyl(0.048, 0.038, 0.11, "#2a2420", 7), 0, 0.29, 0), at(cyl(0.05, 0.05, 0.02, "#8a7650", 7), 0, 0.25, 0));
@@ -435,7 +464,6 @@ export function makeLantern() {
   g.userData = { glow };
   return g;
 }
-// First-person arms, attached to the camera.
 // First-person arms: the player's own arm geometry (sleeves, armour, gloves) from body.js, attached to the camera.
 // rest = shoulder position (camera space) and raise angle; the engine animates armR/armL around it.
 export const VM_REST = { R: { pos: [0.3, -0.12, 0.1], rx: 1.45 }, L: { pos: [-0.36, -0.14, 0.08], rx: 1.3 } };
@@ -444,17 +472,25 @@ export function makeViewmodel(look) {
   const g = new THREE.Group();
   // Each arm is turned half a turn on itself (thumb up): what the fist holds (fistR / fistL, oriented like the
   // fist, objects along +Z) points up and forwards. hand: the fist's position with the arm's plain orientation.
+  // The arm is skinned on three bones (body.js, fpJoints): the shoulder group turns the whole arm, bones.fore bends
+  // the elbow and turns the forearm on itself, bones.hand bends the wrist. What the fist holds follows the hand.
   const arm = (geometry, rest, left) => {
     const p = new THREE.Group(); p.position.set(...rest.pos); p.rotation.x = rest.rx;
     const tw = new THREE.Group(); tw.rotation.y = Math.PI; p.add(tw);
-    tw.add(new THREE.Mesh(geometry, BODY_MAT));
-    const pal = geo.pal?.[left ? "armL" : "armR"]; if (pal) tw.add(new THREE.Mesh(pal, PALADIN_MAT));   // paladin bracers
-    const fist = inFist(new THREE.Group(), geo, left); tw.add(fist);
-    const gp = left ? geo.gripL : geo.grip, hand = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(hand);
-    g.add(p); return [p, hand, fist];
+    const [S, E, W] = geo.fpJoints[left ? "L" : "R"], up = new THREE.Bone(), fore = new THREE.Bone(), hand = new THREE.Bone();
+    up.position.set(...S); fore.position.set(E[0] - S[0], E[1] - S[1], E[2] - S[2]); hand.position.set(W[0] - E[0], W[1] - E[1], W[2] - E[2]);
+    up.add(fore); fore.add(hand); tw.add(up);
+    const fist = inFist(new THREE.Group(), geo, left); fist.position.sub(new THREE.Vector3(...W)); hand.add(fist);
+    const gp = left ? geo.gripL : geo.grip, mark = at(new THREE.Group(), -gp[0], gp[1], -gp[2]); p.add(mark);
+    g.add(p); p.updateMatrixWorld(true);
+    const skeleton = new THREE.Skeleton([up, fore, hand]);
+    const skin = (geometry2, material) => { const m = new THREE.SkinnedMesh(geometry2, material); m.frustumCulled = false; tw.add(m); m.bind(skeleton); return m; };
+    skin(geometry, BODY_MAT);
+    const pal = geo.pal?.[left ? "armL" : "armR"]; if (pal) skin(pal, PALADIN_MAT);   // paladin bracers
+    return [p, mark, fist, { tw, up, fore, hand, S, E, W }];
   };
-  const [armR, handR, fistR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL] = arm(geo.armL, VM_REST.L, true);
-  return { g, armR, armL, handR, handL, fistR, fistL };
+  const [armR, handR, fistR, bonesR] = arm(geo.armR, VM_REST.R, false), [armL, handL, fistL, bonesL] = arm(geo.armL, VM_REST.L, true);
+  return { g, armR, armL, handR, handL, fistR, fistL, bonesR, bonesL, geo };
 }
 
 // The player's 3D body with the current equipment (used in third person and in the menu preview).

@@ -21,6 +21,10 @@ const MODELS = {
   // Trees: Shapespark low-poly plants kit (piante_shapespark.glb), three species (a, b, c) in four sizes (1 = biggest).
   // Already light (370-650 triangles): nothing to simplify.
   ...Object.fromEntries(["a", "b", "c"].flatMap((sp, i) => [1, 2, 3, 4].map((v) => [`albero_${sp}${v}`, [`piante_shapespark#Tree-0${i + 1}-${v}`, {}]]))),
+  // pines: only in the snow of the open country (vegetation.js); the kit has none
+  pino_1: ["pino_1", { Bark: 120, Leaves: 340 }],
+  pino_2: ["pino_2", { Bark: 140, Leaves: 340 }],
+  pino_3: ["pino_3", { Bark: 140, Leaves: 300 }],
   contorto_1: ["albero_contorto_1", { Bark: 700, Leaves: 1000 }],
   contorto_2: ["albero_contorto_2", { Bark: 700, Leaves: 900 }],
   morto: ["albero_morto", { Bark: 500 }],
@@ -146,7 +150,7 @@ for (const tex of root.listTextures()) {
   const [brightness, saturation, rgb] = gradeOf(matName), max = matName === ATLAS ? 1536 : 512;
   let pic = sharp(tex.getImage()).resize(max, max, { fit: "inside" }).modulate({ brightness, saturation });
   if (rgb) { const k = (await sharp(tex.getImage()).metadata()).hasAlpha ? [...rgb, 1] : rgb; pic = sharp(await pic.toBuffer()).linear(k, k.map(() => 0)); }
-  const img = await pic.webp({ quality: 82, alphaQuality: 90 }).toBuffer();
+  const img = await pic.webp({ quality: matName === ATLAS ? 74 : 82, alphaQuality: 90 }).toBuffer();   // (the leaf atlas is big: a little lighter)
   tex.setImage(img).setMimeType("image/webp");
   report.push(`texture ${matName.padEnd(20)} ${(img.length / 1024).toFixed(0)} KB`);
 }

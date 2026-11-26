@@ -11,23 +11,25 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 const EXT = import.meta.env.VITE_MODEL_EXT || "glb";
 const CHUNK = 20;
 // Only these materials cast shadows (trees and rocks); the undergrowth does not.
-const CASTS = /^(Bark|Leaves_Tree|Leaves_TwistedTree|Rocks)/;
-// Leaf cards of the Shapespark trees: shaded as one rounded crown (crownNormals, crownShading).
+const CASTS = /^(Bark|Leaves_Tree|Leaves_Pine|Leaves_NormalTree|Leaves_TwistedTree|Rocks)/;
+// Leaf cards of the Shapespark trees: shaded as one rounded crown (crownNormals, crownShading; material.userData.crown).
 const CROWN = /^Leaves_Tree/;
 
 // Size of each model in the game (the originals are much bigger) and whether it casts shadows.
 export const NATURE = {
   // trees of the Shapespark kit: species a, b, c; sizes 1-4 (1 = biggest). Already at real scale (4.6-7.9 m).
   ...Object.fromEntries(["a", "b", "c"].flatMap((sp) => [1, 2, 3, 4].map((v) => [`albero_${sp}${v}`, { s: 1, shadow: true }]))),
+  pino_1: { s: 0.72, shadow: true }, pino_2: { s: 0.68, shadow: true }, pino_3: { s: 0.8, shadow: true },   // (only in the snow)
   contorto_1: { s: 0.62, shadow: true }, contorto_2: { s: 0.56, shadow: true }, morto: { s: 0.5, shadow: true },
   cespuglio: { s: 0.8 }, cespuglio_fiorito: { s: 0.75 }, felce: { s: 0.13 }, pianta_grande: { s: 0.8 }, pianta: { s: 0.8 },
   trifoglio: { s: 0.45 }, fiori: { s: 0.4 }, petali: { s: 0.7 }, erba: { s: 0.6 }, erba_alta: { s: 0.42 }, fungo: { s: 0.55 },
   roccia: { s: 0.5, shadow: true }, sasso_tondo: { s: 1 }, sasso_quadro: { s: 1 }, selciato: { s: 1 },
 };
 
-let lib = null, natureOk = false, kitOk = false;
+let lib = null, natureOk = false, kitOk = false, propsOk = false;
 export const hasNature = () => natureOk;
 export const hasKit = () => kitOk;
+export const hasProps = () => propsOk;
 
 // Loads one GLB (or its base64 JS module in the published page) and returns { id: [{ geometry, material }] }.
 async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
@@ -67,7 +69,7 @@ async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
       if (!geo.attributes.normal) geo.computeVertexNormals(); else geo.normalizeNormals();
       parts.push({ geometry: geo, material: convert(o.material) });
     });
-    crownNormals(parts.filter((p) => CROWN.test(p.material.name)));
+    crownNormals(parts.filter((p) => p.material.userData.crown));
     if (parts.length) out[node.name] = parts;
   });
   return out;
@@ -93,8 +95,10 @@ function crownNormals(leaves) {
   });
 }
 // Shader changes for those crowns: the back of a card keeps the crown normal (no flip), and the alpha cut-out is
-// relaxed with distance (mip level), otherwise the far leaves thin out and the crowns look bald.
-function crownShading(mat) {
+// relaxed with distance (mip level), otherwise the far leaves thin out and the crowns look bald. Crowns cast shadows
+// but do not receive them (addNature, vegetation.js): inside a crown every card shades the next and the tree turns black.
+export function crownShading(mat) {
+  mat.userData.crown = true;
   mat.customProgramCacheKey = () => "crown";
   mat.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader
@@ -110,9 +114,19 @@ export async function loadNature() {
   lib = null; kitOk = false;
   try { lib = await loadLib("natura"); } catch (e) { console.warn("Natura non caricata: restano gli alberi procedurali", e); }
   try { const kit = await loadLib("kit", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...kit }; kitOk = true; } catch (e) { console.warn("Kit medievale non caricato: restano gli edifici procedurali", e); }
+  // village props (market stalls, crates, buckets, carts, lamp posts, torches, woodpile, campfire, fence: tools/build-props.mjs)
+  propsOk = false;
+  try { const props = await loadLib("props", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...props }; propsOk = true; } catch (e) { console.warn("Oggetti del villaggio non caricati: restano quelli fatti a codice", e); }
+  // the foods of the user's models (cibo_pane, cibo_prosciutto, cibo_pomodoro, cibo_patata: tools/build-food.mjs)
+  try { const food = await loadLib("cibo", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...food }; } catch (e) { console.warn("Cibi non caricati: restano quelli fatti a codice", e); }
   natureOk = !!lib && !!lib.albero_a1;
   return natureOk;
 }
+
+/** How a model of the nature pack is scaled when placed (addNature). */
+export const natureScale = (id) => NATURE[id]?.s || 1;
+/** The parts ({ geometry, material }) of a model of the loaded GLBs (natura, kit, props, cibo), or null. */
+export const libParts = (id) => lib?.[id] || null;
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 /**
@@ -139,9 +153,7 @@ export function addNature(scene, items, meshes = []) {
     geos.forEach((g) => g.dispose());
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, material);
-    // leaf-card crowns cast shadows but do not receive them: inside a crown every card shades the next and the whole
-    // tree turns black; their shading comes from the crown normals instead (and it saves the shadow lookups).
-    mesh.castShadow = !!material.userData.cast; mesh.receiveShadow = !CROWN.test(material.name); mesh.matrixAutoUpdate = false;
+    mesh.castShadow = !!material.userData.cast; mesh.receiveShadow = !material.userData.crown; mesh.matrixAutoUpdate = false;
     scene.add(mesh); meshes.push(mesh);
     tris += geo.index.count / 3;
   });
@@ -212,6 +224,13 @@ export function kitSize(id) {
   const parts = lib?.[id]; if (!parts) return null;
   const b = new THREE.Box3(); parts.forEach((p) => { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox); });
   return b.getSize(new THREE.Vector3()).toArray();
+}
+
+// Centre and size of the part of a piece drawn with one material (e.g. the glass of the lamp post), or null.
+export function kitPartBox(id, material) {
+  const parts = (lib?.[id] || []).filter((p) => p.material.name === "Kit_" + material); if (!parts.length) return null;
+  const b = new THREE.Box3(); parts.forEach((p) => { p.geometry.computeBoundingBox(); b.union(p.geometry.boundingBox); });
+  return { center: b.getCenter(new THREE.Vector3()), size: b.getSize(new THREE.Vector3()) };
 }
 
 // One piece as its own object (for things that move, like the castle gate).

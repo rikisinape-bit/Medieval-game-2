@@ -1,5 +1,5 @@
-// The mountain above the silver mine. The cave (models.js makeCave) is a room at ground level around (CX, CZ);
-// this terrain covers it completely, so from outside you see a mountain with a mine portal cut into a rock face.
+// The mountain above the silver mine. The mine's tunnels (mine.js) go down from the portal around (CX, CZ);
+// this terrain covers them completely, so from outside you see a mountain with a mine portal cut into a rock face.
 // Constraints kept by mountainHeight(): above the cave roof everywhere over the cave, above the entrance
 // corridor's roof, a vertical cliff around the portal, and nothing in front of it.
 import * as THREE from "three";
@@ -25,7 +25,7 @@ export function mountainHeight(x, z) {
     h *= Math.sqrt(clamp((16.9 - dx) / 2.9, 0, 1));
     if (az <= 6 && dx <= 16.95) h = Math.max(h, 7.6 + hash(x, z) * 0.9);       // cliff around the portal
   }
-  if (dx >= 14 && az <= 2) h = 7.6;                                            // lip above the portal (rock block below, see makeCave)
+  if (dx >= 14 && az <= 2) h = 7.6;                                            // lip above the portal (rock blocks below, see mine.js)
   if (dx >= EAST - 0.05 && az > 2) h = 0;                                      // foot of the cliff
   return h;
 }
