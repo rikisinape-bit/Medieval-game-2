@@ -73,7 +73,8 @@ IR, IG, IB = icons[..., 0], icons[..., 1], icons[..., 2]
 im = (IR + IG + IB) / 3
 tree = drawn & (IG >= IR - 4) & (IG > IB + 8) & (im < 120)
 NOT_RELIEF = [   # x0, y0, x1, y1 (map pixels): places and their names, bridges, the tower, the camp, the legend, the dragon
-    (775, 630, 925, 785), (1035, 660, 1210, 715), (1000, 840, 1205, 1005), (1080, 1100, 1265, 1240), (840, 1275, 1020, 1410),
+    # (Valdoro's rectangle reaches down over its whole label: its lower half had become a hill beside the castle)
+    (775, 630, 925, 785), (1035, 660, 1210, 715), (1000, 840, 1218, 1036), (1080, 1100, 1265, 1240), (840, 1275, 1020, 1410),
     (1695, 975, 1895, 1120), (415, 125, 480, 225), (1085, 1030, 1195, 1090), (825, 1195, 915, 1255), (60, 1200, 430, 1440),
     (1580, 280, 1770, 400), (1430, 740, 1610, 980),
     (680, 725, 790, 860), (920, 905, 1030, 990),     # the two ravines (later: cliffs)

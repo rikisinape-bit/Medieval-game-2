@@ -25,6 +25,20 @@ const site = (id, anchor, atMap, r, has, y = 0) => {
 // The land's two levels: the central highland (Roccanera, the hills, the mine, Valdoro: at 0, where the old map was) and
 // the low lands round it (the great forest, the west, beyond the river): LOW. The sea is lower still (terrain.js SEA_Y).
 export const LOW = -8;
+// Valdoro's own plateau (the user, 27/11): the castle and the ground round it stand higher than the central highland,
+// a stronger position: the cracks drawn south-west of it are its cliffs (down to the great forest), the sea its east
+// side; northwards it slopes down to Roccanera's level (the road climbs it), southwards down to the river and its
+// bridge. The hill that stood beside the castle (in truth the map's "VALDORO" label, read as relief) and the green hills
+// north of it are levelled into it. Map pixels; cliff: true where both ends of a side are.
+export const VALDORO_Y = 12;
+export const VALDORO_HIGH = [
+  [958, 932, true], [995, 954, true], [1025, 967, true], [1048, 978, true], [1060, 992, true],   // the big crack
+  [1050, 1008, true], [1045, 1024, true], [1040, 1045, true], [1034, 1056],                    // the thin crack below it
+  [1075, 1040], [1120, 1026], [1160, 1012],                                                    // down to the river (the road to the bridge)
+  [1200, 975], [1212, 920], [1195, 860], [1170, 822],                                          // the sea
+  [1120, 795], [1050, 788], [998, 806],                                                        // beyond the hills, down towards Roccanera
+  [972, 850], [962, 895],
+];
 
 // The legacy mine: the mountain and the ground in front of its portal (the rock face, the lantern)
 const inMine = (x, z) => { const dx = x - CX, dz = z - CZ; return dx > -34 && dx < 21.5 && Math.abs(dz) < 31 && (mountainHeight(x, z) > 0 || (dx > 12 && Math.abs(dz) < 17)); };
@@ -32,7 +46,7 @@ const V_AT = [1132, 940], M_AT = [1170, 615], B_AT = [902, 1000];   // Valdoro's
 export const SITES = {
   // Valdoro (and the ground before its gate, with the knights): its square on the castle of the map, the gate facing
   // Roccanera, the castle's keep towards the sea.
-  valdoro: site("valdoro", [0, WZ - 18], V_AT, turn([0, -1], mapToWorld(...V_AT)), (x, z) => z < WZ + 10 && z > -165 && Math.abs(x) < 46),
+  valdoro: site("valdoro", [0, WZ - 18], V_AT, turn([0, -1], mapToWorld(...V_AT)), (x, z) => z < WZ + 10 && z > -165 && Math.abs(x) < 46, VALDORO_Y),
   // The forest of the bandits (its path, the camp): no longer before Valdoro's gate, but in the great forest south-west
   // of it, on the road from the hills to the western bridge (towards Dimirot); one walks its path southwards.
   bosco: site("bosco", [0, -62], B_AT, turn([0, -1], [-0.12, 0.99]), (x, z) => z < -29 && z >= WZ + 10 && Math.abs(x) < 46, LOW),
@@ -84,7 +98,7 @@ export const placeWorld = (lx, lz, ry = 0) => { const id = siteOf(lx, lz); retur
 // Shapes in each place's legacy coordinates: a circle [cx, cz, r] or a box [x0, z0, x1, z1].
 export const FLATS = [
   { site: "roccanera", circle: [0, 0, 52], blend: 30 },
-  { site: "valdoro", box: [-42, -160, 42, WZ + 12], blend: 24 },
+  { site: "valdoro", box: [-42, -160, 42, WZ + 12], blend: 24, y: VALDORO_Y },
   { site: "bosco", box: [-36, WZ + 8, 36, -27], blend: 20, trees: 0.5, y: LOW },   // (the great forest's trees right up to it)
   { site: "miniera", box: [CX - 33, CZ - 32, CX + 25, CZ + 32], blend: 24 },
 ];
@@ -118,6 +132,7 @@ export const HIGHLAND = [
   [880, 890], [965, 938, true], [995, 954, true], [1025, 967, true], [1048, 978, true], [1062, 990],
   [1080, 1030], [1150, 1045], [1230, 1030], [1320, 900], [1380, 650], [1320, 480], [1100, 470], [960, 520], [800, 560], [700, 620],
 ];
-// Smaller steps of the ground drawn on the map (the thin crack south of Valdoro's escarpment): along the line, the
-// ground on the side of the point `high` is higher by h, less and less over `fade` metres
-export const STEPS = [{ pts: [[1050, 1008], [1045, 1024], [1040, 1045], [1032, 1060], [1010, 1070]], h: 3.5, fade: 30, high: [1080, 1040] }];
+// Smaller steps of the ground drawn on the map: along the line, the ground on the side of the point `high` is higher by
+// h, less and less over `fade` metres. { pts: [[px, py], ...], h, fade, high: [px, py] } (the thin crack south of
+// Valdoro's escarpment was one: since 27/11 it is a cliff of Valdoro's plateau, VALDORO_HIGH)
+export const STEPS = [];

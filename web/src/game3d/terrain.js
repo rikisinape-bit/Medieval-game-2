@@ -19,7 +19,7 @@ import ERBA from "./terreno_erba.jpg";
 import ERBA_N from "./terreno_erba_n.jpg";
 import TERRA from "./terreno_terra.jpg";
 import TERRA_N from "./terreno_terra_n.jpg";
-import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, HIGHLAND, STEPS, LOW, inSite, roadWorld, mapToWorld } from "./sites";
+import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, HIGHLAND, STEPS, LOW, VALDORO_HIGH, VALDORO_Y, inSite, roadWorld, mapToWorld } from "./sites";
 import { groundMat } from "./ground";
 
 export const SEA_Y = -12.5;
@@ -114,6 +114,22 @@ export function highlandAt(x, z) {
   const sd = inPoly(x, z) ? d : -d, sharp = 1 - smooth(8, 34, dc), w = 70 + (5 - 70) * sharp;
   return smooth(-w / 2, w / 2, sd + (sharp > 0 ? fbm(x / 9, z / 9) * 2.4 * sharp : 0));   // (the cliff's line a little irregular)
 }
+// ---- Valdoro's plateau (sites.js VALDORO_HIGH): inside its outline the ground is at VALDORO_Y (barely rolling), the
+// hills that were there levelled into it; its sides cliffs where the cracks are drawn, long slopes elsewhere
+const VP = VALDORO_HIGH.map(([px, py, cliff]) => [...mapToWorld(px, py), !!cliff]);
+const VSEG = VP.map((a, i) => { const b = VP[(i + 1) % VP.length]; return { a, b, cliff: a[2] && b[2] }; });
+const VBOX = [Math.min(...VP.map((p) => p[0])) - 50, Math.max(...VP.map((p) => p[0])) + 50, Math.min(...VP.map((p) => p[1])) - 50, Math.max(...VP.map((p) => p[1])) + 50];
+function plateauAt(x, z) {
+  if (x < VBOX[0] || x > VBOX[1] || z < VBOX[2] || z > VBOX[3]) return 0;
+  let d = Infinity, dc = Infinity, inside = false;
+  for (const sg of VSEG) { const dd = segD(x, z, sg.a, sg.b); d = Math.min(d, dd); if (sg.cliff) dc = Math.min(dc, dd); }
+  for (let i = 0, j = VP.length - 1; i < VP.length; j = i++) {
+    const [xi, zi] = VP[i], [xj, zj] = VP[j];
+    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  const sd = inside ? d : -d, sharp = 1 - smooth(8, 30, dc), w = 64 + (5 - 64) * sharp;
+  return smooth(-w / 2, w / 2, sd + (sharp > 0 ? fbm(x / 9 + 3.3, z / 9 - 1.4) * 2.4 * sharp : 0));   // (the cliff's line a little irregular)
+}
 // ---- the smaller steps: a short steep rise to the high side, its top sloping down again over `fade` metres
 const ST = STEPS.map((st) => {
   const pts = st.pts.map(([px, py]) => mapToWorld(px, py)), [hx, hz] = mapToWorld(...st.high), xs = pts.map((p) => p[0]), zs = pts.map((p) => p[1]);
@@ -190,6 +206,8 @@ export function heightAt(x, z) {
     if (m > 0.01) h += (70 * m ** 1.6 * (0.5 + 0.5 * ridge(x / 95, z / 95)) + 8 * m * fbm(x / 20, z / 20)) * inland;
     h += stepAt(x, z);
   }
+  const pw = plateauAt(x, z) * smooth(1, 12, d);                                 // Valdoro's plateau (never over the sea)
+  if (pw > 0) h += (VALDORO_Y + fbm(x / 70 + 5.1, z / 70 - 2.7) * 1.2 + vnoise(x / 13, z / 13) * 0.3 - h) * pw;
   const [w, fy] = flatAt(x, z);
   if (w > 0) h += (fy - h) * w;
   return h;
