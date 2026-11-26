@@ -10,7 +10,13 @@
     "build:artifact": "VITE_MODEL_EXT=js vite build && node tools/glb-to-js.mjs dist/models",
     "nature": "node tools/optimize-nature.mjs",
     "kit": "node tools/convert-kit.mjs && node tools/build-kit.mjs",
-    "corpi": "node tools/convert-bodies.mjs && node tools/build-bodies.mjs"
+    "corpi": "node tools/convert-bodies.mjs && node tools/build-bodies.mjs",
+    "props": "node tools/build-props.mjs",
+    "terreno": "node tools/build-ground.mjs",
+    "nuvole": "node tools/build-clouds.mjs",
+    "castello": "node tools/build-castle.mjs",
+    "luna": "node tools/build-moon.mjs",
+    "cibo": "node tools/build-food.mjs"
   },
   "dependencies": {
     "@fontsource/cinzel": "^5.3.0",

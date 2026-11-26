@@ -37,6 +37,16 @@ if (q.get("eq")) {
    { hand: "spadone", body: "piastre", head: "elmo_piastre", off: "scudo_ferro" }, { hand: "ascia", body: "maglia", head: "cappuccio" }, { hand: "di Roccanera", body: "cuoio", head: "elmo_piastre", off: "scudo_ferro" }]
     .forEach((eq, i) => list.push(["playerEq", "p" + i, eq]));
 }
+// ?capes=1: the characters with a cape (the player without armour, a knight, a noble, a bandit, a messenger, the king)
+if (q.get("capes")) {
+  list.length = 0;
+  list.push(["player", "player"], ["knight", "alaric"], ["noble", "silas"], ["bandit", "bandit1"], ["messenger", "messenger1"], ["king", "king"]);
+}
+// ?two=1: the player with the two two-handed swords (both hands on the grip), then one with a one-handed sword
+if (q.get("two")) {
+  list.length = 0;
+  list.push(["playerEq", "t1", { hand: "lunga", body: "maglia", head: null }], ["playerEq", "t2", { hand: "spadone", body: "piastre", head: null }], ["playerEq", "t3", { hand: "corta", body: "cuoio", head: null }]);
+}
 // ?faces=hair|beard|female: a row of heads with every hairstyle / beard (close camera on the heads)
 const faces = q.get("faces");
 if (faces) {
@@ -75,6 +85,7 @@ const range = q.get("range");
 if (hand != null || q.get("weapons") || q.get("items")) {} else if (q.get("top")) { const x = ((+q.get("top") - (n - 1) / 2) * sp); cam.fov = 26; cam.updateProjectionMatrix(); cam.position.set(x, 4.2, 0.6); cam.lookAt(x, 1.0, 0.45); } else if (range) { const [a, b] = range.split("-").map(Number); const x = ((a + b) / 2 - (n - 1) / 2) * sp; cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(x, 1.15, 1.1 + (b - a + 1) * 0.95); cam.lookAt(x, 1.0, 0); }
 else if (faces) { cam.fov = 14; cam.updateProjectionMatrix(); cam.position.set(0, 1.78, 6.5); cam.lookAt(0, 1.66, 0); }
 else if (zoom) { const x = (+zoom - (n - 1) / 2) * sp; cam.fov = +(q.get("fov") || 18); cam.updateProjectionMatrix(); cam.position.set(x + 0.3, 1.78, 2.2); cam.lookAt(x, 1.72, 0); }
+else if (q.get("capes")) { cam.fov = 30; cam.updateProjectionMatrix(); cam.position.set(0, 1.4, 9.2); cam.lookAt(0, 1.0, 0); }
 else { cam.position.set(0, 1.25, 17.5); cam.lookAt(0, 1.0, 0); }
 await PALADIN_READY;
 if (q.get("cpos")) { cam.fov = +(q.get("fov") || 30); cam.updateProjectionMatrix(); cam.position.set(...q.get("cpos").split(",").map(Number)); cam.lookAt(...q.get("clook").split(",").map(Number)); }
@@ -89,3 +100,4 @@ if (faces) {                                         // one close frame per head
 } else r.render(scene, cam);
 let tris = 0, calls = 0; scene.traverse((o) => { if (o.isMesh && o.visible && o.parent.visible) { calls++; tris += (o.geometry.index ? o.geometry.index.count : o.geometry.attributes.position.count) / 3; } });
 window.STATS = { tris: Math.round(tris), calls }; window.DONE = true;
+window.SCENE = scene;   // (tests: the figures)

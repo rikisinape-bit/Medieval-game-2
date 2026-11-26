@@ -5,3 +5,6 @@ android/
 
 # Pacchetti originali di terzi: non vanno nel repository pubblico (vedi web/tools/convert-kit.mjs)
 assets/sorgenti/
+
+# foto delle prove nel browser
+web/tools/prove/out/
