@@ -76,10 +76,12 @@ export const castle = {
     for (let i = 0; i < n; i++) [x, z] = this.constrain(x + (x1 - x0) / n, z + (z1 - z0) / n);
     return [x, z];
   },
-  // the next door on the way from (x, z) to (tx, tz), or null (same room, or one of them is not in the castle)
-  route(x, z, tx, tz) {
+  // the next door on the way from (x, z) to (tx, tz), or null (same room, or one of them is not in the castle);
+  // keys: through the prison cells' shut doors too (a guard who opens them: engine.js)
+  route(x, z, tx, tz, keys = false) {
     if (!inCastle(x, z) || !inCastle(tx, tz)) return null;
-    const here = (px, pz) => A.map((a, i) => (holds(a, px, pz, 0.05) ? i : -1)).filter((i) => i >= 0);
+    const pass = (a) => keys || ok(a);
+    const here = (px, pz) => A.map((a, i) => (pass(a) && px > a.x0 - 0.05 && px < a.x1 + 0.05 && pz > a.z0 - 0.05 && pz < a.z1 + 0.05 ? i : -1)).filter((i) => i >= 0);
     const from = here(x, z), to = new Set(here(tx, tz));
     if (!from.length || !to.size || from.some((i) => to.has(i))) return null;
     const prev = new Map(from.map((i) => [i, null])), queue = [...from];
@@ -91,7 +93,7 @@ export const castle = {
         for (const p of way) if (Math.hypot(p[0] - x, p[1] - z) > 0.5) return p;
         return null;
       }
-      for (const [j, p] of LINKS[i]) if (!prev.has(j) && ok(A[j])) { prev.set(j, { from: i, at: p }); queue.push(j); }
+      for (const [j, p] of LINKS[i]) if (!prev.has(j) && pass(A[j])) { prev.set(j, { from: i, at: p }); queue.push(j); }
     }
     return null;
   },

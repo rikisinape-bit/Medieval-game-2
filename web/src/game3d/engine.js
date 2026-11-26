@@ -13,14 +13,15 @@ import { SHIELD_KIND, LEFT_BELOW } from "./weapons";
 import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
-import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleCells, castleJail } from "./castle";
+import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleExit, castleCells, castleJail } from "./castle";
 import { addLeaves, edgeSpots, circleShape, rectShape, ellipseShape } from "./leaves";
 import { makeMountain, mountainHeight } from "./mountain";
 import { armRig, solveKey, restPose, mixPose, applyPose, fistFrame, reach, armReach } from "./fparm";
 import { createSky, sunDir } from "./sky";
 import { shapeOf, tumble, middle, placeMiddle, settle } from "./tumble";
 import { regionOf, zoneOf, toWorld as siteToWorld, toLegacy, placeWorld, siteOf, heightOf, SITES, inSite, worldToMap } from "./sites";
-import { createTerrain, surfaceAt, groundAt, deepWater, onDeck, bridgeKeep, layersAt } from "./terrain";
+import { createTerrain, surfaceAt, groundAt, deepWater, onDeck, bridgeKeep, layersAt, coastAt } from "./terrain";
+import { createNav } from "./nav";
 import { createVegetation } from "./vegetation";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -237,7 +238,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   banditDefs.forEach((d) => { const [px, pz] = [d.routine[0].face[0], d.routine[0].face[1]]; const dx = px - d.pos[0], dz = pz - d.pos[1], L = Math.hypot(dx, dz) || 1; putTree(true, d.pos[0] + (dx / L) * 1.5, d.pos[1] + (dz / L) * 1.5, 0, 0.8); });
   // Wall of Valdoro and the square beyond
   let gate;
-  const gateRect = { cx: 0, cz: WZ, hw: 3, hd: 0.6, ry: 0, off: false };
+  const gateRect = { cx: 0, cz: WZ, hw: 3, hd: 0.6, ry: 0, off: false, gate: "valdoro" };   // (its guards may open it, nav.js)
   if (hasKit()) {
     // Castle built from the medieval kit: gatehouse with portcullis, crenellated curtain walls, towers, keep.
     const W1 = 9.74, kit = [];                                   // W1 = length of a wall segment
@@ -880,8 +881,70 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const vAt = (x, z) => (zoneOf(x, z) === zoneOf(P.x, P.z) ? Math.max(0, 1 - Math.hypot(x - P.x, z - P.z) / 28) : 0);
   const pitchOf = (n) => (LOOKS[n.look]?.female || n.female ? 560 : n.role === "noble" ? 420 : 290) * (0.9 + Math.random() * 0.2);
   const snd = { scream: (n) => sfx.scream(vAt(n.x, n.z), pitchOf(n)), swing: (n) => sfx.swing(vAt(n.x, n.z) * 0.8) };
-  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, route: (x, z, tx, tz) => castle.route(x, z, tx, tz) || mine.route(x, z, tx, tz) });
-  if (import.meta.env.DEV) { window.__ai = ai; window.__npcs = npcs; }   // dev only (tests)
+  // ---- The characters' way round things (nav.js; the user, 27/11): whoever chases the player, an alerted guard, a
+  // bandit closing in takes the shortest way round houses, walls, trees, rocks and deep water, planned again as the
+  // target moves or when it makes no headway (a few plans a frame at most). Doors open for whoever has the right to
+  // (the user: "for knights the doors can be opened"): Valdoro's guards go through its shut gate (their way does: the
+  // gate is raised for them, gateCall) and, hunting someone, through the castle's door and its prison cells (the jailer's
+  // keys: frame()); Roccanera's through the door of their cage. In the mine and the castle: their own ways (route).
+  const nav = createNav({
+    circles: () => obstacles, boxes: () => rects, trunks: (x0, z0, x1, z1) => veg.trunksIn(x0, z0, x1, z1), wet: deepWater,
+    wetNear: (x0, z0, x1, z1) => coastAt((x0 + x1) / 2, (z0 + z1) / 2) < Math.hypot(x1 - x0, z1 - z0) / 2 + 8,
+  });
+  let navBudget = 0, gateCall = 0;
+  const opens = (n, door) => (door === "gabbia" ? CAGE_GUARDS.includes(n.id) : n.valdoro && n.guard);   // (valdoro, celle)
+  const inCage = (x, z) => Math.abs(x - CAGE.x) < CAGE.half && Math.abs(z - CAGE.z) < CAGE.half;
+  const way = (n, gx, gz) => {
+    if (castle.inZone(n.x, n.z) || mine.inZone(n.x, n.z) || castle.inZone(gx, gz) || mine.inZone(gx, gz)) return null;
+    if (inCage(n.x, n.z) || inCage(gx, gz)) return null;                  // (in or out of the cage: by its door, chase())
+    const w = n.nav || (n.nav = { pts: null, i: 0, at: -9, gx: 0, gz: 0, px: n.x, pz: n.z, pt: time, gates: [] });
+    if (time - w.pt > 1) { if (Math.hypot(n.x - w.px, n.z - w.pz) < 0.4) w.at = -9; w.px = n.x; w.pz = n.z; w.pt = time; }   // (no headway: again)
+    if ((!w.pts || time - w.at > 0.8 || Math.hypot(gx - w.gx, gz - w.gz) > 2.5) && navBudget > 0) {
+      navBudget -= 1;
+      const r = nav.path(n.x, n.z, gx, gz, { opens: (g) => opens(n, g) });
+      w.pts = r ? r.pts : null; w.gates = r ? r.gates : []; w.i = 0; w.at = time; w.gx = gx; w.gz = gz;
+    }
+    if (!w.pts) return null;                                                // (no need, or no way: straight on)
+    while (w.i < w.pts.length - 1 && Math.hypot(w.pts[w.i][0] - n.x, w.pts[w.i][1] - n.z) < 0.6) w.i += 1;
+    if (w.gates.includes("valdoro") && Math.hypot(n.x - GATE_W[0], n.z - GATE_W[1]) < 14) gateCall = 3;   // (the gate on its way: raise it)
+    return w.i < w.pts.length - 1 ? w.pts[w.i] : null;                     // (the last leg: straight at the target, which moves)
+  };
+  // Where a chaser makes for: the player, or (the player on the other side of the castle's door: inside its rooms or out
+  // in the square) that door on its own side; d: how far the player is that way. At the door it goes through (frame()).
+  // So with Roccanera's cage: in or out by its door (before it, it is opened if shut and the chaser may: frame()).
+  const DOOR_OUT = placeWorld(0, WZ - 26.8, 0).slice(0, 2);
+  const CAGE_OUT = [CAGE.x, CAGE.z - CAGE.half - 0.8], CAGE_IN = [CAGE.x, CAGE.z - CAGE.half + 0.55];
+  const inCageDoor = (x, z) => Math.abs(x - CAGE.x) < 0.42 && z > CAGE_OUT[1] - 0.25 && z < CAGE_IN[1] + 0.25;   // (the strip through its door)
+  const chase = (n) => {
+    const inC = castle.inZone(n.x, n.z), pC = castle.inZone(P.x, P.z);
+    if (inC === pC) {
+      const nG = inCage(n.x, n.z), pG = inCage(P.x, P.z);
+      if (nG !== pG && !S.flags.cage && !inCageDoor(n.x, n.z)) {          // (locked in it: as before, at the bars)
+        const [ax, az] = nG ? CAGE_IN : CAGE_OUT;
+        return { x: ax, z: az, d: Math.hypot(ax - n.x, az - n.z) + Math.hypot(P.x - ax, P.z - az), here: false };
+      }
+      return { x: P.x, z: P.z, d: Math.hypot(P.x - n.x, P.z - n.z), here: true };
+    }
+    const [ax, az] = inC ? [castleExit.x, castleExit.z] : DOOR_OUT, [bx, bz] = inC ? DOOR_OUT : [castleSpawn.x, castleSpawn.z];
+    return { x: ax, z: az, d: Math.hypot(ax - n.x, az - n.z) + Math.hypot(P.x - bx, P.z - bz), here: false };
+  };
+  // A shut door between a chaser and the player, which it may open, opened once it is at it: a prison cell's (Valdoro's
+  // guards: the jailer's keys) or the door of Roccanera's cage (its guards). Not the cell or the cage one has been locked
+  // in: there they leave you to rot (updateDoorsAndGate).
+  const inCell = (c, x, z) => x > c.x + 0.2 && x < c.x + 3.8 && Math.abs(z - c.z) < 1.7;   // (the cells: beyond the bars, x+)
+  const openFor = (n, inC) => {
+    if (inC && !S.flags.jail && opens(n, "celle")) for (const c of castleCells) {
+      if (castle.doorOpen(c.id) || Math.hypot(n.x - c.x, n.z - c.z) > 1.3 || inCell(c, n.x, n.z) === inCell(c, P.x, P.z)) continue;
+      setCell(c.id, true); say(`${n.name} apre la cella!`);
+    }
+    if (!inC && !S.flags.cage && !S.flags.cageOpen && opens(n, "gabbia") && inCage(n.x, n.z) !== inCage(P.x, P.z) && Math.hypot(n.x - CAGE.x, n.z - (CAGE.z - CAGE.half)) < 1.3) {
+      setCage(true); say(`${n.name} apre la gabbia!`);
+    }
+  };
+  // (the castle's ways: through the shut prison cells too for a guard hunting someone, who opens them: openFor)
+  const route = (x, z, tx, tz, n) => castle.route(x, z, tx, tz, !!n?.hostile && !S.flags.jail && opens(n, "celle")) || mine.route(x, z, tx, tz);
+  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, way, chase, route });
+  if (import.meta.env.DEV) { window.__ai = ai; window.__npcs = npcs; window.__nav = nav; }   // dev only (tests)
 
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
@@ -1662,18 +1725,21 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (n.jailAnger > 8) { n.jailAnger = 0; Object.assign(n, { hostile: false, alert: 0, actT: null, state: "idle" }); say(`${n.name}: "Marcisci lì dentro."`); }
     });
     houses.forEach((h) => {
-      const near = Math.hypot(P.x - h.dx, P.z - h.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo) && Math.hypot(n.x - h.dx, n.z - h.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
+      const near = Math.hypot(P.x - h.dx, P.z - h.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo || n.hostile || n.alert > 0) && Math.hypot(n.x - h.dx, n.z - h.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
       const target = near ? 1.9 : 0;
       if (target && h.open < 0.05) sfx.creak(vAt(h.dx, h.dz));
       h.open += (target - h.open) * Math.min(1, dt * 5);
       h.door.rotation.y = h.open;
     });
-    const open = (S.known.crown >= 30 || !!S.flags.gateBribed) && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile);
+    // Valdoro's gate: open to whoever the Crown trusts (or has paid), shut while its guards hunt someone, but raised for
+    // its own guards when their way goes through it (gateCall: to come out after the player, or in), then shut again
+    const open = ((S.known.crown >= 30 || !!S.flags.gateBribed) && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile)) || gateCall > 0;
     if (open !== S.gateOpen) {
-      S.gateOpen = open; gateRect.off = open;
-      if (Math.hypot(P.x - GATE_W[0], P.z - GATE_W[1]) < 45) { sfx.gate(0.8); say(open ? "Le porte di Valdoro si aprono cigolando!" : "Le porte di Valdoro si chiudono con un tonfo."); }
+      S.gateOpen = open;
+      if (Math.hypot(P.x - GATE_W[0], P.z - GATE_W[1]) < 45) { sfx.gate(0.8); say(open ? (gateCall > 0 ? "Le guardie alzano la saracinesca di Valdoro!" : "Le porte di Valdoro si aprono cigolando!") : "Le porte di Valdoro si chiudono con un tonfo."); }
     }
     gate.position.y += ((open ? 5.2 : 0) - gate.position.y) * Math.min(1, dt * 1.2);
+    gateRect.off = gate.position.y > 2.6;                                  // (one passes under it once it is up enough)
   }
 
   function updateHud(dt) {
@@ -1715,6 +1781,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     time += dt;
     S.dayT = (S.dayT + dt / DAY_LEN) % 1;
     graceT -= dt;
+    navBudget = 2; gateCall = Math.max(0, gateCall - dt);                // (ways planned this frame at most; the gate held up)
     region = regionOf(P.x, P.z);
     // back in the forest from the village: the bandits are again where they wait (not while they are chasing you)
     if (region !== lastRegion) { if (region === "forest" && (toLegacy(P.x, P.z)?.z ?? 0) > FZ - 5 && !bandits().some((b) => b.hostile)) resetForest(); lastRegion = region; }
@@ -1796,6 +1863,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
       const ox = n.x, oz = n.z;
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
+      if (n.hostile && n.fights) {                                          // through the castle's door after the player
+        const inC = castle.inZone(n.x, n.z);
+        if (inC !== castle.inZone(P.x, P.z)) {
+          const [ax, az] = inC ? [castleExit.x, castleExit.z] : DOOR_OUT;
+          if (Math.hypot(n.x - ax, n.z - az) < 1.2) { const [bx, bz] = inC ? DOOR_OUT : [castleSpawn.x, castleSpawn.z]; n.x = bx + (Math.random() - 0.5) * 0.8; n.z = bz + (Math.random() - 0.5) * 0.8; n.nav = null; }
+        } else openFor(n, inC);
+      }
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (mine.inZone(n.x, n.z)) [n.x, n.z] = mine.constrain(n.x, n.z);                // in the mine: along the tunnels
       else if (castle.inZone(n.x, n.z)) [n.x, n.z] = castle.inZone(ox, oz) ? castle.move(ox, oz, n.x, n.z) : castle.constrain(n.x, n.z);   // in the castle: in its rooms

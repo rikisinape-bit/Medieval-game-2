@@ -13,8 +13,12 @@ export const FIGHT = {
   smith: { block: 0.22, perfect: 0.08, hold: 0.15, sp: 2.9, wind: 0.65 }, bandit: { block: 0.3, perfect: 0.12, hold: 0.2, sp: 3.8, wind: 0.55 },
 };
 
-// route(x, z, tx, tz): the next point on the way through the mine's tunnels, or null (straight)
-export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, route = () => null }) {
+// route(x, z, tx, tz, n): the next point on the way through the mine's tunnels or the castle's rooms, or null (straight;
+// n: who goes, for the doors it may open); way(n, tx, tz): the next point of n's way round the things in front of it
+// (nav.js), or null (straight); chase(n): where a chaser makes for ({ x, z, d, here }: the player, or the door on its
+// side (the castle's, the cage's) when the player is on the other one; d how far the player is that way; here: the
+// player can be reached)
+export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, route = () => null, way = () => null, chase = null }) {
   const sameZone = (n) => zoneOf(P.x, P.z) === zoneOf(n.x, n.z);
   const repOf = (n) => (n.valdoro ? S.known.crown : S.rep.crown);
   // A sneaking player is noticed at about half the range (less at night), only well in front, and only very close behind.
@@ -79,10 +83,18 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
     const out = { walk: false, mode: null, k: 0, carry: false };
     const dx = P.x - n.x, dz = P.z - n.z, d = Math.hypot(dx, dz);
     const face = (tx, tz, r = 6) => { n.yaw += angDiff(Math.atan2(tx - n.x, tz - n.z), n.yaw) * Math.min(1, dt * r); };
-    const step = (gx, gz, sp) => {
-      const w = route(n.x, n.z, gx, gz), tx = w ? w[0] : gx, tz = w ? w[1] : gz;   // through the mine: node by node
+    // nav: round what is in front (whoever chases, an alerted guard, a bandit closing in: they do not get stuck). Any
+    // other walk that makes no headway (something in its way; a guard of Valdoro going home with its gate shut) goes
+    // round too for a while (lost).
+    const step = (gx, gz, sp, nav = false) => {
+      const hw = n.head || (n.head = { t: 0, x: n.x, z: n.z, gx, gz });
+      if (Math.hypot(gx - hw.gx, gz - hw.gz) > 0.5) Object.assign(hw, { t: 0, x: n.x, z: n.z, gx, gz });   // (another goal)
+      if (n.lost > 0) { n.lost -= dt; nav = true; }
+      const w = route(n.x, n.z, gx, gz, n) || (nav ? way(n, gx, gz) : null), tx = w ? w[0] : gx, tz = w ? w[1] : gz;   // (node by node)
       const ddx = tx - n.x, ddz = tz - n.z, dd = Math.hypot(ddx, ddz);
       if (dd < 0.25) return !w;
+      hw.t += dt;
+      if (hw.t > 1.5) { if (Math.hypot(n.x - hw.x, n.z - hw.z) < 0.25 * sp) n.lost = 12; Object.assign(hw, { t: 0, x: n.x, z: n.z }); }
       const s = Math.min(dd, sp * dt);
       n.x += (ddx / dd) * s; n.z += (ddz / dd) * s;
       face(tx, tz, 8); out.walk = true;
@@ -91,12 +103,13 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
 
     if (n.hostile && n.fights) {                                  // (also into the mine and out of it: it follows the tunnels)
       const F = FIGHT[n.role] || FIGHT.soldier;
+      const c = chase ? chase(n) : { x: P.x, z: P.z, d, here: true };   // (the player, or the castle's door on its way)
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
       // its guard: raised against a blow of yours it sees coming (decided once a blow, after its reaction time), held
       // while your blow lasts, then lowered with a quick answer; its posture comes back while it is down (engine.js:
       // a blow on the guard, perfect parry, guard broken)
       n.posture = Math.min(100, (n.posture ?? 100) + (n.blocking ? 0 : 22 * dt));
-      if (P.attacking && P.atkSeq !== n.seenAtk && d < 3.2 && n.state === "idle" && n.stagger <= 0) {
+      if (c.here && P.attacking && P.atkSeq !== n.seenAtk && d < 3.2 && n.state === "idle" && n.stagger <= 0) {
         n.seenAtk = P.atkSeq;                                       // a blow of yours coming: once a blow, it decides
         const r = Math.random();
         if (!n.blocking && r < F.block) { n.blocking = true; n.blockT = 0; n.blockPerfect = r < F.perfect; n.holdT = 0; }
@@ -111,11 +124,11 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
       if (n.stagger > 0) out.mode = "stagger";
       else if (n.state === "windup") {
         n.k += dt / (F.wind * (n.riposte ? 0.55 : 1)); out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);   // (a riposte: quick)
-        if (n.k >= 1) { n.state = "swing"; n.k = 0; n.riposte = false; snd.swing(n); if (d < 2.3 && !route(n.x, n.z, P.x, P.z)) hurtPlayer(n); }   // (not through rock)
+        if (n.k >= 1) { n.state = "swing"; n.k = 0; n.riposte = false; snd.swing(n); if (c.here && d < 2.3 && !route(n.x, n.z, P.x, P.z, n)) hurtPlayer(n); }   // (not through rock)
       } else if (n.state === "swing") {
         n.k += dt / 0.3; out.mode = "swing"; out.k = n.k;
         if (n.k >= 1) { n.state = "idle"; n.cd = 0.8 + Math.random() * 0.7; n.side = Math.random() < 0.5 ? -1 : 1; }
-      } else if (d > 1.8 || route(n.x, n.z, P.x, P.z)) step(P.x, P.z, F.sp);
+      } else if (!c.here || d > 1.8 || route(n.x, n.z, P.x, P.z, n)) step(c.x, c.z, F.sp, true);
       else {
         face(P.x, P.z, 8);
         if (n.blocking) { /* behind its guard: it waits for your blow */ }
@@ -123,7 +136,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
         else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }
       // (before, a bandit 22 m from its post turned round and walked home, its back to the player, healed at once)
-      if (d > GIVE_UP || (n.spar && d > 15)) {
+      if (c.d > GIVE_UP || (n.spar && d > 15)) {
         n.hostile = false; n.state = "idle"; n.actT = null;
         if (n.spar) { n.spar = false; n.hp = n.hpMax; say(`${n.name}: "Scappi dall'allenamento? Torna quando sei pronto."`); }
       }
@@ -140,7 +153,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
 
     if (n.guard && n.alert > 0) {
       n.alert -= dt; out.mode = "look";
-      if (step(n.alertPos[0], n.alertPos[1], 2.8)) out.mode = "look";
+      if (step(n.alertPos[0], n.alertPos[1], 2.8, true)) out.mode = "look";
       // a guard sent after the culprit of a crime someone saw knows who it is looking for: it goes for the player as
       // soon as it sees it; after a body is found it only suspects whoever is near the body (or a known criminal)
       const known = n.alertSuspect, range = known ? 13 : 8;
@@ -152,7 +165,7 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
       if (n.guard && repOf(n) < -25 && sees(n, P.x, P.z, 12)) { n.hostile = true; say(`${n.name}: "Fermo, criminale!"`); return out; }
     }
 
-    if (n.goTo) { if (step(n.goTo[0], n.goTo[1], 2.8)) face(P.x, P.z); return out; }
+    if (n.goTo) { if (step(n.goTo[0], n.goTo[1], 2.8, true)) face(P.x, P.z); return out; }
     if (n.exitTo) { if (step(n.exitTo[n.exitI][0], n.exitTo[n.exitI][1], 1.3)) { n.exitI += 1; if (n.exitI >= n.exitTo.length) n.exitTo = null; } return out; }
     if (n.sleepAt) {
       n.actT = null;
