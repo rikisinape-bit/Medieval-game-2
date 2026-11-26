@@ -43,7 +43,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color("#9cc4e4");
   scene.fog = new THREE.Fog("#b8d0e0", 30, 80);
-  const camera = new THREE.PerspectiveCamera(70, 1, 0.08, 220);
+  const camera = new THREE.PerspectiveCamera(70, 1, 0.08, 640);   // (far: the open country is seen a long way, terrain.js far ground)
   scene.add(camera);
   const hemi = new THREE.HemisphereLight("#cfe4ff", "#4a3a22", 0.9);
   const sun = new THREE.DirectionalLight("#fff0d0", 1.6);
@@ -63,7 +63,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const obstacles = [], rects = [];
   const put = (o, x, z, ry = 0, r = 0) => { at(o, x, o.position.y, z, ry); scene.add(o); if (r) obstacles.push({ x, z, r }); return o; };
   // Trees are only recorded here (position + collision circle); the models are added later, all together.
-  const treeSpots = [], S_nature = { tris: 0, count: 0 }, natureMeshes = [];
+  const treeSpots = [], S_nature = { tris: 0, count: 0 }, natureMeshes = [], oldTrees = [], oldThings = [];   // (oldTrees: drawn by vegetation.js)
+  const FAR_THINGS = 220;                                       // the places' things are drawn up to here (atmosphere)
   // gone: a tree that was there before the bandits' camp grew (kept in the list so the forest's random layout does not
   // change, but neither drawn nor solid)
   const putTree = (pine, x, z, ry = 0, r = 0, gone = false) => {
@@ -346,7 +347,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
   // ---- Vegetation ----
   if (hasNature()) {
-    // Tree models (Shapespark kit), merged by chunk. Same positions and collisions as before.
+    // Tree models (Shapespark kit), drawn by vegetation.js like the open country's (near models, far pictures: they
+    // dissolve into each other instead of jumping). Same positions and collisions as before.
     let ns = 12345; const nr = () => { ns = (ns * 16807) % 2147483647; return (ns - 1) / 2147483646; };   // own RNG: the tree layout RNG is untouched
     const items = [];
     const inForest = (x, z) => z < -31 && z > WZ && Math.abs(x) < 30;
@@ -354,9 +356,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const dead = inForest(t.x, t.z) && i % 19 === 7;                              // a few dead trees in the forest
       // species a/b/c, mostly the two big sizes (3 and 4 are younger, thinner trees). One draw, as with the old
       // trees, so everything scattered after this (undergrowth, rocks) stays where it was.
-      const r = dead ? 0 : nr(), id = dead ? "morto" : `albero_${"abc"[Math.floor(r * 18) % 3]}${[1, 1, 2, 2, 3, 4][Math.floor(r * 6)]}`;
-      const it = { id, x: t.x, z: t.z, ry: nr() * 6.28, k: 0.85 + nr() * 0.35 };
-      if (!t.gone) items.push(it);                                                  // (cut down for the bandits' camp)
+      // (only the six models the open country uses: sizes 3 and 4 became smaller trees of sizes 1 and 2)
+      const r = dead ? 0 : nr(), size = Math.floor(r * 6), id = dead ? "morto" : `albero_${"abc"[Math.floor(r * 18) % 3]}${[1, 1, 2, 2, 1, 2][size]}`;
+      const it = { id, x: t.x, z: t.z, ry: nr() * 6.28, k: (0.85 + nr() * 0.35) * (size >= 4 && !dead ? 0.8 : 1) };
+      if (t.gone) return;                                                           // (cut down for the bandits' camp)
+      if (dead) items.push(it);
+      else { const [x, z, ry] = placeWorld(it.x, it.z, it.ry); oldTrees.push({ ...it, x, z, ry, y: heightOf(it.x, it.z) }); }
     });
     // Landmarks: great twisted trees with blood-red leaves
     [[8.5, -71.5, 1], [-22, -48, 2], [21, -66, 1], [-19, -91, 2], [-23.5, WZ + 15, 1], [25, -37, 2]].forEach(([x, z, v]) => {
@@ -502,6 +507,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     });
     const move = (o, kx, kz) => { const id = siteOf(o[kx], o[kz]); if (!SITES[id]) return 0; [o[kx], o[kz]] = siteToWorld(o[kx], o[kz], id); return SITES[id].r; };
     rects.forEach((r) => { r.ry += move(r, "cx", "cz"); });
+    oldThings.push(...scene.children.filter((o) => !preBuild.has(o) && !o.userData.world));   // (drawn only near: atmosphere)
     obstacles.forEach((o) => move(o, "x", "z"));
     houses.forEach((h) => {
       const id = siteOf(h.x, h.z); if (!SITES[id]) return;
@@ -513,6 +519,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // The ground of the whole world, the sea and the roads (terrain.js)
   const terrain = createTerrain(scene, renderer, { stone: hasKit() ? kitMaterial("Wall_Tile_01_Mat") : null });
   const veg = createVegetation(scene, renderer);                          // the trees of the open country
+  veg.addFixed(oldTrees);                                                 // and the old map's (Roccanera, the bandits' wood)
   if (import.meta.env.DEV) window.__veg = veg;                            // dev only (tests)
   if (import.meta.env.DEV) window.__terrain = { terrain, surfaceAt, toWorld: siteToWorld, toLegacy, regionOf, camera };   // dev only (tests)
   // the messengers ride from Ser Alaric's post down the lane, along the road and the forest path to the knights at the gate
@@ -750,10 +757,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const hasShield = () => !!(P.eq.off && ITEMS[P.eq.off].block);
 
   // Day/night + region atmosphere
-  const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 8, 48, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 30, 80, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 26, 70, 1.5, 0.9], wild: ["#9cc4e4", "#bcd2e2", 40, 130, 1.6, 0.9] };
+  // (the fog of the open places is light and far: hills, mountains and the sea are seen a long way off, hazy)
+  // (the places' buildings beyond FAR_THINGS are not drawn: by then the haze already veils them)
+  const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 12, 75, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 40, 440, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 35, 400, 1.5, 0.9], wild: ["#9cc4e4", "#bcd2e2", 45, 520, 1.6, 0.9] };
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
   // in the great forests of the open country (the map's): darker, the fog nearer (wildF: how deep in one)
-  const SELVA = ["#6f8c7e", "#566e5e", 10, 64, 0.75, 0.55];   // (the leaves above let little sunlight through)
+  const SELVA = ["#6f8c7e", "#566e5e", 14, 90, 0.75, 0.55];   // (the leaves above let little sunlight through)
   let wildF = 0;
   // (in the mine the world keeps the village's light: the dark is in the mountain only, see mine.js)
   const cA = new THREE.Color(), cB = new THREE.Color();
@@ -785,9 +794,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     lightT -= dt;
     if (lightT <= 0) {
       lightT = 0.4;
-      // Vegetation chunks hidden beyond the fog are not drawn at all.
-      const reach = scene.fog.far + 6;
-      natureMeshes.forEach((m) => { const c = m.geometry.boundingSphere; m.visible = Math.hypot(c.center.x - P.x, c.center.z - P.z) - c.radius < reach; });
+      // Chunks hidden beyond the fog are not drawn at all; buildings and the big twisted and dead trees not beyond
+      // FAR_THINGS either (the old camera's reach: the far ground and the trees' pictures go on beyond), the small plants
+      // not beyond 130 m and the village props (crates, barrels, carts) not beyond 110 m (too small to see); the old
+      // map's other things (houses, lanterns...) like the buildings
+      const reach = Math.min(scene.fog.far + 6, FAR_THINGS), reachSmall = Math.min(reach, 130);
+      natureMeshes.forEach((m) => { const c = m.geometry.boundingSphere, n = m.material.name; m.visible = Math.hypot(c.center.x - P.x, c.center.z - P.z) - c.radius < (/Props_Atlas/.test(n) ? Math.min(reach, 110) : /^Kit_|TwistedTree|DeadTree/.test(n) ? reach : reachSmall); });
+      oldThings.forEach((o) => { o.visible = Math.hypot(o.position.x - P.x, o.position.z - P.z) < reach + 12; });
       leaves.update(P.x, P.z);
       // only the lights that can reach what is around the player (the camera may be a few metres behind)
       const near = anchors.filter((a) => (!a.night || lan > 0) && Math.hypot(a.x - P.x, a.z - P.z) < a.distance + 14);
@@ -1765,7 +1778,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
     scanT -= dt;
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
-    const seeFar = scene.fog.far + 4;   // characters hidden by the fog are not drawn (the simulation still runs)
+    const seeFar = Math.min(scene.fog.far + 4, 160);   // characters hidden by the fog or too far are not drawn (the simulation still runs)
     npcs.forEach((n) => {
       n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
       if (n.horse) { at(n.horse.mesh, n.horse.x, floorY(n.horse.x, n.horse.z), n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }

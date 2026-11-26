@@ -473,13 +473,28 @@ torre, grotte; poi il serpente marino).
   (`nearRoad`), in acqua o sulla spiaggia, sui pendii ripidi, nei crepacci; nella neve pini e alberi morti. Entro 48 m i
   modelli (istanziati, quelli entro 30 m fanno ombra), oltre fino alla nebbia alberi semplici (pino a palchi di coni,
   tronco secco) con tinta variata. **Dal 26/11** fuori dalla neve gli alberi sono 6 dei 12 del kit Shapespark (`BROAD`:
-  ogni modello costa i suoi disegni) e quelli lontani sono le loro **sagome** (`makeImpostors`: ogni modello disegnato una
-  volta di lato in un atlante all'avvio, poi tre piani incrociati sul tronco con la sua immagine, illuminati come le chiome
-  vicine: un disegno per tutti, 6 triangoli l'uno; prima erano chiome a sfere). Misure (foto.cjs, prima → dopo): foresta
-  179 → 170 mila triangoli, 47 → 60 chiamate; ponte ovest 122 → 73 mila; colline 42 → 36 mila. I tronchi fermano chi cammina (`veg.push` in
+  ogni modello costa i suoi disegni); **dal 27/11** (richiesta dell'utente: "da lontano cambiano troppo") quelli lontani
+  sono le loro **sagome** (`makeImpostors`): all'avvio ogni modello viene disegnato da 8 lati in due atlanti (colori e
+  direzioni delle foglie, cioè le normali della chioma), e da lontano un albero è un quadrato rivolto alla telecamera con
+  l'immagine del lato da cui lo guardi, illuminato con quelle normali come il modello vero (un disegno per tutti, 2
+  triangoli l'uno). Il modello si dissolve nella sua sagoma tra 25 e 34 m (gli alberelli giovani tra 17 e 26 m;
+  `NEAR`, `NEAR_Y`, `BAND`: entrambi disegnati, ognuno sui pixel che l'altro lascia, nessuno scatto); le sagome arrivano
+  fino a 300 m (`TREE_FAR`) e negli ultimi 60 m si rimpiccioliscono fino a sparire. Anche gli alberi del vecchio mondo
+  (Roccanera, bosco dei banditi) passano da qui (`veg.addFixed`, solo le 6 specie; le taglie 3 e 4 diventano 1 e 2 più
+  piccole). Misure (foto.cjs, pubblicata il 26/11 → ora): foresta 179 → 187 mila triangoli, 47 → 84 chiamate; colline
+  42 → 92 mila, 59 → 80; ponte ovest 122 → 100 mila; scarpata di Valdoro 76 → 222 mila, 230 → 381 chiamate (ora Valdoro
+  si vede da sotto: il punto più pesante, come stare dentro Valdoro). I tronchi fermano chi cammina (`veg.push` in
   `pushOut`) e la telecamera. Nella grande foresta la luce e la nebbia diventano da bosco (`SELVA`, `wildF`), HUD
   "Grande foresta".
 - Il sole e le sue ombre seguono il giocatore anche in quota (montagne).
+- **Vista lontana (27/11, richiesta dell'utente: "da lontano si vede solo il cielo")**: nebbia più leggera all'aperto
+  (`DAYLOOK`: campagna 45–520 m, Roccanera 40–440, Valdoro 35–400, bosco dei banditi 12–75, grande foresta `SELVA`
+  14–90; la notte come prima), telecamera fino a 640 m. Oltre 170 m dalla telecamera il terreno è il **terreno
+  lontano** (`terrain.js buildFar`: una sola mesh di tutta la mappa, un vertice ogni 16 m, stesse altezze, colori e
+  strati; i pezzi da 2 m si fermano a 180 m: `SPLIT`), così si vedono colline, montagne, coste e mare velati dalla
+  foschia. Il mare è un quadrato di 2,4 km. Le cose dei luoghi (case, mura, castello, oggetti: `oldThings`, `natureMeshes`)
+  si disegnano fino a 220 m (`FAR_THINGS`, la vecchia portata della telecamera), gli oggetti piccoli (`Props_Atlas`)
+  fino a 110 m, le piantine fino a 130 m, le persone fino a 160 m.
 - Da fare: fase 3 (Sulus, Dimirot, resto della grande foresta), fase 4, fase 5; montagne più varie; erba e cespugli nella
   campagna.
 
@@ -508,8 +523,10 @@ torre, grotte; poi il serpente marino).
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
-- **Ramo**: il ramo principale `claude/threejs-godot-port-83bphh` ha tutto (fasi 1–2 dalla PR #13, poi alberi nuovi ed
-  erba fotografica, PR #14); controllare sempre che le PR aperte siano unite. **Pagina pubblicata** (privata dell'utente): artifact
+- **Ramo**: tutto è nel ramo `ccr-56033106-oyy5p3` e nella sua PR #14 (fasi 1–2 dalla PR #13, alberi nuovi, erba
+  fotografica, sagome degli alberi, vista lontana), da unire nel ramo principale `claude/threejs-godot-port-83bphh`: il
+  26–27/11 l'unione fatta da Claude è stata bloccata dai permessi, la unisce l'utente da GitHub. Controllare sempre che
+  le PR aperte siano unite. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano

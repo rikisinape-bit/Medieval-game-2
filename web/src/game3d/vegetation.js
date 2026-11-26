@@ -4,19 +4,23 @@
 // thick of them a second, young tree beside each) and undergrowth: bushes, ferns, big plants, tall grass, mushrooms.
 // The trees are the Shapespark kit's (BROAD: six of its twelve, each model costs its own draws), the pines only in the snow.
 // Placed a tile (64 m) at a time, always the same (from the tile's number).
-// Near the player (NEAR) they are the nature pack's trees, instanced (a dozen draws for all of them), the undergrowth
-// nearer still (NEAR_U); farther, up to the fog, simple low trees (a cone, a bare trunk, and for the kit's trees their
-// own picture on three crossing planes: impostors) that cost almost nothing. Their trunks stop whoever walks into them (push); the undergrowth does not.
+// Near the player (NEAR) they are the models, instanced (a dozen draws for all of them), the undergrowth nearer still
+// (NEAR_U); farther, up to TREE_FAR, the kit's trees are their own picture seen from where the player is (impostors:
+// one draw for all, 2 triangles each), pines and dead trees a cone or a bare trunk. Between the two the model dissolves
+// into its picture over BAND metres (both drawn, each on the pixels the other leaves), and far away the pictures thin
+// out the same way: nothing jumps. The old map's trees (Roccanera, the bandits' wood: addFixed) are drawn the same way.
+// Their trunks stop whoever walks into them (push); the undergrowth does not.
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { libParts, natureScale, crownShading } from "./nature";
 import { layersAt, surfaceAt, treeFree, nearRoad, SEA_Y } from "./terrain";
 import { MAP } from "./sites";
 
-const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 48, NEAR_U = 30, SHADE = 28, REBUILD = 5;
+// NEAR: where a grown tree's model has become its picture (NEAR_Y for the young ones, k < 0.8), over BAND metres
+const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 34, NEAR_Y = 26, BAND = 9, NEAR_U = 30, SHADE = 28, REBUILD = 5, TREE_FAR = 300;
 const PINES = ["pino_1", "pino_2", "pino_3"], BROAD = ["albero_a1", "albero_b1", "albero_c1", "albero_a2", "albero_b2", "albero_c2"], MODELS = [...PINES, ...BROAD, "morto"];
 const UNDER = ["cespuglio", "felce", "pianta_grande", "erba_alta", "fungo"];
-const KIND = (id) => (id === "morto" ? 2 : id.startsWith("pino") ? 0 : 1);   // far: cone, ball, bare trunk
+const KIND = (id) => (id === "morto" ? 2 : id.startsWith("pino") ? 0 : 1);   // far: cone, picture (ball without a renderer), bare trunk
 const TX = Math.ceil(MAP.w / TILE), TZ = Math.ceil(MAP.h / TILE);
 const rand = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 
@@ -75,48 +79,123 @@ function farGeometry(kind) {
   return geo;
 }
 
-// The far broad trees (impostors): each model of the kit is drawn once from the side, unlit, into a cell of an atlas;
-// far away a tree is three planes crossing on its trunk with that picture, lit and shaded like the near crowns
-// (normals out of the trunk and a little up: nature.js crownShading). One draw for all of them, 6 triangles each.
-// Returns { mesh, cells: { id: [u, v, du, dv, half width, height] } } (null without a renderer).
+// ---- the hand-over between near and far (all the trees' materials here): the distance of the tree's foot from the
+// camera, a fixed screen pattern; the model keeps the pixels the far form leaves, and the other way round
+const FADE_F = `varying float vTreeD;
+float treeDither() { return fract( 52.9829189 * fract( dot( gl_FragCoord.xy, vec2( 0.06711056, 0.00583715 ) ) ) ); }`;
+const NEAR_CUT = (nd) => `if ( treeDither() < smoothstep( ${nd - BAND}.0, ${nd}.0, vTreeD ) ) discard;`;
+const FAR_CUT = (nd) => `if ( treeDither() >= smoothstep( ${nd} - ${BAND}.0, ${nd}, vTreeD ) ) discard;`;
+// far away (the last 60 m before TREE_FAR) the far forms shrink to nothing, from their foot: no dots, no jump
+const FAR_SHRINK = `( 1.0 - smoothstep( ${TREE_FAR - 60}.0, ${TREE_FAR}.0, distance( ( modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xz, cameraPosition.xz ) ) )`;
+// a copy of a material whose instances fade in or out with their distance (its own changes kept, e.g. the crowns');
+// nd: the distance where a model has become its far form
+function fading(src, far, key, nd = NEAR) {
+  const m = src.clone();
+  if (src.userData.crown) crownShading(m);
+  const base = m.onBeforeCompile;
+  m.onBeforeCompile = (sh, r) => {
+    base.call(m, sh, r);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vTreeD;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>" + (far ? `\n\ttransformed *= ${FAR_SHRINK};` : ""))
+      .replace("#include <project_vertex>", "#include <project_vertex>\n\tvTreeD = distance( ( modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xz, cameraPosition.xz );");
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\n" + FADE_F)
+      .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n\t" + (far ? FAR_CUT(`${nd}.0`) : NEAR_CUT(nd)));
+  };
+  m.customProgramCacheKey = () => `${key}-${far ? "far" : "near"}-${nd}`;
+  return m;
+}
+
+// ---- the far kit trees (impostors). At the start each model is drawn from VIEWS sides around it (from the height of
+// its foot) into two atlases, a row per model and a cell per side: its colours (unlit) and the directions its leaves
+// and bark face (the model's own normals, nature.js crownNormals: in the tree's frame). Far away a tree is one upright
+// quad turned to the camera, with the pictures of the side the camera is on (blended with the next one as the camera
+// goes round), lit by the sun and the sky through those normals: exactly like its model, which dissolves into it.
+// Returns { mesh, at: { id: [row v, quad width, quad height] } }, or null without a renderer.
+const VIEWS = 8, CW = 80, CH = 160;
+const NORMAL_MAT = (map) => new THREE.ShaderMaterial({
+  uniforms: { map: { value: map } }, side: THREE.DoubleSide,
+  vertexShader: "varying vec3 vN; varying vec2 vUv; void main() { vN = normal; vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }",
+  fragmentShader: "uniform sampler2D map; varying vec3 vN; varying vec2 vUv; void main() { if ( texture2D( map, vUv ).a < 0.5 ) discard; gl_FragColor = vec4( normalize( vN ) * 0.5 + 0.5, 1.0 ); }",
+});
 function makeImpostors(renderer, ids, max) {
   if (!renderer) return null;
-  const CW = 128, CH = 256, cols = 3, rows = Math.ceil(ids.length / cols);
-  const rt = new THREE.WebGLRenderTarget(CW * cols, CH * rows, { colorSpace: THREE.SRGBColorSpace, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter });
-  const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, 0.1, 100), stage = new THREE.Scene(), cells = {}, used = [];
+  const rows = ids.length, W = VIEWS * CW, H = rows * CH;
+  const opts = { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
+  const rt = new THREE.WebGLRenderTarget(W, H, { ...opts, colorSpace: THREE.SRGBColorSpace }), rtN = new THREE.WebGLRenderTarget(W, H, opts);
+  const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, 0.1, 200), stage = new THREE.Scene(), stageN = new THREE.Scene(), at = {}, used = [];
   const keep = { target: renderer.getRenderTarget(), auto: renderer.autoClear, color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha() };
-  renderer.setRenderTarget(rt); renderer.setClearColor("#3a4a2c", 0); renderer.clear(); renderer.autoClear = false;   // (a leafy colour under the alpha: no dark rims in the mipmaps)
-  ids.forEach((id, i) => {
-    const parts = libParts(id), box = new THREE.Box3();
-    parts.forEach((p) => { p.geometry.computeBoundingBox(); box.union(p.geometry.boundingBox); });
-    const hw = Math.max(-box.min.x, box.max.x) * 1.02, h = box.max.y * 1.02;        // seen from the front, centred on the trunk
+  // (under the alpha: a leafy colour and an upward normal, so the mipmaps get no dark or odd rims)
+  renderer.setRenderTarget(rt); renderer.setClearColor("#3a4a2c", 0); renderer.clear();
+  renderer.setRenderTarget(rtN); renderer.setClearColor(new THREE.Color(0.5, 1, 0.5), 0); renderer.clear();
+  renderer.autoClear = false;
+  ids.forEach((id, row) => {
+    const parts = libParts(id);
+    let r = 0, h = 0;
+    parts.forEach((p) => {
+      const P = p.geometry.attributes.position;
+      for (let i = 0; i < P.count; i++) { r = Math.max(r, Math.hypot(P.getX(i), P.getZ(i))); h = Math.max(h, P.getY(i)); }
+    });
+    const hw = r * 1.04; h *= 1.02;                                       // (the quad: centred on the trunk, wide enough for every side)
+    stage.clear(); stageN.clear();
+    parts.forEach((p) => {
+      const mc = new THREE.MeshBasicMaterial({ map: p.material.map, alphaTest: 0.5, side: THREE.DoubleSide }), mn = NORMAL_MAT(p.material.map);
+      used.push(mc, mn); stage.add(new THREE.Mesh(p.geometry, mc)); stageN.add(new THREE.Mesh(p.geometry, mn));
+    });
     Object.assign(cam, { left: -hw, right: hw, top: h, bottom: 0 }); cam.updateProjectionMatrix();
-    cam.position.set(0, 0, box.max.z + 10); cam.lookAt(0, 0, 0);
-    stage.clear();
-    parts.forEach((p) => { const m = new THREE.MeshBasicMaterial({ map: p.material.map, alphaTest: 0.5, side: THREE.DoubleSide }); used.push(m); stage.add(new THREE.Mesh(p.geometry, m)); });
-    const x = (i % cols) * CW, y = Math.floor(i / cols) * CH;
-    rt.viewport.set(x, y, CW, CH); rt.scissor.set(x, y, CW, CH); rt.scissorTest = true;
-    renderer.setRenderTarget(rt); renderer.render(stage, cam);
-    cells[id] = [x / rt.width, y / rt.height, CW / rt.width, CH / rt.height, hw, h];
+    for (let v = 0; v < VIEWS; v++) {
+      const a = (v / VIEWS) * Math.PI * 2;
+      cam.position.set(Math.sin(a) * (hw + 50), 0, Math.cos(a) * (hw + 50)); cam.lookAt(0, 0, 0);
+      const x = v * CW, y = row * CH;
+      for (const [target, sc] of [[rt, stage], [rtN, stageN]]) {
+        target.viewport.set(x, y, CW, CH); target.scissor.set(x, y, CW, CH); target.scissorTest = true;
+        renderer.setRenderTarget(target); renderer.render(sc, cam);
+      }
+    }
+    at[id] = [(row * CH) / H, hw * 2, h];
   });
-  rt.viewport.set(0, 0, rt.width, rt.height); rt.scissorTest = false;
-  stage.clear(); used.forEach((m) => m.dispose());
+  [rt, rtN].forEach((t) => { t.viewport.set(0, 0, W, H); t.scissorTest = false; });
+  stage.clear(); stageN.clear(); used.forEach((m) => m.dispose());
   renderer.setRenderTarget(keep.target); renderer.autoClear = keep.auto; renderer.setClearColor(keep.color, keep.alpha);
-  // three planes 1 wide (x from -0.5 to 0.5) and 1 tall, crossing on the trunk 60 degrees apart
-  const geo = mergeGeometries([0, 1, 2].map((k) => new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0).rotateY((k * Math.PI) / 3)));
-  const P = geo.attributes.position, N = geo.attributes.normal, n = new THREE.Vector3();
-  for (let i = 0; i < P.count; i++) { n.set(P.getX(i) * 2, 0.2 + P.getY(i) * 0.6, P.getZ(i) * 2).normalize(); N.setXYZ(i, n.x, n.y, n.z); }
-  geo.setAttribute("aCell", new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4));
+  const geo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+  geo.setAttribute("aImp", new THREE.InstancedBufferAttribute(new Float32Array(max), 1));
   const mat = new THREE.MeshLambertMaterial({ map: rt.texture, alphaTest: 0.5, side: THREE.DoubleSide });
-  crownShading(mat);
-  const base = mat.onBeforeCompile;
   mat.onBeforeCompile = (sh) => {
-    base(sh);
-    sh.vertexShader = "attribute vec4 aCell;\n" + sh.vertexShader.replace("#include <uv_vertex>", "#include <uv_vertex>\n\tvMapUv = aCell.xy + vMapUv * aCell.zw;");
+    sh.uniforms.impN = { value: rtN.texture };
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", `#include <common>
+attribute float aImp;
+varying vec2 vQuv; varying float vRow, vView, vYaw, vTreeD, vNearD;`).replace("#include <project_vertex>", `
+	vNearD = length( instanceMatrix[ 2 ].xyz );                                                    // (where it takes over from the model)
+	vec3 iC = ( modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
+	vec2 toC = cameraPosition.xz - iC.xz; vTreeD = length( toC ); toC /= max( vTreeD, 0.001 );
+	float iS = 1.0 - smoothstep( ${TREE_FAR - 60}.0, ${TREE_FAR}.0, vTreeD );                         // (far away: shrinking to nothing)
+	float iW = length( instanceMatrix[ 0 ].xyz ) * iS, iH = length( instanceMatrix[ 1 ].xyz ) * iS;
+	vec3 bR = vec3( toC.y, 0.0, - toC.x );
+	vec4 mvPosition = viewMatrix * vec4( iC + bR * ( position.x * iW ) + vec3( 0.0, position.y * iH, 0.0 ), 1.0 );
+	gl_Position = projectionMatrix * mvPosition;
+	vYaw = atan( - instanceMatrix[ 0 ].z, instanceMatrix[ 0 ].x );                                   // (the tree's own turn)
+	vView = mod( ( atan( toC.x, toC.y ) - vYaw ) * ${(VIEWS / (Math.PI * 2)).toFixed(6)}, ${VIEWS}.0 );   // (the side the camera is on)
+	vQuv = vec2( position.x + 0.5, position.y ); vRow = aImp;`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
+${FADE_F}
+uniform sampler2D impN;
+varying vec2 vQuv; varying float vRow, vView, vYaw, vNearD;`)
+      .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n\t" + FAR_CUT("vNearD"))
+      .replace("#include <map_fragment>", `
+	float iv0 = floor( vView ), ivt = vView - iv0, iv1 = mod( iv0 + 1.0, ${VIEWS}.0 );
+	vec2 iCell = vec2( vQuv.x / ${VIEWS}.0, vQuv.y / ${rows}.0 ), iUv0 = vec2( iv0 / ${VIEWS}.0, vRow ) + iCell, iUv1 = vec2( iv1 / ${VIEWS}.0, vRow ) + iCell;
+	vec4 sampledDiffuseColor = mix( texture2D( map, iUv0 ), texture2D( map, iUv1 ), ivt );
+	diffuseColor *= sampledDiffuseColor;`)
+      .replace("#include <alphatest_fragment>", `
+	{ vec2 t = iCell * vec2( textureSize( map, 0 ) ), dx = dFdx( t ), dy = dFdy( t );   // (far away the leaves do not thin out)
+	  diffuseColor.a *= 1.0 + max( 0.0, 0.5 * log2( max( dot( dx, dx ), dot( dy, dy ) ) ) ) * 0.28; }
+	if ( diffuseColor.a < alphaTest ) discard;`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+	{ vec3 nm = normalize( mix( texture2D( impN, iUv0 ).xyz, texture2D( impN, iUv1 ).xyz, ivt ) * 2.0 - 1.0 );   // (in the tree's frame)
+	  float cy = cos( vYaw ), sy = sin( vYaw );
+	  normal = normalize( ( viewMatrix * vec4( cy * nm.x + sy * nm.z, nm.y, - sy * nm.x + cy * nm.z, 0.0 ) ).xyz ); }`);
   };
-  mat.customProgramCacheKey = () => "crown-far";
-  const mesh = new THREE.InstancedMesh(geo, mat, max);
-  return { mesh, cells };
+  mat.customProgramCacheKey = () => "tree-impostor";
+  return { mesh: new THREE.InstancedMesh(geo, mat, max), at };
 }
 
 /** The trees of the open country; update(camera position, fog's far) every frame. renderer: for the far trees' pictures. */
@@ -126,10 +205,14 @@ export function createVegetation(scene, renderer) {
   const ok = MODELS.every((id) => libParts(id)), okU = UNDER.filter((id) => libParts(id));
   // near: one instanced mesh for each part of each model
   const near = [];
-  if (ok) for (const shade of [true, false]) MODELS.forEach((id) => libParts(id).forEach((pt) => {
-    const m = new THREE.InstancedMesh(pt.geometry, pt.material, shade ? 300 : 600);
+  const nearMats = new Map();                                              // (one fading copy of each material and hand-over)
+  const nearMat = (src, nd) => { const key = `${src.uuid}|${nd}`; if (!nearMats.has(key)) nearMats.set(key, fading(src, false, src.userData.crown ? "crown" : "tree", nd)); return nearMats.get(key); };
+  // grown trees with and without shadows, young ones (no shadows: they stand under the others)
+  if (ok) for (const [shade, young] of [[true, false], [false, false], [false, true]]) MODELS.forEach((id) => libParts(id).forEach((pt) => {
+    if (young && !BROAD.includes(id)) return;                               // (only the kit's trees have young ones)
+    const m = new THREE.InstancedMesh(pt.geometry, nearMat(pt.material, young ? NEAR_Y : NEAR), shade ? 300 : young ? 500 : 900);
     m.count = 0; m.frustumCulled = false; m.castShadow = shade; m.receiveShadow = !pt.material.userData.crown;   // (crowns: nature.js)
-    group.add(m); near.push({ id, m, s: natureScale(id), shade });
+    group.add(m); near.push({ id, m, s: natureScale(id), shade, young });
   }));
   // the undergrowth near the player (no shadows of its own: it is under the trees' already)
   const low = [];
@@ -148,14 +231,15 @@ export function createVegetation(scene, renderer) {
     m.count = 0; m.frustumCulled = false; m.receiveShadow = true;
     group.add(m); low.push({ id, m, s: natureScale(id) });
   }));
-  const farMat = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
-  const imp = ok ? makeImpostors(renderer, BROAD, 4000) : null;            // (the kit's trees far away: their pictures)
+  const farMat0 = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), farMat = ok ? fading(farMat0, true, "simple") : farMat0;   // (no models: far forms everywhere; pines and dead trees are never young)
+  const imp = ok ? makeImpostors(renderer, BROAD, 9000) : null;            // (the kit's trees far away: their pictures)
   const far = [0, 1, 2].map((kind) => {
-    const m = kind === 1 && imp ? imp.mesh : new THREE.InstancedMesh(farGeometry(kind), farMat, 4000);
+    const m = kind === 1 && imp ? imp.mesh : new THREE.InstancedMesh(farGeometry(kind), farMat, 9000);
     m.count = 0; m.frustumCulled = false; m.receiveShadow = !(kind === 1 && imp);
     group.add(m); return m;
   });
-  const aCell = imp?.mesh.geometry.attributes.aCell;
+  const aImp = imp?.mesh.geometry.attributes.aImp;
+  const fixed = [];                                                         // the old map's trees (addFixed)
   // (the far ones made as tall as the models they stand for)
   const FAR_K = { pino_1: 1.0, pino_2: 1.1, pino_3: 0.95, albero_a1: 1.05, albero_b1: 1.05, albero_c1: 1.25, albero_a2: 1.05, albero_b2: 1.1, albero_c2: 1.2, morto: 1.05 };
   const tileOf = (ti, tj) => {
@@ -170,8 +254,34 @@ export function createVegetation(scene, renderer) {
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), tint = new THREE.Color();
   let lx = Infinity, lz = Infinity, lfar = 0, pending = false;
   const counts = { near: 0, far: 0, under: 0 };
+  // one tree: its model near, its far form far, both in the band between (the shaders share the pixels out)
+  const place = (t, d) => {
+    q.setFromAxisAngle(UP, t.ry);
+    const young = t.k < 0.8 && BROAD.includes(t.id), nd = young ? NEAR_Y : NEAR;
+    if (d < nd + REBUILD + 1 && ok) {
+      const shade = d < SHADE && !young && t.k >= 0.8;
+      for (const n of near) {
+        if (n.id !== t.id || n.shade !== shade || n.young !== young || n.m.count >= n.m.instanceMatrix.count) continue;
+        const k = n.s * t.k;
+        n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(k, k, k)));
+      }
+    }
+    if (d > nd - BAND - REBUILD - 1 || !ok) {
+      const m = far[KIND(t.id)], c = imp?.at[t.id];
+      if (m.count >= m.instanceMatrix.count) return;
+      if (c) {                                                            // its pictures: as big as the model
+        const ks = t.k * natureScale(t.id);
+        aImp.setX(m.count, c[0]);
+        m.setColorAt(m.count, tint.setScalar(1));
+        m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[1] * ks, c[2] * ks, nd)));   // (z: its hand-over distance)
+      } else {
+        const k = t.k * (FAR_K[t.id] || 1);
+        m.setColorAt(m.count, tint.setScalar(0.82 + (t.ry % 1) * 0.3)); m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.1, t.z), q, sc.set(k, k, k)));
+      }
+    }
+  };
   function rebuild(px, pz, fogFar) {
-    const R = fogFar + 8, a0 = Math.max(0, Math.floor((px + MAP.ox - R) / TILE)), a1 = Math.min(TX - 1, Math.floor((px + MAP.ox + R) / TILE));
+    const R = Math.min(fogFar, TREE_FAR) + 8, a0 = Math.max(0, Math.floor((px + MAP.ox - R) / TILE)), a1 = Math.min(TX - 1, Math.floor((px + MAP.ox + R) / TILE));
     const b0 = Math.max(0, Math.floor((pz + MAP.oz - R) / TILE)), b1 = Math.min(TZ - 1, Math.floor((pz + MAP.oz + R) / TILE));
     let made = 0;
     pending = false;
@@ -190,32 +300,12 @@ export function createVegetation(scene, renderer) {
           n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.05, t.z), q, sc.set(k, k, k)));
         }
       }
-      for (const t of tile.trees) {
-        const d = Math.hypot(t.x - px, t.z - pz);
-        if (d > R) continue;
-        q.setFromAxisAngle(UP, t.ry);
-        if (d < (t.k < 0.8 ? 30 : NEAR) && ok) {
-          const shade = d < SHADE && t.k >= 0.8;
-          for (const n of near) {
-            if (n.id !== t.id || n.shade !== shade || n.m.count >= n.m.instanceMatrix.count) continue;
-            const k = n.s * t.k;
-            n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(k, k, k)));
-          }
-        } else {
-          const m = far[KIND(t.id)], k = t.k * (FAR_K[t.id] || 1), c = imp?.cells[t.id];
-          if (m.count >= m.instanceMatrix.count) continue;
-          if (c) {                                                          // an impostor: its picture, as big as the model
-            const ks = t.k * natureScale(t.id);
-            aCell.setXYZW(m.count, c[0], c[1], c[2], c[3]);
-            m.setColorAt(m.count, tint.setScalar(0.92 + (t.ry % 1) * 0.16));
-            m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[4] * 2 * ks, c[5] * ks, c[4] * 2 * ks)));
-          } else { m.setColorAt(m.count, tint.setScalar(0.82 + (t.ry % 1) * 0.3)); m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.1, t.z), q, sc.set(k, k, k))); }
-        }
-      }
+      for (const t of tile.trees) { const d = Math.hypot(t.x - px, t.z - pz); if (d <= R) place(t, d); }
     }
+    for (const t of fixed) { const d = Math.hypot(t.x - px, t.z - pz); if (d <= R) place(t, d); }
     near.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; }); low.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; });
     far.forEach((m) => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
-    if (aCell) aCell.needsUpdate = true;
+    if (aImp) aImp.needsUpdate = true;
     counts.near = near.reduce((s, n) => s + n.m.count, 0); counts.far = far.reduce((s, m) => s + m.count, 0); counts.under = low.reduce((s, n) => s + n.m.count, 0);
     for (const [key] of tiles) {                                            // (far behind: forgotten)
       const ti = key % TX, tj = Math.floor(key / TX), cx = (ti + 0.5) * TILE - MAP.ox, cz = (tj + 0.5) * TILE - MAP.oz;
@@ -227,6 +317,11 @@ export function createVegetation(scene, renderer) {
   }
   return {
     group, counts,
+    /** (tests) The trees of the tiles already made and the fixed ones within r of a point. */
+    treesNear(x, z, r) { const out = []; tiles.forEach((t) => t.trees.forEach((tr) => { if (Math.hypot(tr.x - x, tr.z - z) < r) out.push(tr); })); fixed.forEach((tr) => { if (Math.hypot(tr.x - x, tr.z - z) < r) out.push(tr); }); return out; },
+    /** Trees placed by the old map (world coordinates, { x, y, z, id, ry, k }): drawn like these (their collisions are
+     *  the engine's obstacles). Ids among MODELS. */
+    addFixed(list) { fixed.push(...list.filter((t) => MODELS.includes(t.id))); lx = Infinity; },
     /** Moves the near and far trees with the camera (every few metres). */
     update(p, fogFar, force = false) {
       if (force || pending || Math.hypot(p.x - lx, p.z - lz) > REBUILD || Math.abs(fogFar - lfar) > 12) { lx = p.x; lz = p.z; lfar = fogFar; rebuild(p.x, p.z, fogFar); }

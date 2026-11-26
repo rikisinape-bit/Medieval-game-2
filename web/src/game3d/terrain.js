@@ -27,6 +27,10 @@ const STEP = 2, TILE = 32;                       // a vertex every 2 m, 32 cells
 const GW = MAP.w / STEP + 1, GH = MAP.h / STEP + 1;   // vertices of the whole map
 const TX = MAP.w / STEP / TILE, TZ = MAP.h / STEP / TILE;
 const LOAD_R = 190, DROP_R = 260;                 // tiles nearer than this are built, farther ones dropped
+// Beyond SPLIT metres from the camera the ground is the far ground: one coarse mesh of the whole map (a vertex every
+// FAR_STEP m, same heights and colours), so hills, mountains and coasts are seen far off. The tiles stop a little after
+// SPLIT (a narrow overlap, no gap), the far ground starts at SPLIT.
+const SPLIT = 170, FAR_STEP = 16;
 
 // ---- the layers (8 bits, read through a canvas)
 let L = null;
@@ -257,6 +261,7 @@ float tNoise( vec2 p ) { vec2 i = floor( p ), f = fract( p ); f = f * f * ( 3.0 
 	return mix( mix( tHash( i ), tHash( i + vec2( 1.0, 0.0 ) ), f.x ), mix( tHash( i + vec2( 0.0, 1.0 ) ), tHash( i + vec2( 1.0, 1.0 ) ), f.x ), f.y ); }
 `;
 const TERRAIN_MAP = `
+	if ( ( distance( tWP.xz, cameraPosition.xz ) < ${SPLIT}.0 ) == T_FAR ) discard;   // (the tiles near, the far ground far)
 	vec2 tUv = tWP.xz / 2.4;                                                        // (the grass photo's own size; as the meadows of engine.js)
 	vec2 tUvB = mat2( 0.8, -0.6, 0.6, 0.8 ) * tWP.xz / 5.52 + vec2( 0.37, 0.61 );
 	vec2 tUvD = tWP.xz / 2.6;
@@ -290,21 +295,43 @@ const TERRAIN_NORMAL = `
 	normal = normalize( ( viewMatrix * vec4( normalize( tT * tMapN.x + tB * tMapN.y + tN * tMapN.z ), 0.0 ) ).xyz );
 #endif
 `;
-let mat = null;
-function terrainMat(renderer) {
-  if (mat) return mat;
+const mats = {};
+function terrainMat(renderer, far = false) {
+  if (mats[far]) return mats[far];
   const L2 = new THREE.TextureLoader(), aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const tex = (src, srgb) => { const t = L2.load(src); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
   const grass = tex(ERBA, true), dirt = tex(TERRA, true), grassN = tex(ERBA_N), dirtN = tex(TERRA_N);
   // (map and normalMap only switch three.js' code for them on: the terrain samples its own textures)
-  mat = new THREE.MeshStandardMaterial({ map: grass, normalMap: grassN, roughness: 1, metalness: 0 });
+  const mat = new THREE.MeshStandardMaterial({ map: grass, normalMap: grassN, roughness: 1, metalness: 0 });
   mat.onBeforeCompile = (sh) => {
     Object.assign(sh.uniforms, { tGrass: { value: grass }, tDirt: { value: dirt }, tGrassN: { value: grassN }, tDirtN: { value: dirtN } });
     sh.vertexShader = TERRAIN_V + "\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tvW = aW; tWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz; tWN = normal;");
-    sh.fragmentShader = TERRAIN_F + sh.fragmentShader.replace("#include <map_fragment>", TERRAIN_MAP).replace("#include <normal_fragment_maps>", TERRAIN_NORMAL);
+    sh.fragmentShader = `#define T_FAR ${far}\n` + TERRAIN_F + sh.fragmentShader.replace("#include <map_fragment>", far ? TERRAIN_MAP : TERRAIN_MAP.replace(`< ${SPLIT}.0`, `< ${SPLIT + 10}.0`)).replace("#include <normal_fragment_maps>", TERRAIN_NORMAL);
   };
-  mat.customProgramCacheKey = () => "terrain-1";
-  return mat;
+  mat.customProgramCacheKey = () => (far ? "terrain-far" : "terrain-1");
+  return (mats[far] = mat);
+}
+
+// ---- the far ground: the whole map, coarse (heights from heightAt, as the tiles' grid; normals and layers likewise)
+function buildFar(material) {
+  const nx = MAP.w / FAR_STEP + 1, nz = MAP.h / FAR_STEP + 1, pos = new Float32Array(nx * nz * 3), w = new Float32Array(nx * nz * 4), hs = new Float32Array(nx * nz);
+  for (let b = 0; b < nz; b++) for (let a = 0; a < nx; a++) {
+    const x = a * FAR_STEP - MAP.ox, z = b * FAR_STEP - MAP.oz, k = b * nx + a, ly = layersAt(x, z);
+    hs[k] = heightAt(x, z); pos.set([x, hs[k], z], k * 3); w.set([ly.dry, ly.snow, ly.ice, ly.forest], k * 4);
+  }
+  const H = (a, b) => hs[Math.min(nz - 1, Math.max(0, b)) * nx + Math.min(nx - 1, Math.max(0, a))], nrm = new Float32Array(nx * nz * 3);
+  for (let b = 0; b < nz; b++) for (let a = 0; a < nx; a++) {
+    const gx = H(a - 1, b) - H(a + 1, b), gz = H(a, b - 1) - H(a, b + 1), gy = 2 * FAR_STEP, l = Math.hypot(gx, gy, gz);
+    nrm.set([gx / l, gy / l, gz / l], (b * nx + a) * 3);
+  }
+  const idx = [];
+  for (let b = 0; b < nz - 1; b++) for (let a = 0; a < nx - 1; a++) { const p = b * nx + a, q = p + nx, r = q + 1, d = p + 1; idx.push(p, q, d, q, r, d); }   // (facing up)
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3)); geo.setAttribute("normal", new THREE.BufferAttribute(nrm, 3));
+  geo.setAttribute("aW", new THREE.BufferAttribute(w, 4)); geo.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(nx * nz * 2), 2));
+  geo.setIndex(idx); geo.computeBoundingSphere();
+  const m = new THREE.Mesh(geo, material); m.matrixAutoUpdate = false;
+  return m;
 }
 
 // ---- the tiles
@@ -385,6 +412,7 @@ export function createTerrain(scene, renderer, opts = {}) {
   roadCells.clear();
   const material = terrainMat(renderer), tiles = new Map(), group = new THREE.Group();
   group.userData.world = true; scene.add(group);
+  const farGround = buildFar(terrainMat(renderer, true)); group.add(farGround);   // (beyond SPLIT: hills, mountains, coasts)
   // the sea: a wide plane following the camera, a little rippled
   const seaMat = new THREE.MeshStandardMaterial({ color: "#2a5a6c", roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.9 });
   seaMat.onBeforeCompile = (sh) => {
@@ -396,7 +424,7 @@ export function createTerrain(scene, renderer, opts = {}) {
 		cos( sP.y * 1.1 + sTime * 0.9 ) * 0.06 + sin( sP.x * 2.3 + sTime * 1.3 + sP.y * 0.6 ) * 0.04 ) );
 	normal = normalize( ( viewMatrix * vec4( sN, 0.0 ) ).xyz );`);
   };
-  const sea = new THREE.Mesh(new THREE.PlaneGeometry(900, 900), seaMat);
+  const sea = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), seaMat);   // (as far as the camera sees)
   sea.rotation.x = -Math.PI / 2; sea.position.y = SEA_Y; sea.renderOrder = 1; sea.userData.world = true;
   scene.add(sea);
   // the roads: a strip of dirt following the ground (a little above it), 3.4 m wide, smoothed between the points
@@ -449,7 +477,7 @@ export function createTerrain(scene, renderer, opts = {}) {
         tiles.forEach((m, key) => {
           const a = key % TX, b = Math.floor(key / TX), cx = (a + 0.5) * TILE * STEP - MAP.ox, cz = (b + 0.5) * TILE * STEP - MAP.oz, d = Math.hypot(cx - p.x, cz - p.z);
           if (d > DROP_R + TILE * STEP * 0.71) { if (m) { group.remove(m); m.geometry.dispose(); } tiles.delete(key); }
-          else if (m) m.visible = d - TILE * STEP * 0.71 < far;
+          else if (m) m.visible = d - TILE * STEP * 0.71 < Math.min(far, SPLIT + 10);   // (beyond the split: the far ground)
         });
       }
     },
