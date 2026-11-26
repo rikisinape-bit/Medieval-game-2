@@ -447,8 +447,15 @@ torre, grotte; poi il serpente marino).
   piazza dentro le mura. Valdoro ora è chiusa tutto intorno (rettangoli per mura laterali, retro, mastio, estremità delle
   mura). Niente più recinto del vecchio mondo; l'acqua profonda (più di ~0,5 m) non si attraversa. Cavalli e cavalieri
   alla quota del terreno (`saddleY + floorY`).
-- Menu: scheda **Mappa** (`GameMenu.jsx` `MapTab`): il disegno della mappa (`mondo/mappa.jpg`, 1152 × 864) con un segno
-  rosso dove sei e una freccia dove guardi (nel castello: alla sua porta). HUD: `map` = pixel della mappa e direzione.
+- Menu: scheda **Mappa** (`GameMenu.jsx` `MapTab`): il disegno della mappa (`mondo/mappa.jpg`, dal 27/11 a piena
+  risoluzione 2048 × 1536, un pixel per metro: `sharp("assets/mappa/vasilad.jpg").resize(2048, 1536).jpeg({ quality: 72,
+  mozjpeg: true })`, 327 KB) con un segno rosso dove sei e una freccia dove guardi (nel castello: alla sua porta). **Dal
+  27/11 si ingrandisce** (fino a 5×: due dita, rotellina, doppio clic, tasti + e −) e si trascina; il tasto col mirino
+  centra su di te; il segno resta della stessa grandezza sullo schermo; l'ingrandimento resta finché la pagina è aperta
+  (`lastMapView`). HUD: `map` = pixel della mappa e direzione.
+- **Schermo intero** (27/11): tasto nella barra in alto (`Village3D.jsx` `toggleFull`: `requestFullscreen` dal tocco, poi
+  il blocco in orizzontale dove il telefono lo permette); dove non si può (Safari su iPhone non ha lo schermo intero per
+  le pagine, o la cornice della pagina lo vieta) un messaggio lo dice.
 - Salvataggi: nuova chiave `vasilad.v1` (quelli del vecchio mondo compatto non si caricano più). Pagina pubblicata: le
   immagini di `mondo/` sono dentro il codice (vite.config.js), come le texture del terreno.
 
@@ -487,6 +494,15 @@ torre, grotte; poi il serpente marino).
   `pushOut`) e la telecamera. Nella grande foresta la luce e la nebbia diventano da bosco (`SELVA`, `wildF`), HUD
   "Grande foresta".
 - Il sole e le sue ombre seguono il giocatore anche in quota (montagne).
+- **Altopiano di Valdoro (27/11, richiesta dell'utente)**: Valdoro è più in alto, posizione più forte se attaccata: il
+  castello e i dintorni stanno a `VALDORO_Y = 12` (`sites.js VALDORO_HIGH`: un poligono in pixel della mappa;
+  `terrain.js plateauAt`): i due crepacci disegnati a sud-ovest (quello grande verso la grande foresta e quello sottile
+  sotto) sono le sue **pareti** (~18–20 m fino alle terre basse), a est il mare (costa a picco), a nord scende in pendio
+  fino al livello di Roccanera (la strada sale con ~10%), a sud fino al fiume e al ponte nord (strada ripida, ~25%). Le
+  colline verdi a nord del castello sono livellate alla stessa quota. La "montagnetta di fianco" al castello (18–23 m) era
+  la scritta "VALDORO" della mappa letta come rilievo: in `world-layers.py` il rettangolo di Valdoro (`NOT_RELIEF`) ora
+  copre tutta la scritta (y fino a 1036) e gli strati sono rigenerati. `SITES.valdoro.y` e il `FLATS` di Valdoro a 12:
+  città, mura, castello, cavalieri, oggetti salgono con lei (prova `gioco.cjs`: piazza e uscita dal castello a 12).
 - **Vista lontana (27/11, richiesta dell'utente: "da lontano si vede solo il cielo")**: nebbia più leggera all'aperto
   (`DAYLOOK`: campagna 45–520 m, Roccanera 40–440, Valdoro 35–400, bosco dei banditi 12–75, grande foresta `SELVA`
   14–90; la notte come prima), telecamera fino a 640 m. Oltre 170 m dalla telecamera il terreno è il **terreno
@@ -503,8 +519,8 @@ torre, grotte; poi il serpente marino).
   quota 0 come il vecchio mondo; le **terre basse** intorno (grande foresta, ovest, oltre il fiume) a `LOW = -8` (in
   media). Il contorno dell'altopiano è un poligono in pixel della mappa: dove la mappa disegna le scarpate (a sud-ovest di
   Roccanera e di Valdoro, `cliff: true`) il bordo è una **parete** di ~8 m larga pochi metri (linea un po' irregolare),
-  altrove un pendio lungo ~70 m. La crepa sottile sotto la scarpata di Valdoro è un gradino di 3,5 m (`STEPS`, lato alto
-  verso il punto `high`). Il bosco dei banditi sta nelle terre basse: i luoghi hanno ora un'**altezza** (`SITES.*.y`,
+  altrove un pendio lungo ~70 m. (La crepa sottile sotto la scarpata di Valdoro era un gradino di 3,5 m, `STEPS`: dal
+  27/11 è una parete dell'altopiano di Valdoro, sotto.) Il bosco dei banditi sta nelle terre basse: i luoghi hanno ora un'**altezza** (`SITES.*.y`,
   `heightOf`; bosco `LOW`), con cui si spostano modelli, pezzi dei pacchetti e foglie; `FLATS` spiana alla quota del luogo.
 - **Acqua**: il mare è più basso (`SEA_Y = -12.5`), le rive scendono presto (0,32 m per metro), il fondo prende il colore
   dell'acqua e l'acqua è più coprente: fiumi e insenature si vedono (prima erano pochi cm d'acqua su sabbia).
@@ -535,8 +551,8 @@ torre, grotte; poi il serpente marino).
 - **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `produzione.cjs`.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
-- **Livelli**: altopiano a 0 (Roccanera, colline, miniera, Valdoro), terre basse a `LOW = -8`, mare a `SEA_Y = -12.5`.
-  Un luogo nuovo nelle terre basse va a quota `LOW` (come il bosco dei banditi).
+- **Livelli**: altopiano a 0 (Roccanera, colline, miniera), **Valdoro sul suo altopiano a `VALDORO_Y = 12`**, terre basse
+  a `LOW = -8`, mare a `SEA_Y = -12.5`. Un luogo nuovo nelle terre basse va a quota `LOW` (come il bosco dei banditi).
 - **Dati della mappa**: `python3 web/tools/world-layers.py [anteprima.png]` rigenera `web/src/game3d/mondo/*.png` dalle due
   mappe in `assets/mappa/` (da rifare se l'utente cambia la mappa; i rettangoli di eccezione sono in pixel della mappa).
 - **Pezzi del kit non ancora usati**: case `house_01`, `house_06`, `house_08`, `house_09`, `house_10`; torri e mura;

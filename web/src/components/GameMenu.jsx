@@ -1,5 +1,5 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
-import { X, Heart, Pause, RotateCw, Gauge, BatteryMedium, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical } from "lucide-react";
+import { X, Heart, Pause, RotateCw, Gauge, BatteryMedium, Sword, Shield, Shirt, Castle, Crown, Home, HardHat, Hand, FlaskConical, Crosshair } from "lucide-react";
 import { ITEMS, SWORD_ITEM, TWO_HANDED, dmgReduction, sellPrice } from "@/game3d/items";
 import CharacterPreview from "@/components/CharacterPreview";
 import ItemPic from "@/components/ItemPic";
@@ -228,17 +228,59 @@ function ReputationTab({ hud }) {
 }
 
 // ---- Map tab: the map of Vasilad (the user's drawing), with where the player is and which way it faces ----------
+// The map can be zoomed (two fingers, the mouse wheel, + and -) and dragged; the red mark (where you are, the arrow
+// where you look) keeps its size on the screen whatever the zoom. The view is kept while the game runs.
+const MAX_ZOOM = 5;
+let lastMapView = { z: 1, cx: MAP.w / 2, cy: MAP.h / 2 };
 function MapTab({ hud }) {
   const [px, py, yaw] = hud.map || [MAP.ox, MAP.oz, 0];
+  const [view, setViewState] = useState(lastMapView);
+  const svgRef = useRef(null), ptrs = useRef(new Map()), gest = useRef(null), viewRef = useRef(view);
+  const setView = (v) => {                                     // (kept inside the map)
+    const z = Math.min(MAX_ZOOM, Math.max(1, v.z)), hw = MAP.w / 2 / z, hh = MAP.h / 2 / z;
+    const nv = { z, cx: Math.min(MAP.w - hw, Math.max(hw, v.cx)), cy: Math.min(MAP.h - hh, Math.max(hh, v.cy)) };
+    viewRef.current = lastMapView = nv; setViewState(nv);
+  };
+  // the svg's box and the map's pixels per map unit at zoom 1 (the map fits it whole, centred)
+  const box = () => { const r = svgRef.current.getBoundingClientRect(); return { r, s1: Math.min(r.width / MAP.w, r.height / MAP.h) }; };
+  const mapAt = (v, sx, sy) => { const { r, s1 } = box(); return [v.cx + (sx - r.left - r.width / 2) / (s1 * v.z), v.cy + (sy - r.top - r.height / 2) / (s1 * v.z)]; };
+  // the view at zoom z that shows map point m under the screen point (sx, sy)
+  const viewWith = (z, [mx, my], sx, sy) => { const { r, s1 } = box(); z = Math.min(MAX_ZOOM, Math.max(1, z)); return { z, cx: mx + (r.left + r.width / 2 - sx) / (s1 * z), cy: my + (r.top + r.height / 2 - sy) / (s1 * z) }; };
+  const startGesture = () => {
+    const v = viewRef.current, p = [...ptrs.current.values()];
+    if (p.length >= 2) { const mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2; gest.current = { z0: v.z, d0: Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) || 1, m: mapAt(v, mx, my) }; }
+    else if (p.length === 1) gest.current = { z0: v.z, m: mapAt(v, p[0].x, p[0].y) };
+    else gest.current = null;
+  };
+  const down = (e) => { try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* (synthetic) */ } ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY }); startGesture(); };
+  const move = (e) => {
+    if (!ptrs.current.has(e.pointerId) || !gest.current) return;
+    ptrs.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...ptrs.current.values()], g = gest.current;
+    if (p.length >= 2 && g.d0) { const mx = (p[0].x + p[1].x) / 2, my = (p[0].y + p[1].y) / 2; setView(viewWith(g.z0 * (Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) / g.d0), g.m, mx, my)); }
+    else if (p.length === 1) setView(viewWith(g.z0, g.m, p[0].x, p[0].y));
+  };
+  const up = (e) => { ptrs.current.delete(e.pointerId); startGesture(); };
+  const wheel = (e) => { const v = viewRef.current; setView(viewWith(v.z * Math.exp(-e.deltaY * 0.0015), mapAt(v, e.clientX, e.clientY), e.clientX, e.clientY)); };
+  const zoomBy = (f) => { const v = viewRef.current; setView({ ...v, z: v.z * f }); };
+  const centre = () => { const v = viewRef.current; setView({ z: v.z < 2 ? 2.5 : v.z, cx: px, cy: py }); };
+  const { z, cx, cy } = view, vw = MAP.w / z, vh = MAP.h / z;
   return (
-    <div className="h-full min-h-0 flex items-center justify-center rounded-sm border border-[#3a2a17] bg-black/30" data-testid="map-tab">
-      <svg viewBox={`0 0 ${MAP.w} ${MAP.h}`} preserveAspectRatio="xMidYMid meet" className="h-full w-full" role="img" aria-label="Mappa di Vasilad">
+    <div className="relative h-full min-h-0 flex items-center justify-center rounded-sm border border-[#3a2a17] bg-black/30 overflow-hidden" data-testid="map-tab">
+      <svg ref={svgRef} viewBox={`${(cx - vw / 2).toFixed(1)} ${(cy - vh / 2).toFixed(1)} ${vw.toFixed(1)} ${vh.toFixed(1)}`} preserveAspectRatio="xMidYMid meet"
+        className="h-full w-full cursor-grab select-none" style={{ touchAction: "none" }} role="img" aria-label="Mappa di Vasilad"
+        onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onWheel={wheel} onDoubleClick={(e) => { const v = viewRef.current; setView(viewWith(v.z * 2, mapAt(v, e.clientX, e.clientY), e.clientX, e.clientY)); }}>
         <image href={MAPPA} x="0" y="0" width={MAP.w} height={MAP.h} />
-        <g transform={`translate(${px.toFixed(1)} ${py.toFixed(1)}) rotate(${(180 - (yaw * 180) / Math.PI).toFixed(1)})`} data-testid="map-me">
+        <g transform={`translate(${px.toFixed(1)} ${py.toFixed(1)}) scale(${(1 / z).toFixed(4)}) rotate(${(180 - (yaw * 180) / Math.PI).toFixed(1)})`} data-testid="map-me">
           <circle r="42" fill="#b3261e" stroke="#fff3d0" strokeWidth="10" />
           <path d="M0 -76 L24 -32 L-24 -32 Z" fill="#fff3d0" stroke="#3a1a12" strokeWidth="4" />
         </g>
       </svg>
+      <div className="absolute right-1.5 bottom-1.5 flex flex-col gap-1.5" data-ui="">
+        <button type="button" data-ui="" className="inv-btn inv-btn-lg !px-0 w-10 h-10 text-[22px] leading-none" onClick={() => zoomBy(1.6)} aria-label="Ingrandisci" data-testid="map-zoom-in">+</button>
+        <button type="button" data-ui="" className="inv-btn inv-btn-lg !px-0 w-10 h-10 text-[22px] leading-none" onClick={() => zoomBy(1 / 1.6)} aria-label="Rimpicciolisci" data-testid="map-zoom-out">−</button>
+        <button type="button" data-ui="" className="inv-btn inv-btn-lg !px-0 w-10 h-10 flex items-center justify-center" onClick={centre} aria-label="Centra su di me" data-testid="map-centre"><Crosshair size={20} /></button>
+      </div>
     </div>
   );
 }

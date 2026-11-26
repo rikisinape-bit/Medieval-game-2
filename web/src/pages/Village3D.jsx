@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear, FlaskConical } from "lucide-react";
+import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints, Ear, FlaskConical, Maximize, Minimize } from "lucide-react";
 import { createGame, POWER_FPS } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
 import { loadTerrain } from "@/game3d/terrain";
@@ -74,7 +74,31 @@ function FpsMeter({ getStats, cap }) {
   return <div className={`fixed top-8 left-2 z-20 px-1.5 rounded-sm bg-black/60 font-pixel text-[13px] pointer-events-none ${c}`} data-testid="hud3d-fps">{v.fps} FPS · max {v.worst} ms</div>;
 }
 
-function TopBar({ hud, onMenu, onCamera }) {
+// Full screen (the phone's browser bars hidden, landscape where the phone allows it to be locked). Asked from a tap;
+// where the browser does not allow it (iPhone's Safari, or the page's frame) `refused` is called.
+const fullEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+function toggleFull(refused) {
+  try {
+    if (fullEl()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    const el = document.documentElement, ask = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (!ask) { refused(); return; }
+    Promise.resolve(ask.call(el, { navigationUI: "hide" }))
+      .then(() => screen.orientation?.lock?.("landscape")).catch(() => {})
+      .finally(() => setTimeout(() => { if (!fullEl()) refused(); }, 700));
+  } catch { refused(); }
+}
+function useFull() {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(!!fullEl());
+    document.addEventListener("fullscreenchange", on); document.addEventListener("webkitfullscreenchange", on);
+    return () => { document.removeEventListener("fullscreenchange", on); document.removeEventListener("webkitfullscreenchange", on); };
+  }, []);
+  return full;
+}
+
+function TopBar({ hud, onMenu, onCamera, onFull }) {
+  const full = useFull();
   if (!hud) return null;
   const crown = hud.places?.find((p) => p.face);
   return (
@@ -95,6 +119,7 @@ function TopBar({ hud, onMenu, onCamera }) {
       {hud.heard && <span title="Ti hanno sentito"><Ear size={14} className="text-amber-300 animate-pulse" data-testid="hud3d-heard" /></span>}
       <span className="flex items-center gap-1 text-[11px] text-[#cfc2a8]/80" data-testid="hud3d-clock">{hud.night ? <Moon size={11} /> : <Sun size={11} />}{clockOf(hud.dayT)} · {hud.mounted ? "A cavallo" : ZONE[hud.zone] || "Roccanera"}</span>
       <span className="ml-auto flex gap-1 pointer-events-auto" data-ui="">
+        <button onClick={onFull} className="h-6 px-1.5 rounded-sm bg-black/50 border border-[#4a3820] flex items-center" data-testid="village3d-full-btn" aria-label={full ? "Esci dallo schermo intero" : "Schermo intero"}>{full ? <Minimize size={13} /> : <Maximize size={13} />}</button>
         <button onClick={onCamera} className="h-6 px-1.5 rounded-sm bg-black/50 border border-[#4a3820] flex items-center gap-1 text-[11px]" data-testid="village3d-camera-btn" aria-label="Cambia telecamera"><Camera size={13} />{hud.view === "third" ? "3ª" : "1ª"}</button>
         <button onClick={onMenu} className="h-6 px-2 rounded-sm bg-black/50 border border-[#c9a24a]/70 text-[#e8c050] flex items-center gap-1 text-[12px]" data-testid="village3d-menu-btn"><MenuIcon size={14} />Menu</button>
       </span>
@@ -194,7 +219,8 @@ export default function Village3D() {
     <div className="fixed inset-0 overflow-hidden bg-black" data-testid="village3d-root">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
       {!hud && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">Caricamento…</div>}
-      <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")} />
+      <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")}
+        onFull={() => toggleFull(() => { const t = "Lo schermo intero non è permesso qui (Safari su iPhone non lo consente): tieni il telefono in orizzontale."; setToast({ id: `${Date.now()}`, t }); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(null), 6000); })} />
       {!dialog && <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />}
       {hud?.foe && (
         <div className="fixed top-9 left-1/2 -translate-x-1/2 z-20 w-44 md:w-64 parchment rounded-md px-3 py-1.5" data-testid="foe-bar">
