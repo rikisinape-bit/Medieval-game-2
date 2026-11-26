@@ -9,6 +9,7 @@
     "preview": "vite preview --host",
     "build:artifact": "VITE_MODEL_EXT=js vite build && node tools/glb-to-js.mjs dist/models",
     "nature": "node tools/optimize-nature.mjs",
+    "terreno": "node tools/build-ground.mjs",
     "kit": "node tools/convert-kit.mjs && node tools/build-kit.mjs",
     "corpi": "node tools/convert-bodies.mjs && node tools/build-bodies.mjs"
   },

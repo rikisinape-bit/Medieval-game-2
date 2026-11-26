@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Heart, Coins, Sword, Wind, MessageSquare, Sun, Moon, EyeOff, Eye, Camera, Menu as MenuIcon, Shield, Hand, Footprints } from "lucide-react";
 import { createGame } from "@/game3d/engine";
 import { loadNature } from "@/game3d/nature";
+import { loadGround } from "@/game3d/ground";
 import { Joystick } from "@/components/TouchControls";
 import InteractionDialog from "@/components/InteractionDialog";
 import LootPanel from "@/components/LootPanel";
@@ -83,7 +84,7 @@ export default function Village3D() {
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
     (async () => {
       const saved = loadSave();
-      await loadNature(); // trees, bushes, rocks... (falls back to procedural trees if it fails)
+      await Promise.all([loadNature(), loadGround()]); // trees, bushes, rocks... and the grass of the ground (each has a fallback)
       if (!alive || !canvasRef.current) return;
       game = createGame(canvasRef.current, {
         onHud: setHud,

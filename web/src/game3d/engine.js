@@ -12,6 +12,7 @@ import { repSummary } from "./reputation";
 import { SHIELD_KIND } from "./weapons";
 import { hasNature, hasKit, addNature, kitObject, kitMaterial, kitHouseTop, kitSize } from "./nature";
 import { makeMountain, mountainHeight } from "./mountain";
+import { makeGround } from "./ground";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const DAY_LEN = 600; // seconds per full day
@@ -47,8 +48,7 @@ export function createGame(canvas, hooks, saved) {
     treeSpots.push({ pine: !!pine, x, z, ry }); if (r) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
-  const ground = new THREE.Mesh(new THREE.CircleGeometry(80, 48), new THREE.MeshStandardMaterial({ color: "#5a7a3a", roughness: 1 }));
-  ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+  scene.add(makeGround());                                     // grass everywhere, darker forest floor (ground.js)
   const square = new THREE.Mesh(new THREE.CircleGeometry(11, 30), new THREE.MeshStandardMaterial({ color: "#9a8a66", roughness: 1 }));
   square.rotation.x = -Math.PI / 2; square.position.y = 0.01; square.receiveShadow = true; scene.add(square);
   [[0, -14, 3, 18], [8, 10, 3, 14], [0, -27, 4, 8], [-22, 0, 16, 3]].forEach(([x, z, w, d]) => put(box(w, 0.02, d, "#8a7a56"), x, z));
@@ -106,8 +106,7 @@ export function createGame(canvas, hooks, saved) {
   put(makeSignpost(), -27, -2.4, Math.PI / 2);
   const lanterns = LANTERNS.map(([x, z]) => put(makeLantern(), x, z, 0, 0.3));
 
-  // Forest: wide area with a winding path, random trees, bandit hideouts behind trees
-  put(box(66, 0.1, 76, "#3e5a2a"), 0, FZ - 33);
+  // Forest: wide area with a winding path, random trees, bandit hideouts behind trees (its darker floor: ground.js)
   PATH.slice(1).forEach((p, i) => {
     const a = PATH[i], dx = p[0] - a[0], dz = p[1] - a[1], L = Math.hypot(dx, dz);
     put(box(7, 0.12, L + 3, "#7a6a4a"), (a[0] + p[0]) / 2, (a[1] + p[1]) / 2, Math.atan2(dx, dz));
@@ -186,13 +185,15 @@ export function createGame(canvas, hooks, saved) {
   if (import.meta.env.DEV) window.__ri = renderer.info.render;   // dev only: triangles / draw calls of the last frame
   // ---- Vegetation ----
   if (hasNature()) {
-    // Tree models from the nature pack, instanced. Same positions and collisions as before.
+    // Tree models (Shapespark kit), instanced. Same positions and collisions as before.
     let ns = 12345; const nr = () => { ns = (ns * 16807) % 2147483647; return (ns - 1) / 2147483646; };   // own RNG: the tree layout RNG is untouched
     const items = [];
     const inForest = (x, z) => z < -31 && z > WZ && Math.abs(x) < 30;
     treeSpots.forEach((t, i) => {
       const dead = inForest(t.x, t.z) && i % 19 === 7;                              // a few dead trees in the forest
-      const id = dead ? "morto" : `${t.pine ? "pino" : "albero"}_${1 + Math.floor(nr() * 3)}`;
+      // species a/b/c, mostly the two big sizes (3 and 4 are younger, thinner trees). One draw, as with the old
+      // trees, so everything scattered after this (undergrowth, rocks) stays where it was.
+      const r = dead ? 0 : nr(), id = dead ? "morto" : `albero_${"abc"[Math.floor(r * 18) % 3]}${[1, 1, 2, 2, 3, 4][Math.floor(r * 6)]}`;
       items.push({ id, x: t.x, z: t.z, ry: nr() * 6.28, k: 0.85 + nr() * 0.35 });
     });
     // Landmarks: great twisted trees with blood-red leaves
