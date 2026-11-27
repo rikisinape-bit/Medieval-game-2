@@ -404,6 +404,10 @@ Si tiene la **logica e i dati**; si riscrive rendering, collisioni, input, UI.
   gioco all'utente, poi aspettare il suo parere; **aggiornare sempre GitHub** con l'ultimo aggiornamento: spingere il ramo
   della sessione e unire subito la sua PR nel ramo principale `claude/threejs-godot-port-83bphh` (una sessione nuova parte
   da lì: il 26/11 una sessione è partita da una versione vecchia perché la PR #13 non era stata unita)
+- **Il merge lo fa Claude (27/11)**: "Si fai sempre il merge in maniera automatica e aggiorna sempre tutto fino in fondo
+  su github". Dopo ogni lavoro: commit, push, PR, **unione della PR fatta da Claude** (`gh api -X PUT
+  repos/rikisinape-bit/Medieval-game-2/pulls/<n>/merge -f merge_method=merge`), il ramo ripartito dal ramo principale
+  aggiornato, la pagina pubblicata. Non lasciare PR aperte.
 
 ## 10. Il mondo intero: Vasilad
 
@@ -575,10 +579,12 @@ torre, grotte; poi il serpente marino).
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
 - **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
-  `claude/threejs-godot-port-83bphh`; le PR le unisce l'utente da GitHub (l'unione fatta da Claude è bloccata dai
-  permessi). Unite: #13 (fasi 1–2), #14 (alberi nuovi, erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa
-  ingrandibile, schermo intero), #16 (inseguimenti e porte). Aperta: #17 (mare, fiumi, ghiaccio). Controllare sempre che le PR aperte siano unite;
-  se la PR del ramo è stata unita, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
+  `claude/threejs-godot-port-83bphh`; **Claude la unisce subito da sé** (l'utente, 27/11: "fai sempre il merge in
+  maniera automatica e aggiorna sempre tutto fino in fondo su github"; fino al 26/11 le univa l'utente, perché senza il
+  suo permesso esplicito i controlli della sessione bloccavano l'unione). Unite: #13 (fasi 1–2), #14 (alberi nuovi,
+  erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
+  porte), #17 (mare, fiumi, ghiaccio). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
+  stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
