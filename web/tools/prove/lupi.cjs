@@ -56,8 +56,11 @@ const WZ = -104;
   console.log('senza prosciutto:', JSON.stringify(await prompt()));
   const lenaAt = () => p.evaluate(() => ({ x: window.__S.npcs.lena.x, z: window.__S.npcs.lena.z }));
   await face(await lenaAt(), 1.4); await wait(2);
-  for (let k = 0; k < 8 && !(await prompt()).includes('Lena'); k++) {      // (she may have taken a step; others pass by her stall)
-    await face(await lenaAt(), 1.1 + (k % 3) * 0.2); await p.waitForTimeout(900);
+  // (she may have taken a step; others pass by her stall, and bodies do not go through each other: from another side)
+  for (let k = 0; k < 12 && !(await prompt()).includes('Lena'); k++) {
+    const l = await lenaAt(), a = (k / 12) * Math.PI * 2, d = 1.1 + (k % 3) * 0.15;
+    await p.evaluate(([x, z, a, d]) => { const P = window.__P; P.x = x + Math.sin(a) * d; P.z = z + Math.cos(a) * d; P.yaw = a + Math.PI; P.hp = 100; }, [l.x, l.z, a, d]);
+    await p.waitForTimeout(900);
   }
   console.log('davanti a Lena:', JSON.stringify(await prompt()));
   await p.keyboard.press('e');
