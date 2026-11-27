@@ -1,6 +1,10 @@
 # The user's trees of 27/11 as source models of the nature pack (assets/models/natura/), for optimize-nature.mjs:
-#   albero_neve.glb          winter_tree8 (LOW_RES): a leafy tree, its crown under snow (38k triangles, 1.9 x 1.45 m)
-#   albero_spoglio_neve.glb  winter_tree14 (LOW_RES): a bare twisted tree, snow on its branches (12.7k, 1.94 m)
+#   albero_neve.glb          winter_tree8 (LOW_RES): a leafy tree, its crown under snow (38k triangles, 1.9 x 1.45 m),
+#                            reduced to 7000 triangles (at 3400 its crown was crumpled paper)
+#   albero_spoglio_neve.glb  winter_tree14 (LOW_RES): a bare twisted tree, snow on its branches (12.7k, 1.94 m), reduced
+#                            to 2600
+#   (Blender's collapse decimation: their single baked texture is cut in many small pieces, which stops other
+#   simplifiers long before; the game shades the snowy crown as one soft volume, nature.js)
 #   pino_4m.glb              Pine_4m (Pure3d "Pine Trees"): a pine of branch cards, 4.4 m; its most detailed level
 #                            (1253 triangles: needles 1152, branches 26, trunk 75), read from its Collada file (the OBJ
 #                            has every level together and no materials; Blender no longer reads Collada)
@@ -42,13 +46,18 @@ def export(name, objs):
     print(name, "->", path, os.path.getsize(path) // 1024, "KB")
 
 # ---- the two winter trees: their OBJ, its texture
-for src, name, tri in ((t8, "albero_neve", "winter-tree8"), (t14, "albero_spoglio_neve", "winter-tree14")):
+for src, name, tri, target in ((t8, "albero_neve", "winter-tree8", 7000), (t14, "albero_spoglio_neve", "winter-tree14", 2600)):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     bpy.ops.wm.obj_import(filepath=os.path.join(src, f"{tri}_LOW_RES.obj"))
     objs = [o for o in bpy.context.scene.objects if o.type == "MESH"]
     mat = material(name, shrink(os.path.join(src, "textures", f"{tri}.png"), name))
     for o in objs: o.data.materials.clear(); o.data.materials.append(mat)
-    h = footed(objs); print(name, "height", round(h, 2), "m, triangles", sum(len(p.vertices) - 2 for o in objs for p in o.data.polygons))
+    h = footed(objs); n0 = sum(len(p.vertices) - 2 for o in objs for p in o.data.polygons)
+    for o in objs:
+        bpy.context.view_layer.objects.active = o
+        md = o.modifiers.new("d", "DECIMATE"); md.decimate_type = "COLLAPSE"; md.ratio = target / n0; md.use_collapse_triangulate = True
+        bpy.ops.object.modifier_apply(modifier="d")
+    print(name, "height", round(h, 2), "m, triangles", n0, "->", sum(len(p.vertices) - 2 for o in objs for p in o.data.polygons))
     export(name, objs)
 
 # ---- the pine: its Collada file (geom-pine4m: the first level), one object per material

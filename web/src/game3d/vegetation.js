@@ -1,14 +1,17 @@
 // The trees of the open country: the forests of the map (its drawn trees: the forest layer) and a few trees scattered on
 // its plains; never on the places' ground, on the roads, in the water or on the beach, on steep slopes and cliffs;
-// in the snow pines and dead trees. In the forests trees of every size (young ones, middling ones, old giants; in the
-// thick of them a second, young tree beside each) and undergrowth: bushes, ferns, big plants, tall grass, mushrooms.
-// The trees are the Shapespark kit's (BROAD: six of its twelve, each model costs its own draws), the pines only in the snow.
+// in the snow the user's big trees of 27/11 (TALL: pines, trees under snow, bare ones with snow on their branches; the
+// pines also in the great southern forest, among the others). In the forests trees of every size (young ones, middling
+// ones, old giants; in the thick of them a second, young tree beside each) and undergrowth: bushes, ferns, big plants,
+// tall grass, mushrooms. The other trees are the Shapespark kit's (BROAD: six of its twelve, each model costs its own
+// draws) and now and then a dead one.
 // Placed a tile (64 m) at a time, always the same (from the tile's number).
 // Near the player (NEAR) they are the models, instanced (a dozen draws for all of them), the undergrowth nearer still
-// (NEAR_U); farther, up to TREE_FAR, the kit's trees are their own picture seen from where the player is (impostors:
-// one draw for all, 2 triangles each), pines and dead trees a cone or a bare trunk. Between the two the model dissolves
-// into its picture over BAND metres (both drawn, each on the pixels the other leaves), and far away the pictures thin
-// out the same way: nothing jumps. The old map's trees (Roccanera, the bandits' wood: addFixed) are drawn the same way.
+// (NEAR_U); farther, up to TREE_FAR, every tree is its own picture seen from where the player is (impostors: one draw
+// for all, 2 triangles each; a cone, a ball or a bare trunk only if the pictures cannot be made). Between the two the
+// model dissolves into its picture over BAND metres (both drawn, each on the pixels the other leaves), and far away the
+// pictures thin out the same way: nothing jumps (since 27/11 the snowy forest's trees too: before, its pines and dead
+// trees turned into cones and bare trunks far away). The old map's trees (Roccanera, the bandits' wood: addFixed) are drawn the same way.
 // Their trunks stop whoever walks into them (push); the undergrowth does not.
 // More of them since 27/11 (the user: "aggiungi più alberi cespugli e rocce"): groves on the plains (where a slow noise
 // says so), bushes, flowering bushes and flowers in the meadows, the undergrowth seen farther (fading in at its edge);
@@ -24,12 +27,19 @@ import { MAP } from "./sites";
 
 // NEAR: where a grown tree's model has become its picture (NEAR_Y for the young ones, k < 0.8), over BAND metres
 const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 34, NEAR_Y = 26, BAND = 9, NEAR_U = 42, SHADE = 28, REBUILD = 5, TREE_FAR = 300, ROCK_R = 130;
-const PINES = ["pino_1", "pino_2", "pino_3"], BROAD = ["albero_a1", "albero_b1", "albero_c1", "albero_a2", "albero_b2", "albero_c2"], MODELS = [...PINES, ...BROAD, "morto"];
+const BROAD = ["albero_a1", "albero_b1", "albero_c1", "albero_a2", "albero_b2", "albero_c2"], TALL = ["pino_4m", "albero_neve", "albero_spoglio_neve"];
+const MODELS = [...TALL, ...BROAD, "morto"];
+// the trunk's radius (metres at k = 1: what stops a body) of each kind of tree
+const TRUNK = { pino_4m: 0.22, albero_neve: 0.85, albero_spoglio_neve: 0.7, morto: 0.3 };
+// where a tree's model has become its picture, if not at NEAR: the tree under snow, the heaviest (7000 triangles), sooner
+const NEAR_OF = { albero_neve: 26 };
 const UNDER = ["cespuglio", "felce", "pianta_grande", "erba_alta", "fungo", "cespuglio_fiorito", "fiori"];
 // the user's rocks by size: small stones, middling and standing ones, boulders (tools/rocce-glb.py)
 const SMALL = ["sasso_1", "sasso_6", "sasso_7", "sasso_10", "sasso_2", "sasso_11"], MID = ["sasso_5", "sasso_8", "sasso_9", "sasso_2"], BIG = ["sasso_3", "sasso_4"];
 const ROCKS = Array.from({ length: 11 }, (_, i) => `sasso_${i + 1}`);
-const KIND = (id) => (id === "morto" ? 2 : id.startsWith("pino") ? 0 : 1);   // far: cone, picture (ball without a renderer), bare trunk
+const KIND = (id) => (id === "pino_4m" ? 0 : id === "morto" || id === "albero_spoglio_neve" ? 2 : 1);   // far without pictures: cone, ball, bare trunk
+// the great forest of the south (its box on the map): pines among its trees
+const southForest = (x, z) => x > -300 && x < 150 && z > 100 && z < 720;
 const TX = Math.ceil(MAP.w / TILE), TZ = Math.ceil(MAP.h / TILE);
 const rand = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 // a slow noise (0..1) over the world: where the plains have groves
@@ -60,11 +70,14 @@ function tileTrees(ti, tj) {
       const y = surfaceAt(x, z);
       if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 4.5) || steep(x, z) > 0.65) continue;
       const r = rand(s2, 4, 7), sz = rand(s2, 5, 7);
-      const id = ly.snow > 0.5 ? (r < 0.55 ? PINES[Math.floor(r * 5.4) % 3] : "morto")
-        : ly.forest > 0.35 && r >= 0.96 ? "morto" : BROAD[Math.floor(r * 61) % BROAD.length];
-      // sizes: young ones beside the others; in the forests small, middling and old giants; on the plains grown trees
-      const k = n ? 0.42 + sz * 0.3 : ly.forest > 0.3 ? (sz < 0.25 ? 0.55 + sz * 0.9 : sz < 0.78 ? 0.85 + (sz - 0.25) * 0.66 : 1.3 + (sz - 0.78) * 2.8) : 0.85 + sz * 0.6;
-      trees.push({ x, y, z, id, ry: rand(s2, 6, 7) * Math.PI * 2, k, r: (id === "morto" ? 0.3 : 0.4) * k });
+      // in the snow: pines most, trees under snow, bare ones; in the great southern forest a pine every three or four
+      const id = ly.snow > 0.5 ? (r < 0.6 ? "pino_4m" : r < 0.8 ? "albero_neve" : "albero_spoglio_neve")
+        : ly.forest > 0.35 && r >= 0.96 ? "morto" : !n && ly.forest > 0.35 && southForest(x, z) && rand(s2, 8, 7) < 0.3 ? "pino_4m" : BROAD[Math.floor(r * 61) % BROAD.length];
+      // sizes: young ones beside the others; in the forests small, middling and old giants; on the plains grown trees;
+      // the big ones of 27/11 from a little smaller than their model to half again as big (pines), a fifth (the others)
+      const k = TALL.includes(id) ? (id === "pino_4m" ? 0.75 + sz * 0.75 : 0.8 + sz * 0.4)
+        : n ? 0.42 + sz * 0.3 : ly.forest > 0.3 ? (sz < 0.25 ? 0.55 + sz * 0.9 : sz < 0.78 ? 0.85 + (sz - 0.25) * 0.66 : 1.3 + (sz - 0.78) * 2.8) : 0.85 + sz * 0.6;
+      trees.push({ x, y, z, id, ry: rand(s2, 6, 7) * Math.PI * 2, k, r: (TRUNK[id] || 0.4) * k });
     }
     // the undergrowth: thick in the forests (the more the thicker), here and there on the plains
     const f = ly.snow > 0.5 || ly.mount > 0.5 ? 0 : ly.forest;
@@ -143,13 +156,18 @@ function fading(src, far, key, nd = NEAR) {
   return m;
 }
 
-// ---- the far kit trees (impostors). At the start each model is drawn from VIEWS sides around it (from the height of
-// its foot) into two atlases, a row per model and a cell per side: its colours (unlit) and the directions its leaves
-// and bark face (the model's own normals, nature.js crownNormals: in the tree's frame). Far away a tree is one upright
-// quad turned to the camera, with the pictures of the side the camera is on (blended with the next one as the camera
-// goes round), lit by the sun and the sky through those normals: exactly like its model, which dissolves into it.
-// Returns { mesh, at: { id: [row v, quad width, quad height] } }, or null without a renderer.
-const VIEWS = 8, CW = 80, CH = 160;
+// ---- the far trees (impostors). At the start each model is drawn from VIEWS sides around it (from the height of
+// its foot) into two atlases, a block per model (its VIEWS cells side by side) and a cell per side: its colours
+// (unlit) and the directions its leaves and bark face (the model's own normals, nature.js crownNormals: in the tree's
+// frame). Far away a tree is one upright quad turned to the camera, with the pictures of the side the camera is on
+// (blended with the next one as the camera goes round), lit by the sun and the sky through those normals: exactly like
+// its model, which dissolves into it. The big trees of 27/11 have bigger cells (IMP_CELL: about as many pixels a metre as
+// the others); the blocks are packed in shelves of the atlas' width, each in the first one with room for it.
+// Returns { mesh, at: { id: [block u, block v, cell width u, cell height v, quad width, quad height] } }, or null
+// without a renderer.
+const VIEWS = 8, IMP_CELL = { pino_4m: [160, 256], albero_neve: [256, 192], albero_spoglio_neve: [160, 208] }, IMP_KIT = [80, 160];
+// the colour under each picture's transparent pixels (the mipmaps blend it into the outline): leafy, or snowy
+const IMP_RIM = { albero_neve: "#aeb4bf", albero_spoglio_neve: "#7d7873", pino_4m: "#2c3826" };
 const NORMAL_MAT = (map) => new THREE.ShaderMaterial({
   uniforms: { map: { value: map } }, side: THREE.DoubleSide,
   vertexShader: "varying vec3 vN; varying vec2 vUv; void main() { vN = normal; vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }",
@@ -157,17 +175,28 @@ const NORMAL_MAT = (map) => new THREE.ShaderMaterial({
 });
 function makeImpostors(renderer, ids, max) {
   if (!renderer) return null;
-  const rows = ids.length, W = VIEWS * CW, H = rows * CH;
-  const opts = { generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
+  const cell = (id) => IMP_CELL[id] || IMP_KIT, W = VIEWS * Math.max(...ids.map((id) => cell(id)[0])), block = {}, shelves = [];
+  [...ids].sort((a, b) => cell(b)[1] - cell(a)[1]).forEach((id) => {   // (tallest first)
+    const [cw, ch] = cell(id);
+    let sh = shelves.find((s) => s.x + cw * VIEWS <= W && ch <= s.h);
+    if (!sh) shelves.push((sh = { x: 0, y: shelves.reduce((y, s) => y + s.h, 0), h: ch }));
+    block[id] = { x: sh.x, y: sh.y, cw, ch }; sh.x += cw * VIEWS;
+  });
+  const H = shelves.reduce((y, s) => y + s.h, 0);
+  const t0 = performance.now();
+  // (their mipmaps made once, at the end: not after each of the hundred and more pictures)
+  const opts = { generateMipmaps: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
   const rt = new THREE.WebGLRenderTarget(W, H, { ...opts, colorSpace: THREE.SRGBColorSpace }), rtN = new THREE.WebGLRenderTarget(W, H, opts);
   const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, 0.1, 200), stage = new THREE.Scene(), stageN = new THREE.Scene(), at = {}, used = [];
   const keep = { target: renderer.getRenderTarget(), auto: renderer.autoClear, color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha() };
-  // (under the alpha: a leafy colour and an upward normal, so the mipmaps get no dark or odd rims)
-  renderer.setRenderTarget(rt); renderer.setClearColor("#3a4a2c", 0); renderer.clear();
-  renderer.setRenderTarget(rtN); renderer.setClearColor(new THREE.Color(0.5, 1, 0.5), 0); renderer.clear();
   renderer.autoClear = false;
-  ids.forEach((id, row) => {
-    const parts = libParts(id);
+  ids.forEach((id) => {
+    const parts = libParts(id), b = block[id];
+    // (under the alpha: the tree's colour and an upward normal, so the mipmaps get no dark or odd rims)
+    for (const [target, c] of [[rt, IMP_RIM[id] || "#3a4a2c"], [rtN, new THREE.Color(0.5, 1, 0.5)]]) {
+      target.scissor.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissorTest = true;
+      renderer.setRenderTarget(target); renderer.setClearColor(c, 0); renderer.clear();
+    }
     let r = 0, h = 0;
     parts.forEach((p) => {
       const P = p.geometry.attributes.position;
@@ -183,25 +212,29 @@ function makeImpostors(renderer, ids, max) {
     for (let v = 0; v < VIEWS; v++) {
       const a = (v / VIEWS) * Math.PI * 2;
       cam.position.set(Math.sin(a) * (hw + 50), 0, Math.cos(a) * (hw + 50)); cam.lookAt(0, 0, 0);
-      const x = v * CW, y = row * CH;
+      const x = b.x + v * b.cw;
       for (const [target, sc] of [[rt, stage], [rtN, stageN]]) {
-        target.viewport.set(x, y, CW, CH); target.scissor.set(x, y, CW, CH); target.scissorTest = true;
+        target.viewport.set(x, b.y, b.cw, b.ch); target.scissor.set(x, b.y, b.cw, b.ch); target.scissorTest = true;
         renderer.setRenderTarget(target); renderer.render(sc, cam);
       }
     }
-    at[id] = [(row * CH) / H, hw * 2, h];
+    at[id] = [b.x / W, b.y / H, b.cw / W, b.ch / H, hw * 2, h];
   });
-  [rt, rtN].forEach((t) => { t.viewport.set(0, 0, W, H); t.scissorTest = false; });
+  [rt, rtN].forEach((t) => {
+    t.viewport.set(0, 0, W, H); t.scissorTest = false; t.texture.generateMipmaps = true;
+    renderer.setRenderTarget(t); renderer.render(stage.clear(), cam);       // (nothing drawn: the mipmaps made)
+  });
   stage.clear(); stageN.clear(); used.forEach((m) => m.dispose());
+  if (import.meta.env.DEV) window.__impostors = { ms: Math.round(performance.now() - t0), W, H };   // dev only (tests)
   renderer.setRenderTarget(keep.target); renderer.autoClear = keep.auto; renderer.setClearColor(keep.color, keep.alpha);
   const geo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
-  geo.setAttribute("aImp", new THREE.InstancedBufferAttribute(new Float32Array(max), 1));
+  geo.setAttribute("aImp", new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4));
   const mat = new THREE.MeshLambertMaterial({ map: rt.texture, alphaTest: 0.5, side: THREE.DoubleSide });
   mat.onBeforeCompile = (sh) => {
     sh.uniforms.impN = { value: rtN.texture };
     sh.vertexShader = sh.vertexShader.replace("#include <common>", `#include <common>
-attribute float aImp;
-varying vec2 vQuv; varying float vRow, vView, vYaw, vTreeD, vNearD;`).replace("#include <project_vertex>", `
+attribute vec4 aImp;
+varying vec2 vQuv; varying vec4 vImp; varying float vView, vYaw, vTreeD, vNearD;`).replace("#include <project_vertex>", `
 	vNearD = length( instanceMatrix[ 2 ].xyz );                                                    // (where it takes over from the model)
 	vec3 iC = ( modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 ) ).xyz;
 	vec2 toC = cameraPosition.xz - iC.xz; vTreeD = length( toC ); toC /= max( vTreeD, 0.001 );
@@ -212,15 +245,15 @@ varying vec2 vQuv; varying float vRow, vView, vYaw, vTreeD, vNearD;`).replace("#
 	gl_Position = projectionMatrix * mvPosition;
 	vYaw = atan( - instanceMatrix[ 0 ].z, instanceMatrix[ 0 ].x );                                   // (the tree's own turn)
 	vView = mod( ( atan( toC.x, toC.y ) - vYaw ) * ${(VIEWS / (Math.PI * 2)).toFixed(6)}, ${VIEWS}.0 );   // (the side the camera is on)
-	vQuv = vec2( position.x + 0.5, position.y ); vRow = aImp;`);
+	vQuv = vec2( position.x + 0.5, position.y ); vImp = aImp;`);
     sh.fragmentShader = sh.fragmentShader.replace("#include <common>", `#include <common>
 ${FADE_F}
 uniform sampler2D impN;
-varying vec2 vQuv; varying float vRow, vView, vYaw, vNearD;`)
+varying vec2 vQuv; varying vec4 vImp; varying float vView, vYaw, vNearD;`)
       .replace("#include <clipping_planes_fragment>", "#include <clipping_planes_fragment>\n\t" + FAR_CUT("vNearD"))
       .replace("#include <map_fragment>", `
 	float iv0 = floor( vView ), ivt = vView - iv0, iv1 = mod( iv0 + 1.0, ${VIEWS}.0 );
-	vec2 iCell = vec2( vQuv.x / ${VIEWS}.0, vQuv.y / ${rows}.0 ), iUv0 = vec2( iv0 / ${VIEWS}.0, vRow ) + iCell, iUv1 = vec2( iv1 / ${VIEWS}.0, vRow ) + iCell;
+	vec2 iCell = vQuv * vImp.zw, iUv0 = vImp.xy + vec2( iv0 * vImp.z, 0.0 ) + iCell, iUv1 = vImp.xy + vec2( iv1 * vImp.z, 0.0 ) + iCell;
 	vec4 sampledDiffuseColor = mix( texture2D( map, iUv0 ), texture2D( map, iUv1 ), ivt );
 	diffuseColor *= sampledDiffuseColor;`)
       .replace("#include <alphatest_fragment>", `
@@ -248,8 +281,8 @@ export function createVegetation(scene, renderer) {
   // grown trees with and without shadows, young ones (no shadows: they stand under the others)
   if (ok) for (const [shade, young] of [[true, false], [false, false], [false, true]]) MODELS.forEach((id) => libParts(id).forEach((pt) => {
     if (young && !BROAD.includes(id)) return;                               // (only the kit's trees have young ones)
-    const m = new THREE.InstancedMesh(pt.geometry, nearMat(pt.material, young ? NEAR_Y : NEAR), shade ? 300 : young ? 500 : 900);
-    m.count = 0; m.frustumCulled = false; m.castShadow = shade; m.receiveShadow = !pt.material.userData.crown;   // (crowns: nature.js)
+    const m = new THREE.InstancedMesh(pt.geometry, nearMat(pt.material, young ? NEAR_Y : NEAR_OF[id] || NEAR), shade ? 300 : young ? 500 : 900);
+    m.count = 0; m.frustumCulled = false; m.castShadow = shade; m.receiveShadow = !pt.material.userData.noShadow;   // (crowns: nature.js)
     group.add(m); near.push({ id, m, s: natureScale(id), shade, young });
   }));
   // the undergrowth near the player (no shadows of its own: it is under the trees' already)
@@ -271,14 +304,14 @@ export function createVegetation(scene, renderer) {
     m.count = 0; m.frustumCulled = false; m.receiveShadow = true;
     group.add(m); low.push({ id, m, s: natureScale(id) });
   }));
-  const farMat0 = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), farMat = ok ? fading(farMat0, true, "simple") : farMat0;   // (no models: far forms everywhere; pines and dead trees are never young)
-  const imp = ok ? makeImpostors(renderer, BROAD, 9000) : null;            // (the kit's trees far away: their pictures)
-  const far = [0, 1, 2].map((kind) => {
-    const m = kind === 1 && imp ? imp.mesh : new THREE.InstancedMesh(farGeometry(kind), farMat, 9000);
-    m.count = 0; m.frustumCulled = false; m.receiveShadow = !(kind === 1 && imp);
-    group.add(m); return m;
-  });
+  const imp = ok ? makeImpostors(renderer, MODELS, 12000) : null;          // (every tree far away: its pictures)
+  // (without them, simple forms: a cone, a ball, a bare trunk; without the models they are everywhere)
+  const farMat0 = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), farMat = ok ? fading(farMat0, true, "simple") : farMat0;
+  const far = imp ? [imp.mesh] : [0, 1, 2].map((kind) => new THREE.InstancedMesh(farGeometry(kind), farMat, 9000));
+  far.forEach((m) => { m.count = 0; m.frustumCulled = false; m.receiveShadow = !imp; group.add(m); });
   const aImp = imp?.mesh.geometry.attributes.aImp;
+  // (only the instances in use go to the graphics card: thousands of far trees, every few metres)
+  const flush = (attr, n) => { if (!attr) return; attr.clearUpdateRanges(); attr.addUpdateRange(0, Math.max(1, n) * attr.itemSize); attr.needsUpdate = true; };
   // the rocks: an instanced mesh per model (one fading material for all), shadows from the middling and big ones
   const rockMeshes = {};
   const rockIds = ROCKS.filter((id) => libParts(id)?.length);
@@ -302,7 +335,7 @@ export function createVegetation(scene, renderer) {
   };
   const fixed = [];                                                         // the old map's trees (addFixed)
   // (the far ones made as tall as the models they stand for)
-  const FAR_K = { pino_1: 1.0, pino_2: 1.1, pino_3: 0.95, albero_a1: 1.05, albero_b1: 1.05, albero_c1: 1.25, albero_a2: 1.05, albero_b2: 1.1, albero_c2: 1.2, morto: 1.05 };
+  const FAR_K = { pino_4m: 1.64, albero_neve: 1.52, albero_spoglio_neve: 1.35, albero_a1: 1.05, albero_b1: 1.05, albero_c1: 1.25, albero_a2: 1.05, albero_b2: 1.1, albero_c2: 1.2, morto: 1.05 };
   const tileOf = (ti, tj) => {
     const key = tj * TX + ti;
     let t = tiles.get(key);
@@ -320,7 +353,7 @@ export function createVegetation(scene, renderer) {
   // one tree: its model near, its far form far, both in the band between (the shaders share the pixels out)
   const place = (t, d) => {
     q.setFromAxisAngle(UP, t.ry);
-    const young = t.k < 0.8 && BROAD.includes(t.id), nd = young ? NEAR_Y : NEAR;
+    const young = t.k < 0.8 && BROAD.includes(t.id), nd = young ? NEAR_Y : NEAR_OF[t.id] || NEAR;
     if (d < nd + REBUILD + 1 && ok) {
       const shade = d < SHADE && !young && t.k >= 0.8;
       for (const n of near) {
@@ -330,13 +363,12 @@ export function createVegetation(scene, renderer) {
       }
     }
     if (d > nd - BAND - REBUILD - 1 || !ok) {
-      const m = far[KIND(t.id)], c = imp?.at[t.id];
-      if (m.count >= m.instanceMatrix.count) return;
+      const c = imp?.at[t.id], m = c ? imp.mesh : far[KIND(t.id)];
+      if (!m || m.count >= m.instanceMatrix.count) return;
       if (c) {                                                            // its pictures: as big as the model
         const ks = t.k * natureScale(t.id);
-        aImp.setX(m.count, c[0]);
-        m.setColorAt(m.count, tint.setScalar(1));
-        m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[1] * ks, c[2] * ks, nd)));   // (z: its hand-over distance)
+        aImp.setXYZW(m.count, c[0], c[1], c[2], c[3]);
+        m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[4] * ks, c[5] * ks, nd)));   // (z: its hand-over distance)
       } else {
         const k = t.k * (FAR_K[t.id] || 1);
         m.setColorAt(m.count, tint.setScalar(0.82 + (t.ry % 1) * 0.3)); m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.1, t.z), q, sc.set(k, k, k)));
@@ -371,8 +403,8 @@ export function createVegetation(scene, renderer) {
     counts.rocks = Object.values(rockMeshes).reduce((s, m) => s + m.count, 0);
     for (const t of fixed) { const d = Math.hypot(t.x - px, t.z - pz); if (d <= R) place(t, d); }
     near.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; }); low.forEach((n) => { n.m.instanceMatrix.needsUpdate = true; });
-    far.forEach((m) => { m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; });
-    if (aImp) aImp.needsUpdate = true;
+    far.forEach((m) => { flush(m.instanceMatrix, m.count); flush(m.instanceColor, m.count); });
+    flush(aImp, imp?.mesh.count);
     counts.near = near.reduce((s, n) => s + n.m.count, 0); counts.far = far.reduce((s, m) => s + m.count, 0); counts.under = low.reduce((s, n) => s + n.m.count, 0);
     for (const [key] of tiles) {                                            // (far behind: forgotten)
       const ti = key % TX, tj = Math.floor(key / TX), cx = (ti + 0.5) * TILE - MAP.ox, cz = (tj + 0.5) * TILE - MAP.oz;
