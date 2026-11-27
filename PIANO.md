@@ -642,7 +642,8 @@ torre, grotte; poi il serpente marino).
   suo permesso esplicito i controlli della sessione bloccavano l'unione). Unite: #13 (fasi 1–2), #14 (alberi nuovi,
   erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
   porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi), #20 (il
-  prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
+  prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte), #22 (alberi della neve e pino pronti, lavoro
+  descritto in "PROSSIMO LAVORO"). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
   stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
@@ -654,6 +655,8 @@ torre, grotte; poi il serpente marino).
   `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare), `rocce/` (le rocce:
   `FreePack-RocksStylized.blend`, `Rocks_Stylized_Color.png`), `lupo/` (`wolf.blend`, `wolf_color.png`, `wolf_ao.png`),
   `goblin/goblin.glb` (il goblin dell'utente, senza scheletro: `python tools/goblin-glb.py assets/sorgenti/goblin/goblin.glb`).
+  Gli alberi della neve e il pino (zip winter_tree8, winter_tree14, Pine4m) sono già convertiti e nel repository
+  (`assets/models/natura/albero_neve.glb`, `albero_spoglio_neve.glb`, `pino_4m.glb`): gli zip servono solo per rifarli.
   Le texture e i modelli fatti da loro sono nel repository; gli strumenti servono solo per rifarli.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
@@ -664,6 +667,49 @@ torre, grotte; poi il serpente marino).
 - **Pezzi del kit non ancora usati**: case `house_01`, `house_06`, `house_08`, `house_09`, `house_10`; torri e mura;
   `wood_wall_*`/`wood_tower` (palizzate), `tent_1..3`; dei props: `props_fence_01`, bancarelle. **Niente mulino** nel kit
   (la mappa disegna mulini a Roccanera e Sulus): va costruito in codice o chiesto all'utente come modello.
+
+### PROSSIMO LAVORO (richiesta del 27/11, da fare in una nuova chat): alberi della neve e pini, grandi, con le sagome
+
+Le parole dell'utente: "da lontano gli alberi nella foresta a nord fanno come prima che cambiano forma, ora ti mando dei
+nuovi alberi, pino, albero spoglio con neve e albero con neve, quelli con la neve ovviamente andranno a nord, i pini
+potrei aggiungerli anche nella foresta grande a sud, mi raccomando di farli grandi in modo che il pg quando guarda il
+cielo deve vedere poco. Inoltre quella cosa delle sagome da lontano e poi quando ti avvicini sono gli alberi anche con
+questi deve accadere."
+
+**Già pronto** (commit del 27/11): i tre alberi sono modelli sorgente in `assets/models/natura/`, fatti da
+`web/tools/alberi-neve.py` (Python con `bpy`) dagli zip dell'utente:
+- `albero_neve.glb` (winter_tree8, LOW_RES): albero con la **chioma coperta di neve**; 38.411 triangoli (troppi: da
+  ridurre), alto 1,45 m nel file (largo 1,9), texture 1024 px.
+- `albero_spoglio_neve.glb` (winter_tree14, LOW_RES): albero **spoglio e contorto, neve sui rami**; 12.715 triangoli,
+  1,94 m nel file, texture 1024 px.
+- `pino_4m.glb` (Pine_4m): **pino** fatto di "carte" di rami; il livello più dettagliato: 1.253 triangoli (aghi 1.152
+  con trasparenza, rami 26, tronco 75), alto 4,42 m; materiali `Pine_leaf`, `Pine_branch`, `Pine_trunk` (texture
+  PNG con trasparenza, dalle DDS). Il suo FBX era troppo vecchio per Blender e l'OBJ non aveva materiali: letto dal
+  file Collada.
+
+**Perché a nord cambiano forma**: in `vegetation.js` le **sagome lontane uguali al modello** (`makeImpostors`: il
+modello fotografato da 8 lati, poi un quadrato rivolto alla telecamera) esistono solo per i 6 alberi del kit
+Shapespark (`BROAD`). Nella neve gli alberi sono i pini `pino_1..3` e i morti (`morto`), che da lontano diventano forme
+semplici (`farGeometry`: un cono, un tronco nudo): il passaggio si vede.
+
+**Da fare**:
+1. `optimize-nature.mjs`: aggiungere i tre (`albero_neve` ridotto a ~3.000–4.000 triangoli guardando che resti
+   bello, `albero_spoglio_neve` a ~2.500–3.000, `pino_4m` com'è); rinominare i materiali secondo lo schema del gioco
+   (ombre e colori: `CASTS` in `nature.js`, `GRADE`), per esempio `Leaves_Pine4m` / `Bark_Pine4m`; la neve non va
+   scurita come le foglie (gradazione vicina a 1).
+2. `nature.js` (`NATURE`): **grandi**, perché guardando in alto si veda poco cielo: pino intorno a 11–14 m
+   (s ≈ 2,6–3,2), albero innevato ~10 m (s ≈ 7), spoglio innevato ~10 m (s ≈ 5), più la variazione `k` per albero.
+3. `vegetation.js`: nella **neve** (`ly.snow > 0.5`) al posto di `pino_1..3` e `morto`: soprattutto `pino_4m`, poi
+   `albero_neve` e `albero_spoglio_neve`, fitti (le chiome si toccano); nella **grande foresta a sud** (terre basse)
+   mescolare `pino_4m` agli alberi del kit (un quarto–un terzo). Raggio del tronco per gli urti in proporzione.
+4. **Sagome**: estendere `makeImpostors` ai tre nuovi (gli id oltre a `BROAD`), con la stessa dissolvenza vicino/lontano
+   (`NEAR`, `BAND`, `FAR_CUT`, `FAR_SHRINK`); controllare la dimensione dell'atlante (una riga per modello, 8 viste) e i
+   limiti delle istanze; le forme semplici restano solo per chi non ha la sagoma.
+5. Prove: `foto.cjs` con in più un'inquadratura del **bosco innevato del nord-ovest** (pixel ~450, 450) e della
+   **grande foresta a sud** (pixel ~800, 1000), vicino e da 60–300 m (il passaggio sagoma → albero non deve vedersi);
+   triangoli e chiamate di disegno ragionevoli per il telefono; foto prima/dopo per l'utente.
+6. Poi come sempre: far provare all'utente (pagina pubblicata), PIANO.md, commit, PR **unita da Claude**, ramo
+   riallineato.
 
 ### Fase 3 — prossimi passi: Sulus, Dimirot e il resto della grande foresta
 
