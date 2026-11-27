@@ -71,6 +71,20 @@ export function createAudio() {
       [[850, 6], [1250, 8]].forEach(([f, q]) => { const b = ctx.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = f; b.Q.value = q; o.connect(b); b.connect(g); });
       o.start(t); lfo.start(t); o.stop(t + dur + 0.1); lfo.stop(t + dur + 0.1);
     },
+    // The wolves (wolves.js): a howl rising and falling away, a growl, the snap of a bite, a yelp, a whine
+    howl: (v = 1) => {
+      if (!ok(v)) return;
+      const t = ctx.currentTime, o = ctx.createOscillator(), lfo = ctx.createOscillator(), lg = ctx.createGain();
+      o.type = "triangle"; o.frequency.setValueAtTime(380, t); o.frequency.exponentialRampToValueAtTime(660, t + 0.7);
+      o.frequency.setValueAtTime(660, t + 1.5); o.frequency.exponentialRampToValueAtTime(430, t + 2.6);
+      lfo.frequency.value = 5; lg.gain.value = 9; lfo.connect(lg); lg.connect(o.frequency);
+      const g = gain(t, 0.45 * v, 2.6, 0.35), b = ctx.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = 900; b.Q.value = 1.2;
+      o.connect(b); b.connect(g); o.start(t); lfo.start(t); o.stop(t + 3); lfo.stop(t + 3);
+    },
+    growl: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; tone(t, "sawtooth", 92, 0.16 * v, 0.55, 78); noise(t, 0.5, "lowpass", 320, 0.3 * v, 3); } },
+    bite: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; noise(t, 0.05, "highpass", 2400, 0.55 * v); tone(t, "sine", 210, 0.3 * v, 0.07, 90); } },
+    yelp: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; [0, 0.16].forEach((d) => { tone(t + d, "sawtooth", 1050, 0.12 * v, 0.13, 640); }); } },
+    whine: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; tone(t, "triangle", 760, 0.1 * v, 0.55, 520); tone(t + 0.6, "triangle", 700, 0.07 * v, 0.4, 560); } },
     dispose: () => { if (ctx) ctx.close(); },
   };
 }

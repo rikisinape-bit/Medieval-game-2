@@ -17,8 +17,8 @@ export const FIGHT = {
 // n: who goes, for the doors it may open); way(n, tx, tz): the next point of n's way round the things in front of it
 // (nav.js), or null (straight); chase(n): where a chaser makes for ({ x, z, d, here }: the player, or the door on its
 // side (the castle's, the cage's) when the player is on the other one; d how far the player is that way; here: the
-// player can be reached)
-export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, route = () => null, way = () => null, chase = null }) {
+// player can be reached; foe: for a while the player's wolf instead, which bit it: hurtFoe(n, foe) when it strikes it)
+export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, route = () => null, way = () => null, chase = null, hurtFoe = () => {} }) {
   const sameZone = (n) => zoneOf(P.x, P.z) === zoneOf(n.x, n.z);
   const repOf = (n) => (n.valdoro ? S.known.crown : S.rep.crown);
   // A sneaking player is noticed at about half the range (less at night), only well in front, and only very close behind.
@@ -104,12 +104,15 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
     if (n.hostile && n.fights) {                                  // (also into the mine and out of it: it follows the tunnels)
       const F = FIGHT[n.role] || FIGHT.soldier;
       const c = chase ? chase(n) : { x: P.x, z: P.z, d, here: true };   // (the player, or the castle's door on its way)
+      // whom it fights: the player, or for a while the player's wolf that bit it (c.foe, wolves.js)
+      const T = c.foe || P, tdx = T.x - n.x, tdz = T.z - n.z, td = Math.hypot(tdx, tdz);
+      if (n.foeT > 0) n.foeT -= dt;
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
       // its guard: raised against a blow of yours it sees coming (decided once a blow, after its reaction time), held
       // while your blow lasts, then lowered with a quick answer; its posture comes back while it is down (engine.js:
       // a blow on the guard, perfect parry, guard broken)
       n.posture = Math.min(100, (n.posture ?? 100) + (n.blocking ? 0 : 22 * dt));
-      if (c.here && P.attacking && P.atkSeq !== n.seenAtk && d < 3.2 && n.state === "idle" && n.stagger <= 0) {
+      if (!c.foe && c.here && P.attacking && P.atkSeq !== n.seenAtk && d < 3.2 && n.state === "idle" && n.stagger <= 0) {
         n.seenAtk = P.atkSeq;                                       // a blow of yours coming: once a blow, it decides
         const r = Math.random();
         if (!n.blocking && r < F.block) { n.blocking = true; n.blockT = 0; n.blockPerfect = r < F.perfect; n.holdT = 0; }
@@ -123,16 +126,16 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
       out.mode = n.blocking ? "block" : "guard";
       if (n.stagger > 0) out.mode = "stagger";
       else if (n.state === "windup") {
-        n.k += dt / (F.wind * (n.riposte ? 0.55 : 1)); out.mode = "windup"; out.k = n.k; face(P.x, P.z, 4);   // (a riposte: quick)
-        if (n.k >= 1) { n.state = "swing"; n.k = 0; n.riposte = false; snd.swing(n); if (c.here && d < 2.3 && !route(n.x, n.z, P.x, P.z, n)) hurtPlayer(n); }   // (not through rock)
+        n.k += dt / (F.wind * (n.riposte ? 0.55 : 1)); out.mode = "windup"; out.k = n.k; face(T.x, T.z, 4);   // (a riposte: quick)
+        if (n.k >= 1) { n.state = "swing"; n.k = 0; n.riposte = false; snd.swing(n); if (c.here && td < 2.3 && !route(n.x, n.z, T.x, T.z, n)) { if (c.foe) hurtFoe(n, c.foe); else hurtPlayer(n); } }   // (not through rock)
       } else if (n.state === "swing") {
         n.k += dt / 0.3; out.mode = "swing"; out.k = n.k;
         if (n.k >= 1) { n.state = "idle"; n.cd = 0.8 + Math.random() * 0.7; n.side = Math.random() < 0.5 ? -1 : 1; }
-      } else if (!c.here || d > 1.8 || route(n.x, n.z, P.x, P.z, n)) step(c.x, c.z, F.sp, true);
+      } else if (!c.here || td > 1.8 || route(n.x, n.z, T.x, T.z, n)) step(c.x, c.z, F.sp, true);
       else {
-        face(P.x, P.z, 8);
+        face(T.x, T.z, 8);
         if (n.blocking) { /* behind its guard: it waits for your blow */ }
-        else if (n.cd > 0) { n.x += (dz / (d || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (dx / (d || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
+        else if (n.cd > 0) { n.x += (tdz / (td || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (tdx / (td || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
         else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }
       // (before, a bandit 22 m from its post turned round and walked home, its back to the player, healed at once)

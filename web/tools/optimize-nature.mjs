@@ -40,6 +40,8 @@ const MODELS = {
   erba_alta: ["erba_alta", { "*": 80 }],
   fungo: ["fungo", { "*": 200 }],
   roccia: ["roccia", { "*": 160 }],
+  // the user's stylized rocks (27/11, FreePack-RocksStylized: tools/rocce-glb.py): 11 rocks, 0.2-2.2 m, one texture
+  ...Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`sasso_${i + 1}`, [`rocce_stilizzate#SM_Rocks_${String(i + 1).padStart(2, "0")}`, { "*": [160, 160, 520, 360, 220, 60, 60, 60, 70, 40, 40][i] }]])),
   sasso_tondo: ["sasso_tondo_1", { "*": 60 }],
   sasso_quadro: ["sasso_quadro_2", { "*": 40 }],
   selciato: ["selciato_piccolo", { "*": 150 }],
@@ -49,7 +51,7 @@ const RENAME = { "trunk-01": "Bark_Tree", "branch-1-01": "Leaves_Tree_A1", "bran
   "branch-2-02": "Leaves_Tree_B2", "branch-01": "Leaves_Tree_C1", "branch-02": "Leaves_Tree_C2" };
 // Colour grading per texture (by material name prefix, first match): [brightness, saturation, optional R,G,B multipliers]
 // (the kit's bark is a grey photo: warmed towards brown like the other trunks)
-const GRADE = { Bark_Tree: [1, 0.9, [1.19, 0.95, 0.79]], Leaves_Tree: [0.8, 0.7], Bark_DeadTree: [0.9, 0.5], Bark: [0.72, 0.6], Leaves_TwistedTree: [0.62, 0.8], Leaves_Pine: [0.62, 0.6], Leaves_NormalTree: [0.6, 0.55], Leaves: [0.62, 0.55], Flowers: [0.6, 0.5], Grass: [0.6, 0.55], Mushrooms: [0.75, 0.6], Rocks: [0.75, 0.6], PathRocks: [0.75, 0.5] };
+const GRADE = { RocksStylized: [0.86, 0.75], Bark_Tree: [1, 0.9, [1.19, 0.95, 0.79]], Leaves_Tree: [0.8, 0.7], Bark_DeadTree: [0.9, 0.5], Bark: [0.72, 0.6], Leaves_TwistedTree: [0.62, 0.8], Leaves_Pine: [0.62, 0.6], Leaves_NormalTree: [0.6, 0.55], Leaves: [0.62, 0.55], Flowers: [0.6, 0.5], Grass: [0.6, 0.55], Mushrooms: [0.75, 0.6], Rocks: [0.75, 0.6], PathRocks: [0.75, 0.5] };
 const gradeOf = (name) => GRADE[Object.keys(GRADE).find((k) => name.startsWith(k))] || [0.7, 0.6];
 
 // Foliage is made of many separate tufts (leaf cards) that a simplifier cannot merge: thin it out instead by
@@ -147,7 +149,7 @@ if (leafMats.length) {
 main.createExtension(EXTTextureWebP).setRequired(true);
 for (const tex of root.listTextures()) {
   const matName = tex.listParents().map((p) => p.getName?.()).find((n) => n && n !== "") || "";
-  const [brightness, saturation, rgb] = gradeOf(matName), max = matName === ATLAS ? 1536 : 512;
+  const [brightness, saturation, rgb] = gradeOf(matName), max = matName === ATLAS ? 1536 : matName === "RocksStylized" ? 1024 : 512;   // (the rocks share one picture)
   let pic = sharp(tex.getImage()).resize(max, max, { fit: "inside" }).modulate({ brightness, saturation });
   if (rgb) { const k = (await sharp(tex.getImage()).metadata()).hasAlpha ? [...rgb, 1] : rgb; pic = sharp(await pic.toBuffer()).linear(k, k.map(() => 0)); }
   const img = await pic.webp({ quality: matName === ATLAS ? 74 : 82, alphaQuality: 90 }).toBuffer();   // (the leaf atlas is big: a little lighter)

@@ -32,6 +32,14 @@ export function getDialog(id, S, reply) {
 function buildDialog(id, S) {
   const p = S.player;
   const npc = S.npcs[id];
+  if (id === "lupo") {                                                   // your wolf (wolves.js): an order
+    const L = S.flags.lupi || {};
+    return {
+      title: "Il tuo lupo",
+      text: L.stay ? "Il lupo è seduto dove gli hai detto di restare. Ti guarda, in attesa di un ordine." : "Il lupo ti sta accanto, le orecchie dritte. Aspetta un tuo ordine.",
+      options: [{ label: "Resta qui", effect: "lupo_resta" }, { label: "Seguimi", effect: "lupo_segui" }, { label: "Niente", effect: "close" }],
+    };
+  }
   if (S.flags.cage && npc?.alive && ["soldier1", "soldier2", "alaric"].includes(id)) return {   // you are in the cage: the ransom (through the bars)
     title: `${npc.name} — Guardia di Roccanera`,
     text: p.gold >= RANSOM_CAGE ? `"Ti sei calmato? Qui a Roccanera chi alza le mani finisce in gabbia. ${RANSOM_CAGE} monete e torni libero."`
@@ -225,6 +233,8 @@ export function applyEffect(e, S, api) {
   const rep = (k, d) => { S.rep[k] += d; };
   switch (e) {
     case "shop": api.shop(api.targetId); return null;
+    case "lupo_resta": api.wolfOrder(true); return "Il lupo si siede e resta qui, anche se ti allontani.";
+    case "lupo_segui": api.wolfOrder(false); return "Il lupo si alza scodinzolando e torna a seguirti.";
     case "loot": { const n = S.npcs[api.targetId]; const g = n.loot || 5; p.gold += g; n.looted = true; if (n.boss) { api.give("testa_morn", 1); return `Frughi ${n.name}: +${g} oro. Tagli la testa di Capo Morn come prova per Ser Alaric.`; } return `Frughi ${n.name}: +${g} oro.`; }
     case "chest_take": {
       const i = +api.targetId.slice(5), items = S.chests[i];

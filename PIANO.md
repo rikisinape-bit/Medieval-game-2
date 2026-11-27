@@ -25,6 +25,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `items.js` | `ITEMS`, `SHOPS`, `LOOT_OF`, riduzione danni, prezzi |
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
 | `nav.js` | La strada dei personaggi intorno agli ostacoli: A* su una griglia di 0,5 m fatta al bisogno (case, mura, alberi, rocce, acqua profonda), porte che solo alcuni possono aprire |
+| `wolves.js` | I lupi: il branco della grande foresta (tana a sud di Roccanera), quello che si arrende, il lupo addomesticato che ti segue, combatte con te e prende ordini (resta qui / seguimi) |
 | `water.js` | L'acqua del mare e dei fiumi: il mare calmo dell'utente (`mare_calmo_n.jpg`, da `tools/bake-mare.py`) in tre misure che si muovono, colore per profondità, cielo riflesso, schiuma sulle rive del mare |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
 | `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
@@ -50,6 +51,7 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 - Negozi, inventario, equipaggiamento (mano, corpo, testa, mano sinistra), bottino dai morti
 - Imboscate dei banditi nel bosco (pedaggio, intimidazione, combattimento), Capo Morn, missione testa
 - Miniera con argento, carrozza della Corona derubabile, cavalli montabili
+- Branco di lupi nella grande foresta; uno si arrende e con una coscia di maiale diventa il tuo lupo (ti segue, combatte, resta/segue a comando)
 
 ### Costanti del mondo
 - Villaggio Roccanera al centro (0,0); foresta a nord (z negativo, da `FZ = -36`); mura di Valdoro a `WZ = FZ - 68 = -104`; miniera a ovest (`CX = -45`)
@@ -575,6 +577,40 @@ torre, grotte; poi il serpente marino).
   sua lucentezza (`terreno_ghiaccio_n.jpg`: normale in R, G, ruvidità in B), letti solo dove c'è ghiaccio. Fatte da
   `node tools/build-ground.mjs ghiaccio` dagli originali in `assets/sorgenti/terreno/ice009/`. La neve e le
   **montagne** restano come prima: l'utente dirà come cambiarle. Prova: `acqua.cjs` (foto prima/dopo).
+- **Più alberi e cespugli, e le rocce dell'utente (27/11, "aggiungi più alberi cespugli e rocce che ti allego")**
+  (`vegetation.js`): nelle pianure **boschetti** dove un rumore lento lo dice (`groveAt`: fino a ~19% delle celle,
+  altrove 3%), nelle foreste qualche albero giovane in più; nei prati cespugli, **cespugli fioriti e fiori** (30–70%
+  delle celle invece del 10%); il sottobosco si vede fino a 42 m (prima 30) e compare sfumando (`fading`). Le **rocce**
+  sono le 11 del pacchetto dell'utente FreePack-RocksStylized (0,2–2,2 m, una texture dipinta): `tools/rocce-glb.py`
+  (Python con `bpy`) ne fa `assets/models/natura/rocce_stilizzate.glb`, `optimize-nature.mjs` le mette in
+  `natura.glb` come `sasso_1..11` (texture 1024 px, 47 KB). Si posano per celle: tante dove il terreno è roccioso
+  (colline, piedi dei monti, terra secca), qualcuna ovunque, ogni tanto un **masso** con 1–3 sassi intorno; un po'
+  affondate e inclinate; disegnate fino a 130 m (sfumando), una chiamata per modello (non un BatchedMesh: senza
+  l'estensione multi-draw, che alcuni telefoni non hanno, disegnerebbe ogni roccia da sola), ombre solo dai sassi medi
+  e grandi. Quelle alte più di 0,55 m **fermano** chi ci cammina contro, come i tronchi (e la strada dei personaggi
+  le aggira). Costo: +10–20 chiamate di disegno nei boschi e nelle pianure (`foto.cjs`).
+- **Lupi (27/11, "metti 2 o 3 lupi in branco che se ti vedono ti attaccano, solo uno di questi quando sta per essere
+  sconfitto si abbassa e se hai una coscia di maiale... ti segue ovunque e combatte con te... resta qui / seguimi")**
+  (`wolves.js`): il modello è il lupo dell'utente (low-poly, scheletro di 29 ossa, animazioni fermo, seduto, corsa,
+  annusare, a terra); `tools/lupo-glb.py` (Python con `bpy`) ne fa `public/models/lupo.glb` (402 KB) aggiungendo due
+  animazioni fatte sul suo scheletro: **"submit"** (si accuccia: pancia a terra con le zampe piegate per IK, testa
+  bassa, orecchie indietro, coda tra le zampe, respira) e **"bite"** (il morso: testa indietro, poi scatto in avanti).
+  Un **branco di tre** vive attorno alla tana `DEN = [-30, 377]` (grande foresta, ~375 m a sud di Roccanera, pixel
+  830, 1085) e vaga entro 70 m. Ti vedono davanti a loro entro 24 m (15 di notte, metà se sei furtivo, di più a
+  cavallo), ti sentono vicino o se corri: **ululano** e ti cacciano tutti insieme, ti girano attorno e mordono a turno
+  (8 di danno, la parata funziona come con le persone), lontani dalla tana più di ~120 m o da te più di 40 m
+  rinunciano. Hanno 60 di vita; morti lasciano spesso una **pelliccia**. **Uno solo** (`lupo2`, ma non si vede prima)
+  quando gli resta il 35% della vita si accuccia e non combatte più (guaisce); colpito di nuovo scappa alla tana e lì
+  aspetta accucciato (non muore). Vicino a lui: "Lupo arreso (vuole una coscia di maiale)", o con la **coscia di
+  maiale** (nuovo cibo `coscia`, +30 vita, 8 oro: la vende Bodo alla Locanda del Cinghiale, la può avere l'oste)
+  "Dai la coscia di maiale al lupo": la mangia e diventa **il tuo lupo** (90 di vita, morso 14). **Ti segue ovunque**
+  (un po' dietro di te, al tuo passo, di corsa accanto al cavallo; se resta indietro di 70 m o tu entri nel castello o
+  nella miniera ti raggiunge subito), **morde chi ti combatte** entro 14 m (persone ostili e lupi), e chi viene morso
+  può rivoltarsi contro di lui per qualche secondo (`n.foe`, `ai.js hurtFoe`); sconfitto resta a terra 25 s e si
+  rialza; fuori dai combattimenti guarisce. **Guardandolo** da vicino si ferma e il pulsante Usa dice "Dai un ordine
+  al lupo": il dialogo (`dialogs.js` "lupo") offre **Resta qui** (si siede dov'è e ci resta anche se te ne vai,
+  difendendosi solo se lo attaccano) e **Seguimi**. Suoni sintetizzati: ululato, ringhio, morso, guaito, uggiolio
+  (`audio.js`). Salvato in `S.flags.lupi` (morti, arreso, il tuo lupo, resta/segue e dove, vita). Prova: `lupi.cjs`.
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -583,17 +619,18 @@ torre, grotte; poi il serpente marino).
   maniera automatica e aggiorna sempre tutto fino in fondo su github"; fino al 26/11 le univa l'utente, perché senza il
   suo permesso esplicito i controlli della sessione bloccavano l'unione). Unite: #13 (fasi 1–2), #14 (alberi nuovi,
   erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
-  porte), #17 (mare, fiumi, ghiaccio). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
+  porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
   stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
   solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
   dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
-- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `produzione.cjs`.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `lupi.cjs`, `produzione.cjs`.
 - **Originali dell'utente** (non nel repository, `assets/sorgenti/`, da rimettere lì in una sessione nuova se servono):
-  `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare). Le texture fatte da loro
-  sono nel repository; gli strumenti servono solo per rifarle.
+  `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare), `rocce/` (le rocce:
+  `FreePack-RocksStylized.blend`, `Rocks_Stylized_Color.png`), `lupo/` (`wolf.blend`, `wolf_color.png`, `wolf_ao.png`).
+  Le texture e i modelli fatti da loro sono nel repository; gli strumenti servono solo per rifarli.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
 - **Livelli**: altopiano a 0 (Roccanera, colline, miniera), **Valdoro sul suo altopiano a `VALDORO_Y = 12`**, terre basse
