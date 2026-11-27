@@ -16,15 +16,18 @@ import fs from "node:fs";
 const SRC = new URL("../../assets/models/natura/", import.meta.url).pathname;
 const OUT = new URL("../public/models/natura.glb", import.meta.url).pathname;
 
-// id -> [file, { materialNamePrefix: target triangle count }]   (default "*" applies to the other materials)
+// id -> [file, { materialNamePrefix: target triangle count }, options]   (default "*" applies to the other materials;
+// options: lift = the height (model units) under which the foliage's lowest branches are taken away, liftBranches)
 const MODELS = {
   // Trees: Shapespark low-poly plants kit (piante_shapespark.glb), three species (a, b, c) in four sizes (1 = biggest).
   // Already light (370-650 triangles): nothing to simplify.
   ...Object.fromEntries(["a", "b", "c"].flatMap((sp, i) => [1, 2, 3, 4].map((v) => [`albero_${sp}${v}`, [`piante_shapespark#Tree-0${i + 1}-${v}`, {}]]))),
-  // pines: only in the snow of the open country (vegetation.js); the kit has none
-  pino_1: ["pino_1", { Bark: 120, Leaves: 340 }],
-  pino_2: ["pino_2", { Bark: 140, Leaves: 340 }],
-  pino_3: ["pino_3", { Bark: 140, Leaves: 300 }],
+  // the user's trees of 27/11 (tools/alberi-neve.py: already reduced there), big in the game: a pine of branch cards (in
+  // the snow and in the great southern forest), a tree under snow and a bare twisted one with snow on its branches
+  // (its lowest branches, at the height of the eyes, taken away: in the thick of the snowy woods one walks under them)
+  pino_4m: ["pino_4m", {}, { lift: 1.15 }],
+  albero_neve: ["albero_neve", {}],
+  albero_spoglio_neve: ["albero_spoglio_neve", {}],
   contorto_1: ["albero_contorto_1", { Bark: 700, Leaves: 1000 }],
   contorto_2: ["albero_contorto_2", { Bark: 700, Leaves: 900 }],
   morto: ["albero_morto", { Bark: 500 }],
@@ -48,10 +51,13 @@ const MODELS = {
 };
 // The Shapespark kit's materials, renamed after the game's scheme (Bark_* / Leaves_*: shadows, colour grading).
 const RENAME = { "trunk-01": "Bark_Tree", "branch-1-01": "Leaves_Tree_A1", "branch-1-02": "Leaves_Tree_A2", "branch-2-01": "Leaves_Tree_B1",
-  "branch-2-02": "Leaves_Tree_B2", "branch-01": "Leaves_Tree_C1", "branch-02": "Leaves_Tree_C2" };
+  "branch-2-02": "Leaves_Tree_B2", "branch-01": "Leaves_Tree_C1", "branch-02": "Leaves_Tree_C2",
+  // (and the user's trees of 27/11)
+  albero_neve: "Snow_Tree", albero_spoglio_neve: "Snow_BareTree", Pine_leaf: "Leaves_Pine4m", Pine_branch: "Leaves_Pine4mBranch", Pine_trunk: "Bark_Pine4m" };
 // Colour grading per texture (by material name prefix, first match): [brightness, saturation, optional R,G,B multipliers]
 // (the kit's bark is a grey photo: warmed towards brown like the other trunks)
-const GRADE = { RocksStylized: [0.86, 0.75], Bark_Tree: [1, 0.9, [1.19, 0.95, 0.79]], Leaves_Tree: [0.8, 0.7], Bark_DeadTree: [0.9, 0.5], Bark: [0.72, 0.6], Leaves_TwistedTree: [0.62, 0.8], Leaves_Pine: [0.62, 0.6], Leaves_NormalTree: [0.6, 0.55], Leaves: [0.62, 0.55], Flowers: [0.6, 0.5], Grass: [0.6, 0.55], Mushrooms: [0.75, 0.6], Rocks: [0.75, 0.6], PathRocks: [0.75, 0.5] };
+// (the snow of the user's trees stays nearly as it is; their pine's needles are dark already)
+const GRADE = { Snow: [1.2, 0.85], Leaves_Pine4m: [1.3, 0.85], RocksStylized: [0.86, 0.75], Bark_Tree: [1, 0.9, [1.19, 0.95, 0.79]], Leaves_Tree: [0.8, 0.7], Bark_DeadTree: [0.9, 0.5], Bark: [0.72, 0.6], Leaves_TwistedTree: [0.62, 0.8], Leaves_Pine: [0.62, 0.6], Leaves_NormalTree: [0.6, 0.55], Leaves: [0.62, 0.55], Flowers: [0.6, 0.5], Grass: [0.6, 0.55], Mushrooms: [0.75, 0.6], Rocks: [0.75, 0.6], PathRocks: [0.75, 0.5] };
 const gradeOf = (name) => GRADE[Object.keys(GRADE).find((k) => name.startsWith(k))] || [0.7, 0.6];
 
 // Foliage is made of many separate tufts (leaf cards) that a simplifier cannot merge: thin it out instead by
@@ -80,6 +86,23 @@ function thinTufts(prim, target) {
   return list.length;
 }
 
+// The lowest branches of a tree taken away: every piece of its foliage (cards joined by their corners) whose top is
+// below h.
+function liftBranches(prim, h) {
+  const idx = prim.getIndices().getArray(), pos = prim.getAttribute("POSITION"), n = pos.getCount(), v = [0, 0, 0];
+  const parent = Int32Array.from({ length: n }, (_, i) => i);
+  const find = (a) => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
+  const at = new Map();
+  for (let i = 0; i < n; i++) { pos.getElement(i, v); const k = v.map((x) => x.toFixed(4)).join(); if (at.has(k)) parent[find(i)] = find(at.get(k)); else at.set(k, i); }
+  for (let i = 0; i < idx.length; i += 3) { const a = find(idx[i]); parent[find(idx[i + 1])] = a; parent[find(idx[i + 2])] = a; }
+  const top = new Map();
+  for (let i = 0; i < n; i++) { pos.getElement(i, v); const c = find(i); top.set(c, Math.max(top.get(c) ?? -Infinity, v[1])); }
+  const out = [];
+  for (let i = 0; i < idx.length; i += 3) if (top.get(find(idx[i])) >= h) out.push(idx[i], idx[i + 1], idx[i + 2]);
+  prim.getIndices().setArray(new (idx.constructor)(out));
+  compactPrimitive(prim);
+}
+
 await MeshoptEncoder.ready; await MeshoptDecoder.ready; await MeshoptSimplifier.ready;
 const io = new NodeIO().registerExtensions([EXTMeshoptCompression, EXTTextureWebP, KHRMeshQuantization]).registerDependencies({ "meshopt.encoder": MeshoptEncoder, "meshopt.decoder": MeshoptDecoder });
 
@@ -87,7 +110,7 @@ const main = new Document();
 main.createBuffer();
 const scene = main.createScene("natura");
 const report = [];
-for (const [id, [src, targets]] of Object.entries(MODELS)) {
+for (const [id, [src, targets, opts = {}]] of Object.entries(MODELS)) {
   const [file, only] = src.split("#");
   const doc = await io.read(`${SRC}${file}.glb`);
   if (only) {                                      // one object of a multi-model file, moved to the origin
@@ -102,17 +125,19 @@ for (const [id, [src, targets]] of Object.entries(MODELS)) {
     const mat = prim.getMaterial();
     mat.setNormalTexture(null).setOcclusionTexture(null).setMetallicRoughnessTexture(null).setEmissiveTexture(null).setRoughnessFactor(1).setMetallicFactor(0);
     const tris = prim.getIndices().getCount() / 3; before += tris;
+    if (opts.lift && mat.getName().startsWith("Leaves")) liftBranches(prim, opts.lift);
     const key = Object.keys(targets).find((k) => k !== "*" && mat.getName().startsWith(k));
     const target = targets[key] ?? targets["*"];
-    if (target && tris > target * 1.1) {
+    if (target && prim.getIndices().getCount() / 3 > target * 1.1) {
       simplifyPrimitive(prim, { simplifier: MeshoptSimplifier, ratio: target / tris, error: 0.05, lockBorder: false });
       if (prim.getIndices().getCount() / 3 > target * 1.25 && !mat.getName().startsWith("Bark")) thinTufts(prim, target);
     }
     after += prim.getIndices().getCount() / 3;
   }
-  // one node per model, named with the id, transforms baked into the vertices
+  // one node per model, named with the id (a model of several objects, like the user's pine: they go under one)
   await doc.transform(flatten(), prune());
-  doc.getRoot().listScenes()[0].listChildren().forEach((n, i) => n.setName(i ? `${id}_${i}` : id));
+  const sc = doc.getRoot().listScenes()[0], roots = sc.listChildren();
+  if (roots.length > 1) { const g = doc.createNode(id); roots.forEach((n) => { sc.removeChild(n); g.addChild(n); }); sc.addChild(g); } else roots[0].setName(id);
   mergeDocuments(main, doc);
   report.push(`${id.padEnd(18)} ${String(before).padStart(6)} -> ${String(Math.round(after)).padStart(5)} tri`);
 }
@@ -149,7 +174,8 @@ if (leafMats.length) {
 main.createExtension(EXTTextureWebP).setRequired(true);
 for (const tex of root.listTextures()) {
   const matName = tex.listParents().map((p) => p.getName?.()).find((n) => n && n !== "") || "";
-  const [brightness, saturation, rgb] = gradeOf(matName), max = matName === ATLAS ? 1536 : matName === "RocksStylized" ? 1024 : 512;   // (the rocks share one picture)
+  // (the rocks share one picture; the user's big trees of 27/11 are seen close up: their snow and needles at 1024 px)
+  const [brightness, saturation, rgb] = gradeOf(matName), max = matName === ATLAS ? 1536 : /^(RocksStylized|Snow|Leaves_Pine4m$)/.test(matName) ? 1024 : 512;
   let pic = sharp(tex.getImage()).resize(max, max, { fit: "inside" }).modulate({ brightness, saturation });
   if (rgb) { const k = (await sharp(tex.getImage()).metadata()).hasAlpha ? [...rgb, 1] : rgb; pic = sharp(await pic.toBuffer()).linear(k, k.map(() => 0)); }
   const img = await pic.webp({ quality: matName === ATLAS ? 74 : 82, alphaQuality: 90 }).toBuffer();   // (the leaf atlas is big: a little lighter)

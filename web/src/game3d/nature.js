@@ -11,15 +11,18 @@ import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 const EXT = import.meta.env.VITE_MODEL_EXT || "glb";
 const CHUNK = 20;
 // Only these materials cast shadows (trees and rocks); the undergrowth does not.
-const CASTS = /^(Bark|Leaves_Tree|Leaves_Pine|Leaves_NormalTree|Leaves_TwistedTree|Rocks)/;
-// Leaf cards of the Shapespark trees: shaded as one rounded crown (crownNormals, crownShading; material.userData.crown).
-const CROWN = /^Leaves_Tree/;
+const CASTS = /^(Bark|Snow|Leaves_Tree|Leaves_Pine|Leaves_NormalTree|Leaves_TwistedTree|Rocks)/;
+// Leaf cards of the Shapespark trees and of the user's pine: shaded as one rounded crown (crownNormals, crownShading;
+// material.userData.crown).
+const CROWN = /^Leaves_(Tree|Pine4m)/;
 
 // Size of each model in the game (the originals are much bigger) and whether it casts shadows.
 export const NATURE = {
   // trees of the Shapespark kit: species a, b, c; sizes 1-4 (1 = biggest). Already at real scale (4.6-7.9 m).
   ...Object.fromEntries(["a", "b", "c"].flatMap((sp) => [1, 2, 3, 4].map((v) => [`albero_${sp}${v}`, { s: 1, shadow: true }]))),
-  pino_1: { s: 0.72, shadow: true }, pino_2: { s: 0.68, shadow: true }, pino_3: { s: 0.8, shadow: true },   // (only in the snow)
+  // the user's trees of 27/11, big (looking up in their woods little sky is left): a pine of 12.4 m, a tree under snow
+  // of 9.6 m (12.5 m wide), a bare one with snow on its branches of 9.7 m
+  pino_4m: { s: 2.8, shadow: true }, albero_neve: { s: 6.6, shadow: true }, albero_spoglio_neve: { s: 5, shadow: true },
   contorto_1: { s: 0.62, shadow: true }, contorto_2: { s: 0.56, shadow: true }, morto: { s: 0.5, shadow: true },
   cespuglio: { s: 0.8 }, cespuglio_fiorito: { s: 0.75 }, felce: { s: 0.13 }, pianta_grande: { s: 0.8 }, pianta: { s: 0.8 },
   trifoglio: { s: 0.45 }, fiori: { s: 0.4 }, petali: { s: 0.7 }, erba: { s: 0.6 }, erba_alta: { s: 0.42 }, fungo: { s: 0.55 },
@@ -49,6 +52,10 @@ async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
       const lm = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, emissive: m.emissive, alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide, name: (castAll ? "Kit_" : "") + m.name });
       lm.userData.cast = castAll || CASTS.test(m.name);
       if (CROWN.test(m.name)) crownShading(lm);
+      // the snow on the user's trees of 27/11 as bright as the ground's (terrain.js); the crown under snow a soft
+      // volume like the leafy ones (snowCrown), which receives no shadows: its clumps would darken each other
+      if (m.name === "Snow_Tree") { lm.color.multiplyScalar(1.45); lm.userData.noShadow = true; }
+      if (m.name === "Snow_BareTree") lm.color.multiplyScalar(1.15);
       mats.set(m, lm);
     }
     return mats.get(m);
@@ -71,6 +78,7 @@ async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
       parts.push({ geometry: geo, material: convert(o.material) });
     });
     crownNormals(parts.filter((p) => p.material.userData.crown));
+    parts.filter((p) => p.material.name === "Snow_Tree").forEach((p) => snowCrown(p.geometry));
     if (parts.length) out[node.name] = parts;
   });
   return out;
@@ -95,11 +103,31 @@ function crownNormals(leaves) {
     N.needsUpdate = true;
   });
 }
+// The user's tree under snow (Snow_Tree): its crown, many small clumps of snow, was reduced to a few thousand
+// triangles, whose own normals make it a crumpled heap of light and dark shards. Above its trunk the normals turn,
+// gradually, to the crown's rounded volume (as above): a soft snowy crown, its clumps still in its outline.
+function snowCrown(geometry) {
+  const P = geometry.attributes.position, N = geometry.attributes.normal;
+  const box = new THREE.Box3(), v = new THREE.Vector3(), n = new THREE.Vector3(), e = new THREE.Vector3();
+  geometry.computeBoundingBox();
+  const H = geometry.boundingBox.max.y;
+  for (let i = 0; i < P.count; i++) if (P.getY(i) > H * 0.35) box.expandByPoint(v.fromBufferAttribute(P, i));
+  const c = box.getCenter(new THREE.Vector3()), h = box.getSize(new THREE.Vector3()).multiplyScalar(0.5);
+  for (let i = 0; i < P.count; i++) {
+    v.fromBufferAttribute(P, i);
+    const t = Math.min(1, Math.max(0, (v.y / H - 0.25) / 0.17)), w = t * t * (3 - 2 * t) * 0.9;
+    if (!w) continue;
+    e.set((v.x - c.x) / (h.x * h.x), (v.y - c.y) / (h.y * h.y), (v.z - c.z) / (h.z * h.z)).normalize(); e.y += 0.35; e.normalize();
+    n.fromBufferAttribute(N, i).lerp(e, w).normalize();
+    N.setXYZ(i, n.x, n.y, n.z);
+  }
+  N.needsUpdate = true;
+}
 // Shader changes for those crowns: the back of a card keeps the crown normal (no flip), and the alpha cut-out is
 // relaxed with distance (mip level), otherwise the far leaves thin out and the crowns look bald. Crowns cast shadows
 // but do not receive them (addNature, vegetation.js): inside a crown every card shades the next and the tree turns black.
 export function crownShading(mat) {
-  mat.userData.crown = true;
+  mat.userData.crown = true; mat.userData.noShadow = true;
   mat.customProgramCacheKey = () => "crown";
   mat.onBeforeCompile = (sh) => {
     sh.fragmentShader = sh.fragmentShader
@@ -154,7 +182,7 @@ export function addNature(scene, items, meshes = []) {
     geos.forEach((g) => g.dispose());
     geo.computeBoundingSphere();
     const mesh = new THREE.Mesh(geo, material);
-    mesh.castShadow = !!material.userData.cast; mesh.receiveShadow = !material.userData.crown; mesh.matrixAutoUpdate = false;
+    mesh.castShadow = !!material.userData.cast; mesh.receiveShadow = !material.userData.noShadow; mesh.matrixAutoUpdate = false;
     scene.add(mesh); meshes.push(mesh);
     tris += geo.index.count / 3;
   });

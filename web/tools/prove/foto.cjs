@@ -1,5 +1,6 @@
 // Pictures and heights of the world: the highland and its cliffs, the river and its bridges, the great forest, the
-// feet of the mountains; triangles and draws there (the cost on a phone). Usage: node tools/prove/foto.cjs
+// feet of the mountains, the snowy forest of the north-west (inside, looking up, from 150 m); triangles and draws there
+// (the cost on a phone). Usage: node tools/prove/foto.cjs
 const { open, mw } = require('./comune.cjs');
 (async () => {
   const { browser, page: p, errors, shot } = await open();
@@ -19,6 +20,11 @@ const { open, mw } = require('./comune.cjs');
   await at('foto_foresta', [780, 1000], [760, 1060], 6000);
   await at('foto_piedi_nord', [1050, 640], [1060, 470]);
   await at('foto_colline', [930, 760], [1030, 850]);
+  // the snowy forest (the user's pines and snowy trees of 27/11): inside, the sky above it, and from 150 m away
+  await at('foto_bosco_neve', [450, 450], [470, 520], 6000);
+  await p.evaluate(() => { const P = window.__P, s = window.__terrain.surfaceAt(P.x, P.z); window.__topcam = [P.x, s + 1.7, P.z, P.x + Math.sin(P.yaw) * 4, s + 9, P.z + Math.cos(P.yaw) * 4]; });
+  await p.waitForTimeout(2500); await shot('foto_bosco_neve_cielo'); await p.evaluate(() => { window.__topcam = null; });
+  await at('foto_bosco_neve_150m', [450, 300], [450, 450], 5000);
   console.log('errori:', errors.length ? errors.slice(0, 6) : 'nessuno');
   await browser.close();
 })();
