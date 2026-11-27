@@ -11,7 +11,9 @@
 // for all, 2 triangles each; a cone, a ball or a bare trunk only if the pictures cannot be made). Between the two the
 // model dissolves into its picture over BAND metres (both drawn, each on the pixels the other leaves), and far away the
 // pictures thin out the same way: nothing jumps (since 27/11 the snowy forest's trees too: before, its pines and dead
-// trees turned into cones and bare trunks far away). The old map's trees (Roccanera, the bandits' wood: addFixed) are drawn the same way.
+// trees turned into cones and bare trunks far away). The pines of the snow have a little snow on their needles
+// (pino_neve, nature.js). The deeper inside a forest, the taller its trees (growth: the kit's and the dead ones, up to
+// the pines' height at the heart of the great forest; the pines are tall already). The old map's trees (Roccanera, the bandits' wood: addFixed) are drawn the same way.
 // Their trunks stop whoever walks into them (push); the undergrowth does not.
 // More of them since 27/11 (the user: "aggiungi più alberi cespugli e rocce"): groves on the plains (where a slow noise
 // says so), bushes, flowering bushes and flowers in the meadows, the undergrowth seen farther (fading in at its edge);
@@ -21,25 +23,37 @@
 // BatchedMesh: without the multi-draw extension, which some phones lack, it draws every rock by itself.)
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { libParts, natureScale, crownShading } from "./nature";
-import { layersAt, surfaceAt, treeFree, nearRoad, SEA_Y } from "./terrain";
+import { libParts, natureScale, crownShading, frostShading } from "./nature";
+import { layersAt, surfaceAt, treeFree, nearRoad, forestDepthAt, SEA_Y } from "./terrain";
 import { MAP } from "./sites";
 
 // NEAR: where a grown tree's model has become its picture (NEAR_Y for the young ones, k < 0.8), over BAND metres
 const TILE = 64, CELL = 6.4, N = TILE / CELL, NEAR = 34, NEAR_Y = 26, BAND = 9, NEAR_U = 42, SHADE = 28, REBUILD = 5, TREE_FAR = 300, ROCK_R = 130;
-const BROAD = ["albero_a1", "albero_b1", "albero_c1", "albero_a2", "albero_b2", "albero_c2"], TALL = ["pino_4m", "albero_neve", "albero_spoglio_neve"];
+const BROAD = ["albero_a1", "albero_b1", "albero_c1", "albero_a2", "albero_b2", "albero_c2"], TALL = ["pino_4m", "pino_neve", "albero_neve", "albero_spoglio_neve"];
 const MODELS = [...TALL, ...BROAD, "morto"];
 // the trunk's radius (metres at k = 1: what stops a body) of each kind of tree
-const TRUNK = { pino_4m: 0.22, albero_neve: 0.85, albero_spoglio_neve: 0.7, morto: 0.3 };
+const TRUNK = { pino_4m: 0.22, pino_neve: 0.22, albero_neve: 0.85, albero_spoglio_neve: 0.7, morto: 0.3 };
 // where a tree's model has become its picture, if not at NEAR: the tree under snow, the heaviest (7000 triangles), sooner
 const NEAR_OF = { albero_neve: 26 };
 const UNDER = ["cespuglio", "felce", "pianta_grande", "erba_alta", "fungo", "cespuglio_fiorito", "fiori"];
 // the user's rocks by size: small stones, middling and standing ones, boulders (tools/rocce-glb.py)
 const SMALL = ["sasso_1", "sasso_6", "sasso_7", "sasso_10", "sasso_2", "sasso_11"], MID = ["sasso_5", "sasso_8", "sasso_9", "sasso_2"], BIG = ["sasso_3", "sasso_4"];
 const ROCKS = Array.from({ length: 11 }, (_, i) => `sasso_${i + 1}`);
-const KIND = (id) => (id === "pino_4m" ? 0 : id === "morto" || id === "albero_spoglio_neve" ? 2 : 1);   // far without pictures: cone, ball, bare trunk
+const KIND = (id) => (id.startsWith("pino") ? 0 : id === "morto" || id === "albero_spoglio_neve" ? 2 : 1);   // far without pictures: cone, ball, bare trunk
 // the great forest of the south (its box on the map): pines among its trees
 const southForest = (x, z) => x > -300 && x < 150 && z > 100 && z < 720;
+// The deeper inside a forest, the taller the trees (the user, 27/11: "più ci addentriamo e più gli alberi devono essere
+// alti ... non tutti così [giovani]"): how deep (0..1) from 10 m inside its edge to 120 m (the heart of the great
+// southern forest is 139 m deep, the eastern forests about 50: a little, the groves nothing)...
+const deepAt = (x, z) => smooth01((forestDepthAt(x, z) - 10) / 110);
+// ...and how much a tree of the kit or a dead one grows there (size k0): at the heart 1.9 times as tall (a middling
+// one ~15 m, as tall as the pines), the giants less (~18-21 m), the crowns 0.6 of that wider (deep in a forest trees
+// are tall and narrow). [width factor, extra height over it]; the pines are tall already.
+function growth(id, k0, g) {
+  if (!g || (!BROAD.includes(id) && id !== "morto")) return [1, 1];
+  const F = 1.9 - 0.55 * Math.max(0, k0 - 1), hf = 1 + (F - 1) * g, wf = 1 + (F - 1) * g * 0.6;
+  return [wf, hf / wf];
+}
 const TX = Math.ceil(MAP.w / TILE), TZ = Math.ceil(MAP.h / TILE);
 const rand = (a, b, c) => { let h = (a * 374761393 + b * 668265263 + c * 1442695041) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
 // a slow noise (0..1) over the world: where the plains have groves
@@ -69,15 +83,19 @@ function tileTrees(ti, tj) {
       if (rand(s2, 3, 7) > p) continue;
       const y = surfaceAt(x, z);
       if (y < SEA_Y + 0.9 || !treeFree(x, z) || nearRoad(x, z, 4.5) || steep(x, z) > 0.65) continue;
-      const r = rand(s2, 4, 7), sz = rand(s2, 5, 7);
+      const r = rand(s2, 4, 7), deep = ly.forest > 0.3 && ly.snow < 0.5 ? deepAt(x, z) : 0;
       // in the snow: pines most, trees under snow, bare ones; in the great southern forest a pine every three or four
-      const id = ly.snow > 0.5 ? (r < 0.6 ? "pino_4m" : r < 0.8 ? "albero_neve" : "albero_spoglio_neve")
+      const id = ly.snow > 0.5 ? (r < 0.6 ? "pino_neve" : r < 0.8 ? "albero_neve" : "albero_spoglio_neve")
         : ly.forest > 0.35 && r >= 0.96 ? "morto" : !n && ly.forest > 0.35 && southForest(x, z) && rand(s2, 8, 7) < 0.3 ? "pino_4m" : BROAD[Math.floor(r * 61) % BROAD.length];
       // sizes: young ones beside the others; in the forests small, middling and old giants; on the plains grown trees;
       // the big ones of 27/11 from a little smaller than their model to half again as big (pines), a fifth (the others)
-      const k = TALL.includes(id) ? (id === "pino_4m" ? 0.75 + sz * 0.75 : 0.8 + sz * 0.4)
+      // (deep in a forest fewer small trees of the kit and more giants: their sizes pushed up)
+      const sz = TALL.includes(id) ? rand(s2, 5, 7) : rand(s2, 5, 7) ** (1 / (1 + deep * 0.8));
+      const k0 = TALL.includes(id) ? (id.startsWith("pino") ? 0.75 + sz * 0.75 : 0.8 + sz * 0.4)
         : n ? 0.42 + sz * 0.3 : ly.forest > 0.3 ? (sz < 0.25 ? 0.55 + sz * 0.9 : sz < 0.78 ? 0.85 + (sz - 0.25) * 0.66 : 1.3 + (sz - 0.78) * 2.8) : 0.85 + sz * 0.6;
-      trees.push({ x, y, z, id, ry: rand(s2, 6, 7) * Math.PI * 2, k, r: (TRUNK[id] || 0.4) * k });
+      // (deep in a forest taller; k: its width, h: its height over that; still young if it was born small)
+      const [gw, h] = growth(id, k0, deep), k = k0 * gw;
+      trees.push({ x, y, z, id, ry: rand(s2, 6, 7) * Math.PI * 2, k, h, young: k0 < 0.8, r: (TRUNK[id] || 0.4) * k });
     }
     // the undergrowth: thick in the forests (the more the thicker), here and there on the plains
     const f = ly.snow > 0.5 || ly.mount > 0.5 ? 0 : ly.forest;
@@ -142,6 +160,7 @@ const FAR_SHRINK = `( 1.0 - smoothstep( ${TREE_FAR - 60}.0, ${TREE_FAR}.0, dista
 function fading(src, far, key, nd = NEAR) {
   const m = src.clone();
   if (src.userData.crown) crownShading(m);
+  if (src.userData.frost) frostShading(m, src.userData.frost);
   // (a clone does not keep its source's own shader changes, e.g. the undergrowth's green: taken from the source)
   const base = Object.hasOwn(m, "onBeforeCompile") ? m.onBeforeCompile : src.onBeforeCompile;
   m.onBeforeCompile = (sh, r) => {
@@ -165,9 +184,10 @@ function fading(src, far, key, nd = NEAR) {
 // the others); the blocks are packed in shelves of the atlas' width, each in the first one with room for it.
 // Returns { mesh, at: { id: [block u, block v, cell width u, cell height v, quad width, quad height] } }, or null
 // without a renderer.
-const VIEWS = 8, IMP_CELL = { pino_4m: [160, 256], albero_neve: [256, 192], albero_spoglio_neve: [160, 208] }, IMP_KIT = [80, 160];
-// the colour under each picture's transparent pixels (the mipmaps blend it into the outline): leafy, or snowy
-const IMP_RIM = { albero_neve: "#aeb4bf", albero_spoglio_neve: "#7d7873", pino_4m: "#2c3826" };
+// (the kit's trees grow deep in the forests: their cells too, from 80 x 160)
+const VIEWS = 8, IMP_CELL = { pino_4m: [160, 256], pino_neve: [160, 256], albero_neve: [256, 192], albero_spoglio_neve: [160, 208] }, IMP_KIT = [96, 192];
+// the colour under each picture's transparent pixels (the mipmaps blend it into the outline): each tree's own average
+const IMP_RIM = { albero_neve: "#c6cbd2", albero_spoglio_neve: "#a1a1a3", pino_4m: "#39392a", pino_neve: "#55554d", morto: "#3a3838" };
 const NORMAL_MAT = (map) => new THREE.ShaderMaterial({
   uniforms: { map: { value: map } }, side: THREE.DoubleSide,
   vertexShader: "varying vec3 vN; varying vec2 vUv; void main() { vN = normal; vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 ); }",
@@ -190,12 +210,22 @@ function makeImpostors(renderer, ids, max) {
   const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, 0.1, 200), stage = new THREE.Scene(), stageN = new THREE.Scene(), at = {}, used = [];
   const keep = { target: renderer.getRenderTarget(), auto: renderer.autoClear, color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha() };
   renderer.autoClear = false;
+  // (under the alpha: the tree's colour and an upward normal, so the mipmaps blend no dark or odd rims into the far
+  // trees. Written by a quad, not cleared: a clear colour is multiplied by its alpha, 0, and was black: the thin
+  // needles of the pines turned black far away)
+  const fill = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+    uniforms: { c: { value: new THREE.Color() } }, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
+    vertexShader: "void main() { gl_Position = vec4( position.xy, 0.0, 1.0 ); }",
+    fragmentShader: "uniform vec3 c; void main() { gl_FragColor = vec4( c, 0.0 ); }",
+  }));
+  fill.frustumCulled = false;
+  const fillScene = new THREE.Scene().add(fill), UP = new THREE.Color(0.5, 1, 0.5);
   ids.forEach((id) => {
     const parts = libParts(id), b = block[id];
-    // (under the alpha: the tree's colour and an upward normal, so the mipmaps get no dark or odd rims)
-    for (const [target, c] of [[rt, IMP_RIM[id] || "#3a4a2c"], [rtN, new THREE.Color(0.5, 1, 0.5)]]) {
-      target.scissor.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissorTest = true;
-      renderer.setRenderTarget(target); renderer.setClearColor(c, 0); renderer.clear();
+    for (const [target, c] of [[rt, IMP_RIM[id] || "#4a5234"], [rtN, UP]]) {
+      target.viewport.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissor.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissorTest = true;
+      renderer.setRenderTarget(target); renderer.clear();
+      fill.material.uniforms.c.value.set(c); renderer.render(fillScene, cam);
     }
     let r = 0, h = 0;
     parts.forEach((p) => {
@@ -206,6 +236,7 @@ function makeImpostors(renderer, ids, max) {
     stage.clear(); stageN.clear();
     parts.forEach((p) => {
       const mc = new THREE.MeshBasicMaterial({ map: p.material.map, alphaTest: 0.5, side: THREE.DoubleSide }), mn = NORMAL_MAT(p.material.map);
+      if (p.material.userData.frost) frostShading(mc, p.material.userData.frost);   // (the snow on the pine's needles in its pictures too)
       used.push(mc, mn); stage.add(new THREE.Mesh(p.geometry, mc)); stageN.add(new THREE.Mesh(p.geometry, mn));
     });
     Object.assign(cam, { left: -hw, right: hw, top: h, bottom: 0 }); cam.updateProjectionMatrix();
@@ -224,8 +255,8 @@ function makeImpostors(renderer, ids, max) {
     t.viewport.set(0, 0, W, H); t.scissorTest = false; t.texture.generateMipmaps = true;
     renderer.setRenderTarget(t); renderer.render(stage.clear(), cam);       // (nothing drawn: the mipmaps made)
   });
-  stage.clear(); stageN.clear(); used.forEach((m) => m.dispose());
-  if (import.meta.env.DEV) window.__impostors = { ms: Math.round(performance.now() - t0), W, H };   // dev only (tests)
+  stage.clear(); stageN.clear(); used.forEach((m) => m.dispose()); fill.geometry.dispose(); fill.material.dispose();
+  if (import.meta.env.DEV) window.__impostors = { ms: Math.round(performance.now() - t0), W, H, rt, rtN, renderer, block };   // dev only (tests)
   renderer.setRenderTarget(keep.target); renderer.autoClear = keep.auto; renderer.setClearColor(keep.color, keep.alpha);
   const geo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   geo.setAttribute("aImp", new THREE.InstancedBufferAttribute(new Float32Array(max * 4), 4));
@@ -277,7 +308,7 @@ export function createVegetation(scene, renderer) {
   // near: one instanced mesh for each part of each model
   const near = [];
   const nearMats = new Map();                                              // (one fading copy of each material and hand-over)
-  const nearMat = (src, nd) => { const key = `${src.uuid}|${nd}`; if (!nearMats.has(key)) nearMats.set(key, fading(src, false, src.userData.crown ? "crown" : "tree", nd)); return nearMats.get(key); };
+  const nearMat = (src, nd) => { const key = `${src.uuid}|${nd}`; if (!nearMats.has(key)) nearMats.set(key, fading(src, false, (src.userData.crown ? "crown" : "tree") + (src.userData.frost ? `-frost${src.userData.frost}` : ""), nd)); return nearMats.get(key); };
   // grown trees with and without shadows, young ones (no shadows: they stand under the others)
   if (ok) for (const [shade, young] of [[true, false], [false, false], [false, true]]) MODELS.forEach((id) => libParts(id).forEach((pt) => {
     if (young && !BROAD.includes(id)) return;                               // (only the kit's trees have young ones)
@@ -333,9 +364,9 @@ export function createVegetation(scene, renderer) {
     const sz = rockSize[t.id], k = t.k;
     m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - sz.h * k * 0.12, t.z), q.setFromEuler(_e.set(t.tilt, t.ry, t.tilt * 0.6)), sc.set(k, k, k)));
   };
-  const fixed = [];                                                         // the old map's trees (addFixed)
+  const fixed = [], modelH = {};                                            // the old map's trees (addFixed); (tests) heights
   // (the far ones made as tall as the models they stand for)
-  const FAR_K = { pino_4m: 1.64, albero_neve: 1.52, albero_spoglio_neve: 1.35, albero_a1: 1.05, albero_b1: 1.05, albero_c1: 1.25, albero_a2: 1.05, albero_b2: 1.1, albero_c2: 1.2, morto: 1.05 };
+  const FAR_K = { pino_4m: 1.64, pino_neve: 1.64, albero_neve: 1.52, albero_spoglio_neve: 1.35, albero_a1: 1.05, albero_b1: 1.05, albero_c1: 1.25, albero_a2: 1.05, albero_b2: 1.1, albero_c2: 1.2, morto: 1.05 };
   const tileOf = (ti, tj) => {
     const key = tj * TX + ti;
     let t = tiles.get(key);
@@ -353,13 +384,13 @@ export function createVegetation(scene, renderer) {
   // one tree: its model near, its far form far, both in the band between (the shaders share the pixels out)
   const place = (t, d) => {
     q.setFromAxisAngle(UP, t.ry);
-    const young = t.k < 0.8 && BROAD.includes(t.id), nd = young ? NEAR_Y : NEAR_OF[t.id] || NEAR;
+    const young = (t.young ?? t.k < 0.8) && BROAD.includes(t.id), nd = young ? NEAR_Y : NEAR_OF[t.id] || NEAR, h = t.h || 1;
     if (d < nd + REBUILD + 1 && ok) {
       const shade = d < SHADE && !young && t.k >= 0.8;
       for (const n of near) {
         if (n.id !== t.id || n.shade !== shade || n.young !== young || n.m.count >= n.m.instanceMatrix.count) continue;
         const k = n.s * t.k;
-        n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(k, k, k)));
+        n.m.setMatrixAt(n.m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(k, k * h, k)));
       }
     }
     if (d > nd - BAND - REBUILD - 1 || !ok) {
@@ -368,10 +399,10 @@ export function createVegetation(scene, renderer) {
       if (c) {                                                            // its pictures: as big as the model
         const ks = t.k * natureScale(t.id);
         aImp.setXYZW(m.count, c[0], c[1], c[2], c[3]);
-        m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[4] * ks, c[5] * ks, nd)));   // (z: its hand-over distance)
+        m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.08, t.z), q, sc.set(c[4] * ks, c[5] * ks * h, nd)));   // (z: its hand-over distance)
       } else {
         const k = t.k * (FAR_K[t.id] || 1);
-        m.setColorAt(m.count, tint.setScalar(0.82 + (t.ry % 1) * 0.3)); m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.1, t.z), q, sc.set(k, k, k)));
+        m.setColorAt(m.count, tint.setScalar(0.82 + (t.ry % 1) * 0.3)); m.setMatrixAt(m.count++, m4.compose(v.set(t.x, t.y - 0.1, t.z), q, sc.set(k, k * h, k)));
       }
     }
   };
@@ -418,11 +449,22 @@ export function createVegetation(scene, renderer) {
     group, counts,
     /** (tests) The rocks of the tiles already made within r of a point. */
     rocksNear(x, z, r) { const out = []; tiles.forEach((t) => t.rocks.forEach((k) => { if (Math.hypot(k.x - x, k.z - z) < r) out.push(k); })); return out; },
+    /** (tests) A tree's height in metres (its model's, scaled). */
+    heightOf(t) {
+      if (!(t.id in modelH)) { let h = 0; (libParts(t.id) || []).forEach((p) => { p.geometry.computeBoundingBox(); h = Math.max(h, p.geometry.boundingBox.max.y); }); modelH[t.id] = h; }
+      return modelH[t.id] * natureScale(t.id) * t.k * (t.h || 1);
+    },
     /** (tests) The trees of the tiles already made and the fixed ones within r of a point. */
     treesNear(x, z, r) { const out = []; tiles.forEach((t) => t.trees.forEach((tr) => { if (Math.hypot(tr.x - x, tr.z - z) < r) out.push(tr); })); fixed.forEach((tr) => { if (Math.hypot(tr.x - x, tr.z - z) < r) out.push(tr); }); return out; },
     /** Trees placed by the old map (world coordinates, { x, y, z, id, ry, k }): drawn like these (their collisions are
      *  the engine's obstacles). Ids among MODELS. */
-    addFixed(list) { fixed.push(...list.filter((t) => MODELS.includes(t.id))); lx = Infinity; },
+    addFixed(list) {
+      fixed.push(...list.filter((t) => MODELS.includes(t.id)).map((t) => {   // (deep in the forest taller, like the others)
+        const [gw, h] = growth(t.id, t.k || 1, deepAt(t.x, t.z));
+        return gw === 1 ? t : { ...t, k: (t.k || 1) * gw, h, young: (t.k || 1) < 0.8 };
+      }));
+      lx = Infinity;
+    },
     /** Moves the near and far trees with the camera (every few metres). */
     update(p, fogFar, force = false) {
       if (force || pending || Math.hypot(p.x - lx, p.z - lz) > REBUILD || Math.abs(fogFar - lfar) > 12) { lx = p.x; lz = p.z; lfar = fogFar; rebuild(p.x, p.z, fogFar); }

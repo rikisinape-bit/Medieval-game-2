@@ -185,6 +185,40 @@ export function layersAt(x, z) {
     foot: sample(L.pendii, px, pz, 0, 0) / 255,
   };
 }
+// ---- how deep inside a forest a point is: the distance (metres) from the forest's edge, where the forest layer falls
+// under 0.35 (the forests of vegetation.js); 0 outside. A distance transform of the layer, made the first time it is
+// asked (two passes over 512 x 384 pixels of 4 m). The great southern forest is 139 m deep at its heart, the eastern
+// ones about 50, the groves of the plains about 20.
+let FD = null;
+function forestDepthField() {
+  const lay = L.rilievo, W = lay.w, H = lay.h, d = new Float32Array(W * H), D2 = Math.SQRT2;
+  for (let k = 0; k < W * H; k++) d[k] = lay.d[k * 4 + 2] > 89 ? 1e9 : 0;
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const k = j * W + i; if (!d[k]) continue;
+    let m = d[k];
+    if (i > 0) m = Math.min(m, d[k - 1] + 1);
+    if (j > 0) { m = Math.min(m, d[k - W] + 1); if (i > 0) m = Math.min(m, d[k - W - 1] + D2); if (i < W - 1) m = Math.min(m, d[k - W + 1] + D2); }
+    d[k] = m;
+  }
+  for (let j = H - 1; j >= 0; j--) for (let i = W - 1; i >= 0; i--) {
+    const k = j * W + i; if (!d[k]) continue;
+    let m = d[k];
+    if (i < W - 1) m = Math.min(m, d[k + 1] + 1);
+    if (j < H - 1) { m = Math.min(m, d[k + W] + 1); if (i < W - 1) m = Math.min(m, d[k + W + 1] + D2); if (i > 0) m = Math.min(m, d[k + W - 1] + D2); }
+    d[k] = m;
+  }
+  return { w: W, h: H, d };
+}
+/** How deep inside a forest a world point is (metres from its edge; 0 outside the forests). */
+export function forestDepthAt(x, z) {
+  if (!L) return 0;
+  FD ||= forestDepthField();
+  const s = MAP.w / FD.w, u = (x + MAP.ox) / s - 0.5, v = (z + MAP.oz) / s - 0.5;
+  if (u < 0 || v < 0 || u > FD.w - 1 || v > FD.h - 1) return 0;
+  const i = Math.floor(u), j = Math.floor(v), fu = u - i, fv = v - j, i1 = Math.min(i + 1, FD.w - 1), j1 = Math.min(j + 1, FD.h - 1), d = FD.d, W = FD.w;
+  const a = d[j * W + i], b = d[j * W + i1], c = d[j1 * W + i], e = d[j1 * W + i1];
+  return ((a + (b - a) * fu) * (1 - fv) + (c + (e - c) * fu) * fv) * s;
+}
 /** The height of the ground at a world point (the smooth one; what is drawn and walked on is surfaceAt). */
 export function heightAt(x, z) {
   if (!L) return 0;
