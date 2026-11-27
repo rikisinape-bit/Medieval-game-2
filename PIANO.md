@@ -699,7 +699,14 @@ torre, grotte; poi il serpente marino).
     pubblicata `gh` era la costante con la chiave del salvataggio (`lib/save.js`), letta all'avvio da `loadSave`.
     Non riprodotto qui (Chromium, telefono simulato, con e senza salvataggio: parte). Ora le funzioni del salvataggio
     hanno la chiave scritta dentro (niente costante da inizializzare) e il messaggio mostra anche le prime righe della
-    traccia (punto del codice) e il browser (`navigator.userAgent`), per trovarlo se succede ancora.
+    traccia (punto del codice) e il browser (`navigator.userAgent`), per trovarlo se succede ancora. **Trovato** con la
+    traccia (Chrome 158 su Android 10): il salvataggio dell'utente era **nella gabbia di Roccanera**; all'avvio
+    `createGame` chiama `watchCage()` (la guardia torna a sorvegliare), ma `watchCage`/`cageGuards` erano costanti
+    definite 800 righe dopo → errore. Non c'entravano gli alberi né la memoria (le prove partivano sempre fuori dalla
+    gabbia). Ora sono funzioni (esistono dall'inizio); prova nuova `tools/prove/gabbia.cjs` (salvataggio in gabbia:
+    senza la correzione compare l'errore, con la correzione parte). Attenzione per il futuro: in `createGame` ciò che
+    viene chiamato durante la preparazione (prima del ciclo di gioco) deve essere già definito sopra, o essere una
+    `function`.
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -712,7 +719,7 @@ torre, grotte; poi il serpente marino).
   prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte), #22 (alberi della neve e pino pronti), #23
   (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
   verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte), #26 (salvataggio senza
-  costante, errore con traccia e browser). Controllare sempre che non restino PR aperte;
+  costante, errore con traccia e browser), #27 (il gioco riparte anche se salvato nella gabbia). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
