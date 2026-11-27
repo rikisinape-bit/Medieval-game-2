@@ -12,6 +12,10 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
   saracinesca si alza, poi si richiude); una guardia nella piazza e tu nel castello (entra dalla porta); tu in una cella
   chiusa (la guardia la apre); tu nella gabbia di Roccanera chiusa (una sua guardia gira fino alla porta e la apre).
   I tempi sono in secondi veri: con SwiftShader il gioco va a ~1/4 della velocità.
+- `node tools/prove/lupi.cjs` — i lupi: il branco ti caccia vicino alla tana, un colpo vero (J) ne ferisce uno, uno si
+  arrende e gli altri muoiono (pellicce a terra), il messaggio senza e con la coscia di maiale, l'addomesticamento, il
+  lupo che ti segue, "Resta qui" (resta seduto mentre ti allontani) e "Seguimi" dal suo dialogo, il lupo che morde un
+  bandito che ti attacca, il lupo che entra con te nel castello. I tempi in secondi di gioco.
 - `node tools/prove/acqua.cjs [prefisso]` — foto dell'acqua e del ghiaccio: il mare da una spiaggia vicino a Valdoro e
   dalla costa di Roccanera, il fiume dai due ponti, i tre campi di ghiaccio del nord (`SOLO=nome1,nome2` solo quelle).
 - `URL=http://localhost:4173/ node tools/prove/produzione.cjs` — la versione pubblicata (`npm run build:artifact`, poi
@@ -21,5 +25,5 @@ Le foto finiscono in `tools/prove/out/` (non salvata in git; altrove con `OUT=..
 fotogrammi al secondo): i tempi di attesa sono larghi apposta. Agganci di sviluppo usati (solo con `npm run dev`):
 `window.__P` (giocatore), `window.__S` (stato), `window.__picks`, `window.__terrain` (`surfaceAt`, `toWorld`,
 `toLegacy`, `regionOf`, `camera`, `terrain`), `window.__veg` (alberi: `counts`, `trunksIn`), `window.__nav` (`path`),
-`window.__npcs`, `window.__ai`, `window.__ri` (triangoli e chiamate
+`window.__npcs`, `window.__ai`, `window.__wolves` (`all`, `hit`, `order`), `window.__veg.rocksNear`, `window.__ri` (triangoli e chiamate
 dell'ultimo fotogramma), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera), `window.__nofog = true`.

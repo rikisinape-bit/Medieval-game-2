@@ -8,6 +8,7 @@ export const ITEMS = {
   patata: { name: "Patata", kind: "food", heal: 6, price: 1, desc: "+6 vita" },
   formaggio: { name: "Formaggio", kind: "food", heal: 10, price: 2, desc: "+10 vita" },
   carne: { name: "Carne arrosto", kind: "food", heal: 25, price: 6, desc: "+25 vita" },
+  coscia: { name: "Coscia di maiale", kind: "food", heal: 30, price: 8, desc: "+30 vita. Un lupo affamato non sa resisterle" },
   mela: { name: "Mela", kind: "food", heal: 6, price: 1, desc: "+6 vita" },
   acqua: { name: "Borraccia d'acqua", kind: "food", heal: 8, price: 2, desc: "+8 vita" },
   vino: { name: "Vino di Valdoro", kind: "food", heal: 12, price: 5, desc: "+12 vita" },
@@ -66,13 +67,13 @@ export const SHOPS = {
   aldo: { title: "Armeria di Mastro Aldo", sells: ["cuoio", "maglia", "piastre", "cappuccio", "elmo_ferro", "elmo_piastre", "scudo_legno", "scudo_ferro"], buys: ["armor", "helm", "offhand", "ore"], orePrice: 12 },
   garrick: { title: "Lame di Garrick", sells: ["pugnale", "spada_corta", "ascia_guerra", "spada_lunga", "spadone"], buys: ["sword", "tool", "ore"], orePrice: 11 },
   mira: { title: "Spezieria di Mira", sells: ["erbe", "pozione", "pozione_grande", "torcia", "acqua"], buys: ["food", "misc"], orePrice: 0 },
-  bodo: { title: "Locanda del Cinghiale", sells: ["pane", "prosciutto", "formaggio", "carne", "vino", "mela", "acqua"], buys: ["food"], orePrice: 0 },
+  bodo: { title: "Locanda del Cinghiale", sells: ["pane", "prosciutto", "coscia", "formaggio", "carne", "vino", "mela", "acqua"], buys: ["food"], orePrice: 0 },
   osric: { title: "Emporio di Osric", sells: ["corda", "torcia", "libro", "pelliccia", "gemma", "pane"], buys: ["food", "sword", "armor", "helm", "offhand", "tool", "misc", "ore"], orePrice: 9 },
 };
 // What falls on the ground when an NPC dies (besides gold): [item, chance]
 export const LOOT_OF = {
   smith: [["martello", 0.7], ["cuoio", 0.3]], armorer: [["elmo_ferro", 0.5], ["scudo_legno", 0.4]], weaponsmith: [["pugnale", 0.6], ["ascia_guerra", 0.3]],
-  merchant: [["pane", 0.9], ["pozione", 0.4], ["corda", 0.5]], herbalist: [["erbe", 0.9], ["pozione", 0.5]], innkeeper: [["carne", 0.8], ["vino", 0.8], ["prosciutto", 0.5]], trader: [["gemma", 0.4], ["libro", 0.5], ["pelliccia", 0.5]],
+  merchant: [["pane", 0.9], ["pozione", 0.4], ["corda", 0.5]], herbalist: [["erbe", 0.9], ["pozione", 0.5]], innkeeper: [["carne", 0.8], ["vino", 0.8], ["prosciutto", 0.5], ["coscia", 0.5]], trader: [["gemma", 0.4], ["libro", 0.5], ["pelliccia", 0.5]],
   knight: [["elmo_ferro", 0.5], ["spada_lunga", 0.4]], soldier: [["spada_corta", 0.4], ["cappuccio", 0.4], ["pane", 0.5]], bandit: [["pugnale", 0.4], ["cuoio", 0.25], ["pane", 0.5], ["torcia", 0.3]],
   noble: [["libro", 0.6], ["gemma", 0.3]], villager: [["pane", 0.6], ["mela", 0.5], ["acqua", 0.4], ["pomodoro", 0.3], ["patata", 0.3]], miner: [["argento", 0.8], ["acqua", 0.5]], messenger: [["libro", 0.5], ["pane", 0.5], ["torcia", 0.4]],
 };

@@ -22,6 +22,7 @@ import { shapeOf, tumble, middle, placeMiddle, settle } from "./tumble";
 import { regionOf, zoneOf, toWorld as siteToWorld, toLegacy, placeWorld, siteOf, heightOf, SITES, inSite, worldToMap } from "./sites";
 import { createTerrain, surfaceAt, groundAt, deepWater, onDeck, bridgeKeep, layersAt, coastAt } from "./terrain";
 import { createNav } from "./nav";
+import { createWolves } from "./wolves";
 import { createVegetation } from "./vegetation";
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -719,7 +720,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   let noiseT = 0, heardT = 0;
   const NOISE = { run: 11, walk: 3.5, sneak: 0.8, horse: 8, gallop: 16, blow: 14 };
   const makeNoise = (x, z, r) => { if (ai.hear(x, z, r) > 0 && (r >= 8 || P.sneak)) heardT = 1.5; };
-  const inCombat = () => npcs.some((n) => n.alive && n.hostile && n.fights && ai.sameZone(n) && Math.hypot(n.x - P.x, n.z - P.z) < 14);
+  const inCombat = () => npcs.some((n) => n.alive && n.hostile && n.fights && ai.sameZone(n) && Math.hypot(n.x - P.x, n.z - P.z) < 14) || wolves.hunting(14);
   let paused = false;
   const lerp = (a, b, t) => a + (b - a) * t;
   // First-person blows (fparm.js). The sword never turns around its own length in the fist: the edge is brought onto
@@ -871,6 +872,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const caged = !jail && n.guard && !n.valdoro && cageGuards().length > 0;
       P.hp = 60;
       dismount(); npcs.forEach((x) => { Object.assign(x, { hostile: false, spar: false, panic: 0, alert: 0, actT: null, state: "idle" }); }); graceT = 10;
+      wolves.calm();
       if (jail) { toJail(); return; }
       if (caged) { toCage(); return; }
       P.gold = Math.floor(P.gold / 2); P.x = 0; P.z = 4;
@@ -916,6 +918,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const CAGE_OUT = [CAGE.x, CAGE.z - CAGE.half - 0.8], CAGE_IN = [CAGE.x, CAGE.z - CAGE.half + 0.55];
   const inCageDoor = (x, z) => Math.abs(x - CAGE.x) < 0.42 && z > CAGE_OUT[1] - 0.25 && z < CAGE_IN[1] + 0.25;   // (the strip through its door)
   const chase = (n) => {
+    const f = n.foe;                                                      // (for a while: the player's wolf, which bit it)
+    if (f && n.foeT > 0 && f.alive && !(f.down > 0) && f.tame && zoneOf(f.x, f.z) === zoneOf(n.x, n.z) && Math.hypot(f.x - n.x, f.z - n.z) < 15) return { x: f.x, z: f.z, d: Math.hypot(f.x - n.x, f.z - n.z), here: true, foe: f };
     const inC = castle.inZone(n.x, n.z), pC = castle.inZone(P.x, P.z);
     if (inC === pC) {
       const nG = inCage(n.x, n.z), pG = inCage(P.x, P.z);
@@ -943,8 +947,24 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   };
   // (the castle's ways: through the shut prison cells too for a guard hunting someone, who opens them: openFor)
   const route = (x, z, tx, tz, n) => castle.route(x, z, tx, tz, !!n?.hostile && !S.flags.jail && opens(n, "celle")) || mine.route(x, z, tx, tz);
-  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, way, chase, route });
+  const ai = createAI({ P, S, npcs, say, hurtPlayer, grace: () => graceT, snd, houseOf, way, chase, route, hurtFoe: (n, f) => wolves.hit(f, Math.max(1, Math.round(n.dmg * 0.8)), n) });
   if (import.meta.env.DEV) { window.__ai = ai; window.__npcs = npcs; window.__nav = nav; }   // dev only (tests)
+  // ---- The wolves (wolves.js; the user, 27/11): the pack of the great forest, and the one you may tame. A wolf's body is
+  // kept out of walls and deep water, in the castle's rooms and the mine's tunnels like everyone's.
+  const placeBody = (x, z, ox, oz) => {
+    if (deepWater(x, z)) return [ox, oz];
+    [x, z] = pushOut(x, z, 0.35);
+    if (mine.inZone(x, z)) return mine.constrain(x, z);
+    if (castle.inZone(x, z)) return castle.inZone(ox, oz) ? castle.move(ox, oz, x, z) : castle.constrain(x, z);
+    return [x, z];
+  };
+  const wolves = createWolves({
+    scene, S, P, floorY, place: placeBody, zoneOf, way, hurtPlayer, say, note, sfx, vAt,
+    ground: (x, z) => !deepWater(x, z) && coastAt(x, z) > 4 && !castle.inZone(x, z),
+    enemies: () => npcs.filter((n) => n.alive && n.hostile && n.fights && !n.spar),
+    biteNpc: (n, dmg) => wolfBite(n, dmg), float: (t, c) => hooks.onFloat(t, c), burst: (...a) => fx.burst(...a), dropAt: (item, x, z) => dropAt(item, x, z),
+  });
+  if (import.meta.env.DEV) window.__wolves = wolves;                   // dev only (tests)
 
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
@@ -958,6 +978,16 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (seen) { n.discovered = true; if (n.guard) S.rep.crown -= 10; else S.rep.village -= 25; }
     else hooks.onFloat("NESSUN TESTIMONE", "#b9a6ff");
   };
+
+  // the player's wolf bites someone fighting the player (wolves.js): no crime in it, no one to blame
+  const wolfBite = (n, dmg) => {
+    n.hp -= dmg; n.flash = 0.15;
+    fx.burst(n.x, floorY(n.x, n.z) + 0.9, n.z, "#b01c1c", 8, 3); sfx.hit(vAt(n.x, n.z) * 0.7);
+    unmountNpc(n);
+    if (n.hp <= 0) killNpc(n, false);
+  };
+  // something left on the ground (a wolf's pelt): like a thing you drop
+  const dropAt = (item, x, z) => { const d = { item, qty: 1, x: +x.toFixed(2), z: +z.toFixed(2) }; S.drops.push(d); addPick({ id: `d${Date.now()}${S.drops.length}`, ...d, drop: true }, d); };
 
   const hitNpc = (n, dmg) => {
     const calm = !n.hostile && n.role !== "bandit";
@@ -1004,6 +1034,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const dx = n.x - P.x, dz = n.z - P.z;
       return Math.hypot(dx, dz) < reach && Math.abs(angDiff(Math.atan2(dx, dz), P.yaw)) < 0.9;
     }).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    // a wild wolf nearer than anyone (wolves.js: never yours)
+    const wt = wolves.targets().filter((w) => {
+      const dx = w.x - P.x, dz = w.z - P.z;
+      return zoneOf(w.x, w.z) === zoneOf(P.x, P.z) && Math.hypot(dx, dz) < reach + 0.3 && Math.abs(angDiff(Math.atan2(dx, dz), P.yaw)) < 0.9;
+    }).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+    if (wt && (!target || Math.hypot(wt.x - P.x, wt.z - P.z) < Math.hypot(target.x - P.x, target.z - P.z))) {
+      let dmg = SWORDS[P.eq.hand].dmg + Math.round(Math.random() * 6);
+      if (combo === 3) dmg = Math.round(dmg * 1.5);
+      if (riposteT > 0) { dmg *= 2; riposteT = 0; hooks.onFloat("CONTRATTACCO!", "#ff8a4a"); }
+      wolves.hit(wt, dmg); sfx.hit(1); shake = Math.max(shake, 0.12); makeNoise(wt.x, wt.z, NOISE.blow);
+      return;
+    }
     if (!target) return;
     const n = target, dx = n.x - P.x, dz = n.z - P.z;
     const facingMe = Math.abs(angDiff(Math.atan2(-dx, -dz), n.yaw)) < 1.2;
@@ -1163,6 +1205,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
     picks.forEach((pk) => { if (!pk.carried && near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""} (tieni: sposta)` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
+    { const wc = wolves.candidate(near); if (wc) list.push(wc); }        // the wolf that gave in, or yours
     ores.forEach((o, i) => { if (o.depletedUntil < time && near(o.x, o.z, 2.6)) list.push({ kind: "ore", id: i, x: o.x, z: o.z, label: "Estrai argento" }); });
     if (near(CAGE.x, CAGE.z - CAGE.half, 1.8)) {                         // Roccanera's cage: with its key it opens and shuts
       const x = CAGE.x, z = CAGE.z - CAGE.half;
@@ -1181,7 +1224,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   };
 
   const api = (targetId) => ({
-    targetId, hostile: makeHostile, equip: equipItem, give, take,
+    targetId, hostile: makeHostile, equip: equipItem, give, take, wolfOrder: (stay) => wolves.order(stay),
     equipIfBetter: (id) => { if (ITEMS[id].dmg > SWORDS[P.eq.hand].dmg) equipItem(id); else note(`${ITEMS[id].name} finisce nello zaino: la tua arma è migliore.`); },
     heal: (v) => { P.hp = Math.min(100, P.hp + v); },
     free: () => { const j = S.flags.jail; if (j) { setCell(j.cell, true); S.flags.jail = null; } },   // the ransom is paid
@@ -1368,6 +1411,10 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const c = candidates();
     if (!c) return;
     if (c.kind === "horse") { P.mounted = c.id; P.sneak = false; note("Monti a cavallo."); return; }
+    if (c.kind === "lupo") {                                              // a pork leg for it, or an order (its dialog)
+      if (wolves.interact(c, take)) { const d = getDialog("lupo", S); if (d) { dialogOpen = true; hooks.openDialog("lupo", d); } }
+      return;
+    }
     if (c.kind === "dismount") { dismount(); return; }
     if (c.kind === "pick") { pickUp(c.pk); return; }
     if (c.kind === "ore") { const o = ores[c.id]; o.depletedUntil = time + 45; P.ore += 1; fx.burst(o.x, o.y, o.z, "#d8e4f0", 10, 3, true); hooks.onFloat("+1 argento", "#d8e4f0"); return; }
@@ -1746,7 +1793,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     hudT -= dt;
     if (hudT <= 0) {
       hudT = 0.2;
-      const foe = npcs.filter((n) => n.alive && n.hostile && n.fights && ai.sameZone(n)).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+      const foeN = npcs.filter((n) => n.alive && n.hostile && n.fights && ai.sameZone(n)).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0];
+      const foeW = wolves.foe(), dist = (o) => Math.hypot(o.x - P.x, o.z - P.z);
+      const foe = foeW && (!foeN || dist(foeW) < dist(foeN)) ? foeW : foeN;
       rack.children.slice(1).forEach((sw, i) => { sw.visible = i >= (S.flags.rackTaken || 0); });
       const c = dialogOpen || paused ? null : candidates();
       const label = c?.label || null;
@@ -1846,6 +1895,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     scanT -= dt;
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
     const seeFar = Math.min(scene.fog.far + 4, 160);   // characters hidden by the fog or too far are not drawn (the simulation still runs)
+    wolves.update(dt, seeFar);
     npcs.forEach((n) => {
       n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
       if (n.horse) { at(n.horse.mesh, n.horse.x, floorY(n.horse.x, n.horse.z), n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }

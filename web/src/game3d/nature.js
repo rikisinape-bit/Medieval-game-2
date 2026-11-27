@@ -24,6 +24,7 @@ export const NATURE = {
   cespuglio: { s: 0.8 }, cespuglio_fiorito: { s: 0.75 }, felce: { s: 0.13 }, pianta_grande: { s: 0.8 }, pianta: { s: 0.8 },
   trifoglio: { s: 0.45 }, fiori: { s: 0.4 }, petali: { s: 0.7 }, erba: { s: 0.6 }, erba_alta: { s: 0.42 }, fungo: { s: 0.55 },
   roccia: { s: 0.5, shadow: true }, sasso_tondo: { s: 1 }, sasso_quadro: { s: 1 }, selciato: { s: 1 },
+  ...Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`sasso_${i + 1}`, { s: 1, shadow: true }])),   // the user's rocks (real size)
 };
 
 let lib = null, natureOk = false, kitOk = false, propsOk = false;
