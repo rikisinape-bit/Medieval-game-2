@@ -204,29 +204,30 @@ function makeImpostors(renderer, ids, max) {
   });
   const H = shelves.reduce((y, s) => y + s.h, 0);
   const t0 = performance.now();
-  // (their mipmaps made once, at the end: not after each of the hundred and more pictures)
-  const opts = { generateMipmaps: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter };
+  // The two atlases have no depth buffer: they are only read (on a phone too much graphics memory gets the page closed;
+  // with one they took ~49 MB, now ~28). Each tree is drawn into two small pictures of its block that have one (tmpC,
+  // tmpN, freed at the end), then copied into its place. The mipmaps made once, at the end, not after each picture.
+  const opts = { generateMipmaps: false, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false };
   const rt = new THREE.WebGLRenderTarget(W, H, { ...opts, colorSpace: THREE.SRGBColorSpace }), rtN = new THREE.WebGLRenderTarget(W, H, opts);
+  const BW = Math.max(...ids.map((id) => cell(id)[0] * VIEWS)), BH = Math.max(...ids.map((id) => cell(id)[1])), nearest = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+  const tmpC = new THREE.WebGLRenderTarget(BW, BH, { ...nearest, colorSpace: THREE.SRGBColorSpace }), tmpN = new THREE.WebGLRenderTarget(BW, BH, nearest);
   const cam = new THREE.OrthographicCamera(-1, 1, 1, 0, 0.1, 200), stage = new THREE.Scene(), stageN = new THREE.Scene(), at = {}, used = [];
   const keep = { target: renderer.getRenderTarget(), auto: renderer.autoClear, color: renderer.getClearColor(new THREE.Color()), alpha: renderer.getClearAlpha() };
   renderer.autoClear = false;
-  // (under the alpha: the tree's colour and an upward normal, so the mipmaps blend no dark or odd rims into the far
-  // trees. Written by a quad, not cleared: a clear colour is multiplied by its alpha, 0, and was black: the thin
-  // needles of the pines turned black far away)
-  const fill = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
-    uniforms: { c: { value: new THREE.Color() } }, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
-    vertexShader: "void main() { gl_Position = vec4( position.xy, 0.0, 1.0 ); }",
-    fragmentShader: "uniform vec3 c; void main() { gl_FragColor = vec4( c, 0.0 ); }",
-  }));
-  fill.frustumCulled = false;
-  const fillScene = new THREE.Scene().add(fill), UP = new THREE.Color(0.5, 1, 0.5);
+  // Quads that write exactly what they are given (no blending, alpha too): under the alpha the tree's colour and an
+  // upward normal, so the mipmaps blend no dark or odd rims into the far trees (not cleared: a clear colour is
+  // multiplied by its alpha, 0, and was black: the thin needles of the pines turned black far away); and the copy of a
+  // block into the atlas.
+  const quad = (fragmentShader, uniforms) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms, fragmentShader, blending: THREE.NoBlending, depthTest: false, depthWrite: false,
+      vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4( position.xy, 0.0, 1.0 ); }" }));
+    m.frustumCulled = false; return [m, new THREE.Scene().add(m)];
+  };
+  const [fill, fillScene] = quad("uniform vec3 c; void main() { gl_FragColor = vec4( c, 0.0 ); }", { c: { value: new THREE.Color() } });
+  const [copy, copyScene] = quad("uniform sampler2D t; uniform vec2 s; varying vec2 vUv; void main() { gl_FragColor = texture2D( t, vUv * s ); }", { t: { value: null }, s: { value: new THREE.Vector2() } });
+  const UP = new THREE.Color(0.5, 1, 0.5);
   ids.forEach((id) => {
-    const parts = libParts(id), b = block[id];
-    for (const [target, c] of [[rt, IMP_RIM[id] || "#4a5234"], [rtN, UP]]) {
-      target.viewport.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissor.set(b.x, b.y, b.cw * VIEWS, b.ch); target.scissorTest = true;
-      renderer.setRenderTarget(target); renderer.clear();
-      fill.material.uniforms.c.value.set(c); renderer.render(fillScene, cam);
-    }
+    const parts = libParts(id), b = block[id], bw = b.cw * VIEWS;
     let r = 0, h = 0;
     parts.forEach((p) => {
       const P = p.geometry.attributes.position;
@@ -240,14 +241,21 @@ function makeImpostors(renderer, ids, max) {
       used.push(mc, mn); stage.add(new THREE.Mesh(p.geometry, mc)); stageN.add(new THREE.Mesh(p.geometry, mn));
     });
     Object.assign(cam, { left: -hw, right: hw, top: h, bottom: 0 }); cam.updateProjectionMatrix();
-    for (let v = 0; v < VIEWS; v++) {
-      const a = (v / VIEWS) * Math.PI * 2;
-      cam.position.set(Math.sin(a) * (hw + 50), 0, Math.cos(a) * (hw + 50)); cam.lookAt(0, 0, 0);
-      const x = b.x + v * b.cw;
-      for (const [target, sc] of [[rt, stage], [rtN, stageN]]) {
-        target.viewport.set(x, b.y, b.cw, b.ch); target.scissor.set(x, b.y, b.cw, b.ch); target.scissorTest = true;
-        renderer.setRenderTarget(target); renderer.render(sc, cam);
+    for (const [tmp, target, sc, c] of [[tmpC, rt, stage, IMP_RIM[id] || "#4a5234"], [tmpN, rtN, stageN, UP]]) {
+      // the block in the small picture: the colour under the alpha, then the tree from its 8 sides...
+      tmp.viewport.set(0, 0, bw, b.ch); tmp.scissor.set(0, 0, bw, b.ch); tmp.scissorTest = true;
+      renderer.setRenderTarget(tmp); renderer.clear();
+      fill.material.uniforms.c.value.set(c); renderer.render(fillScene, cam);
+      for (let v = 0; v < VIEWS; v++) {
+        const a = (v / VIEWS) * Math.PI * 2;
+        cam.position.set(Math.sin(a) * (hw + 50), 0, Math.cos(a) * (hw + 50)); cam.lookAt(0, 0, 0);
+        tmp.viewport.set(v * b.cw, 0, b.cw, b.ch); tmp.scissor.set(v * b.cw, 0, b.cw, b.ch);
+        renderer.setRenderTarget(tmp); renderer.render(sc, cam);
       }
+      // ...copied into its place in the atlas
+      target.viewport.set(b.x, b.y, bw, b.ch); target.scissor.set(b.x, b.y, bw, b.ch); target.scissorTest = true;
+      copy.material.uniforms.t.value = tmp.texture; copy.material.uniforms.s.value.set(bw / BW, b.ch / BH);
+      renderer.setRenderTarget(target); renderer.render(copyScene, cam);
     }
     at[id] = [b.x / W, b.y / H, b.cw / W, b.ch / H, hw * 2, h];
   });
@@ -255,7 +263,8 @@ function makeImpostors(renderer, ids, max) {
     t.viewport.set(0, 0, W, H); t.scissorTest = false; t.texture.generateMipmaps = true;
     renderer.setRenderTarget(t); renderer.render(stage.clear(), cam);       // (nothing drawn: the mipmaps made)
   });
-  stage.clear(); stageN.clear(); used.forEach((m) => m.dispose()); fill.geometry.dispose(); fill.material.dispose();
+  stage.clear(); stageN.clear(); used.forEach((m) => m.dispose());
+  [fill, copy].forEach((m) => { m.geometry.dispose(); m.material.dispose(); }); tmpC.dispose(); tmpN.dispose();
   if (import.meta.env.DEV) window.__impostors = { ms: Math.round(performance.now() - t0), W, H, rt, rtN, renderer, block };   // dev only (tests)
   renderer.setRenderTarget(keep.target); renderer.autoClear = keep.auto; renderer.setClearColor(keep.color, keep.alpha);
   const geo = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
@@ -335,7 +344,8 @@ export function createVegetation(scene, renderer) {
     m.count = 0; m.frustumCulled = false; m.receiveShadow = true;
     group.add(m); low.push({ id, m, s: natureScale(id) });
   }));
-  const imp = ok ? makeImpostors(renderer, MODELS, 12000) : null;          // (every tree far away: its pictures)
+  let imp = null;                                                          // (every tree far away: its pictures)
+  try { imp = ok ? makeImpostors(renderer, MODELS, 12000) : null; } catch (e) { console.warn("Sagome degli alberi non fatte: forme semplici", e); }
   // (without them, simple forms: a cone, a ball, a bare trunk; without the models they are everywhere)
   const farMat0 = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true }), farMat = ok ? fading(farMat0, true, "simple") : farMat0;
   const far = imp ? [imp.mesh] : [0, 1, 2].map((kind) => new THREE.InstancedMesh(farGeometry(kind), farMat, 9000));
