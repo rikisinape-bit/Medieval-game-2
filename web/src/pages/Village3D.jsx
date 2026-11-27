@@ -193,7 +193,11 @@ export default function Village3D() {
       saveId = setInterval(save, 5000);
       document.addEventListener("visibilitychange", onHide);
       window.addEventListener("pagehide", save);
-    } catch (e) { console.error(e); if (alive) setFailure(String(e?.message || e)); } })();
+    } catch (e) {     // (with where it happened and which browser: to find it from a phone's screen)
+      console.error(e);
+      const where = String(e?.stack || "").split("\n").slice(0, 6).map((l) => l.replace(/https?:\/\/[^ )]*\//g, "")).join("\n");
+      if (alive) setFailure(`${e?.message || e}\n\n${where}\n\n${navigator.userAgent}`);
+    } })();
     return () => {
       alive = false;
       cv?.removeEventListener("webglcontextlost", onLost);
@@ -229,7 +233,7 @@ export default function Village3D() {
       {(!hud || failure) && <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 px-6 text-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">
         {failure ? <>
           <span>Il gioco non è partito</span>
-          <span className="font-pixel tracking-normal text-[13px] text-[#e8dcc4] max-w-md break-words" data-testid="start-failure">{failure}</span>
+          <span className="font-pixel tracking-normal text-[13px] text-[#e8dcc4] max-w-md break-words whitespace-pre-wrap max-h-[60vh] overflow-auto text-left" data-testid="start-failure">{failure}</span>
           <button onClick={() => window.location.reload()} className="px-3 py-1 rounded-sm border border-[#c9a24a]/70 text-[#e8c050] text-sm">Ricarica</button>
         </> : "Caricamento…"}
       </div>}

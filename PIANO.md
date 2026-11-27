@@ -694,7 +694,12 @@ torre, grotte; poi il serpente marino).
     al suo posto con un quadrato: ~28 MB, meno che nella versione che funzionava (~37). Se le sagome non si possono
     fare il gioco usa le forme semplici. E se l'avvio fallisce o la grafica si interrompe (`webglcontextlost`), la
     schermata di caricamento dice "Il gioco non è partito" con il motivo e un pulsante "Ricarica" (`Village3D.jsx`,
-    `failure`): sul telefono non c'è la console, così l'utente può riferire il messaggio.
+    `failure`): sul telefono non c'è la console, così l'utente può riferire il messaggio. Il messaggio arrivato
+    dall'utente: "Cannot access 'gh' before initialization" (un browser Chrome: è il testo di V8); nella versione
+    pubblicata `gh` era la costante con la chiave del salvataggio (`lib/save.js`), letta all'avvio da `loadSave`.
+    Non riprodotto qui (Chromium, telefono simulato, con e senza salvataggio: parte). Ora le funzioni del salvataggio
+    hanno la chiave scritta dentro (niente costante da inizializzare) e il messaggio mostra anche le prime righe della
+    traccia (punto del codice) e il browser (`navigator.userAgent`), per trovarlo se succede ancora.
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -706,8 +711,8 @@ torre, grotte; poi il serpente marino).
   porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi), #20 (il
   prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte), #22 (alberi della neve e pino pronti), #23
   (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
-  verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte). Controllare sempre che non
-  restino PR aperte;
+  verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte), #26 (salvataggio senza
+  costante, errore con traccia e browser). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
