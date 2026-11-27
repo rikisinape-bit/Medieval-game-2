@@ -1496,17 +1496,19 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // Roccanera's cage (world.js CAGE): a KO by Roccanera's guards. Locked in (S.flags.cage, the door: S.flags.cageOpen),
   // the first of them alive keeps watch by it (CAGE_WATCH) and lets you out for a ransom (dialogs.js); or its key
   // (Gerd's, pickpocketed through the bars) opens it. The keys you had are taken back.
-  const cageGuards = () => CAGE_GUARDS.map((id) => S.npcs[id]).filter((x) => x?.alive);
-  const setCage = (open, quiet = false) => { S.flags.cageOpen = open; cageDoorRect.off = open; if (!quiet) sfx.creak(0.9); };
-  const watchCage = () => {                                            // the keeper's routine while someone is in the cage
+  // (functions, not constants: the game starts by calling watchCage when it was saved in the cage, long before
+  // these lines; as constants that start stopped with "Cannot access ... before initialization", 27/11)
+  function cageGuards() { return CAGE_GUARDS.map((id) => S.npcs[id]).filter((x) => x?.alive); }
+  function setCage(open, quiet = false) { S.flags.cageOpen = open; cageDoorRect.off = open; if (!quiet) sfx.creak(0.9); }
+  function watchCage() {                                               // the keeper's routine while someone is in the cage
     const k = S.npcs[S.flags.cageKeeper] || cageGuards()[0]; if (!k) return;
     S.flags.cageKeeper = k.id; Object.assign(k, { routine: CAGE_WATCH, ri: 0, actT: null, walkT: 0 });
-  };
-  const freeFromCage = () => {
+  }
+  function freeFromCage() {
     const k = S.npcs[S.flags.cageKeeper];
     if (k) Object.assign(k, { routine: DEFS.find((d) => d.id === k.id).routine, ri: 0, actT: null, walkT: 0 });
     S.flags.cage = null; S.flags.cageKeeper = null;
-  };
+  }
   async function toCage() {
     transit = true; running = false;
     hooks.onLoading?.("I soldati ti hanno messo KO...");
