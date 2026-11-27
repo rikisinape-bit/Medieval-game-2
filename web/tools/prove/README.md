@@ -17,6 +17,9 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
   mercato di Roccanera (il suo negozio), il messaggio con il prosciutto, l'addomesticamento, il
   lupo che ti segue, "Resta qui" (resta seduto mentre ti allontani) e "Seguimi" dal suo dialogo, il lupo che morde un
   bandito che ti attacca, il lupo che entra con te nel castello. I tempi in secondi di gioco.
+- `node tools/prove/goblin.cjs` — il goblin: di giorno non c'è; di notte esce vicino alla sua tana (bosco innevato del
+  nord-ovest); ti vede, ti caccia e ti artiglia; un colpo vero (J) lo ferisce; ucciso lascia l'oro e quella notte non
+  torna; il giorno dopo il corpo sparisce, la notte dopo esce di nuovo; all'alba, se non combatte, se ne va.
 - `node tools/prove/acqua.cjs [prefisso]` — foto dell'acqua e del ghiaccio: il mare da una spiaggia vicino a Valdoro e
   dalla costa di Roccanera, il fiume dai due ponti, i tre campi di ghiaccio del nord (`SOLO=nome1,nome2` solo quelle).
 - `URL=http://localhost:4173/ node tools/prove/produzione.cjs` — la versione pubblicata (`npm run build:artifact`, poi
@@ -26,5 +29,5 @@ Le foto finiscono in `tools/prove/out/` (non salvata in git; altrove con `OUT=..
 fotogrammi al secondo): i tempi di attesa sono larghi apposta. Agganci di sviluppo usati (solo con `npm run dev`):
 `window.__P` (giocatore), `window.__S` (stato), `window.__picks`, `window.__terrain` (`surfaceAt`, `toWorld`,
 `toLegacy`, `regionOf`, `camera`, `terrain`), `window.__veg` (alberi: `counts`, `trunksIn`), `window.__nav` (`path`),
-`window.__npcs`, `window.__ai`, `window.__wolves` (`all`, `hit`, `order`), `window.__veg.rocksNear`, `window.__ri` (triangoli e chiamate
+`window.__npcs`, `window.__ai`, `window.__wolves` (`all`, `hit`, `order`), `window.__goblin` (`g`, `hit`, `summon`), `window.__veg.rocksNear`, `window.__ri` (triangoli e chiamate
 dell'ultimo fotogramma), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera), `window.__nofog = true`.

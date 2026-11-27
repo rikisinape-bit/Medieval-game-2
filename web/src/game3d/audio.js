@@ -85,6 +85,16 @@ export function createAudio() {
     bite: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; noise(t, 0.05, "highpass", 2400, 0.55 * v); tone(t, "sine", 210, 0.3 * v, 0.07, 90); } },
     yelp: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; [0, 0.16].forEach((d) => { tone(t + d, "sawtooth", 1050, 0.12 * v, 0.13, 640); }); } },
     whine: (v = 1) => { if (ok(v)) { const t = ctx.currentTime; tone(t, "triangle", 760, 0.1 * v, 0.55, 520); tone(t + 0.6, "triangle", 700, 0.07 * v, 0.4, 560); } },
+    // The goblin (goblin.js): a hiss, a screech when it sees you
+    hiss: (v = 1) => { if (ok(v)) noise(ctx.currentTime, 0.38, "bandpass", 3200, 0.32 * v, 2, 2200); },
+    screech: (v = 1) => {
+      if (!ok(v)) return;
+      const t = ctx.currentTime, o = ctx.createOscillator(); o.type = "sawtooth";
+      o.frequency.setValueAtTime(820, t); o.frequency.exponentialRampToValueAtTime(1450, t + 0.18); o.frequency.exponentialRampToValueAtTime(640, t + 0.75);
+      const g = gain(t, 0.5 * v, 0.75, 0.02);
+      [[1300, 5], [2600, 7]].forEach(([f, q]) => { const b = ctx.createBiquadFilter(); b.type = "bandpass"; b.frequency.value = f; b.Q.value = q; o.connect(b); b.connect(g); });
+      o.start(t); o.stop(t + 0.85); noise(t, 0.5, "highpass", 2500, 0.12 * v);
+    },
     dispose: () => { if (ctx) ctx.close(); },
   };
 }
