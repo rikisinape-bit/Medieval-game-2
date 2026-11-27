@@ -142,6 +142,9 @@ export default function Village3D() {
   const [loot, setLoot] = useState(null);     // a body being searched (LootPanel)
   const [askReset, setAskReset] = useState(false);
   const [loading, setLoading] = useState(null);   // "Caricamento..." while going into a place apart (the castle) or out
+  // why the game did not start, or stopped drawing (shown on the loading screen, so it can be told: on a phone there
+  // is no console)
+  const [failure, setFailure] = useState(null);
   const [fps, setFps] = useState(() => { try { return localStorage.getItem("rv-fps") === "1"; } catch { return false; } });
   // battery saving: 0 off, 1 medium (45 FPS), 2 most (30 FPS, simpler graphics)
   const [power, setPower] = useState(() => { try { return Math.max(0, Math.min(2, Number(localStorage.getItem("rv-risparmio")) || 0)); } catch { return 0; } });
@@ -155,7 +158,11 @@ export default function Village3D() {
     const save = () => { if (gameRef.current) writeSave(gameRef.current.getSave()); };
     // On mobile "beforeunload" often never fires: save when the page is hidden (app switch, screen off, tab closed).
     const onHide = () => { if (document.visibilityState === "hidden") save(); };
-    (async () => {
+    // the graphics stopped (the phone took its memory back, usually): it says so instead of a still picture
+    const onLost = (e) => { e.preventDefault(); setFailure("La grafica del gioco si è interrotta (di solito il telefono ha finito la memoria)."); };
+    const cv = canvasRef.current;
+    cv?.addEventListener("webglcontextlost", onLost);
+    (async () => { try {
       const saved = loadSave();
       await loadNature(); // trees, bushes, rocks... (falls back to procedural trees if it fails)
       await loadTerrain(); // the ground of the whole world, from the map of Vasilad
@@ -186,9 +193,10 @@ export default function Village3D() {
       saveId = setInterval(save, 5000);
       document.addEventListener("visibilitychange", onHide);
       window.addEventListener("pagehide", save);
-    })();
+    } catch (e) { console.error(e); if (alive) setFailure(String(e?.message || e)); } })();
     return () => {
       alive = false;
+      cv?.removeEventListener("webglcontextlost", onLost);
       clearInterval(saveId);
       save();
       document.removeEventListener("visibilitychange", onHide);
@@ -218,7 +226,13 @@ export default function Village3D() {
   return (
     <div className="fixed inset-0 overflow-hidden bg-black" data-testid="village3d-root">
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full touch-none" data-testid="village3d-canvas" />
-      {!hud && <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">Caricamento…</div>}
+      {(!hud || failure) && <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 px-6 text-center bg-[#0d0a08] font-title tracking-widest text-[#c9a24a]" data-testid="loading">
+        {failure ? <>
+          <span>Il gioco non è partito</span>
+          <span className="font-pixel tracking-normal text-[13px] text-[#e8dcc4] max-w-md break-words" data-testid="start-failure">{failure}</span>
+          <button onClick={() => window.location.reload()} className="px-3 py-1 rounded-sm border border-[#c9a24a]/70 text-[#e8c050] text-sm">Ricarica</button>
+        </> : "Caricamento…"}
+      </div>}
       <TopBar hud={hud} onMenu={() => setMenuOpen(true)} onCamera={() => act("camera")}
         onFull={() => toggleFull(() => { const t = "Lo schermo intero non è permesso qui (Safari su iPhone non lo consente): tieni il telefono in orizzontale."; setToast({ id: `${Date.now()}`, t }); clearTimeout(toastT.current); toastT.current = setTimeout(() => setToast(null), 6000); })} />
       {!dialog && <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 w-1.5 h-1.5 rounded-full bg-white/70 pointer-events-none" data-testid="crosshair" />}
