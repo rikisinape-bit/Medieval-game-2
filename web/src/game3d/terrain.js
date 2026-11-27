@@ -19,8 +19,11 @@ import ERBA from "./terreno_erba.jpg";
 import ERBA_N from "./terreno_erba_n.jpg";
 import TERRA from "./terreno_terra.jpg";
 import TERRA_N from "./terreno_terra_n.jpg";
+import GHIACCIO from "./terreno_ghiaccio.jpg";
+import GHIACCIO_N from "./terreno_ghiaccio_n.jpg";
 import { MAP, SITES, FLATS, MINE_HOLE, ROADS, BRIDGES, HIGHLAND, STEPS, LOW, VALDORO_HIGH, VALDORO_Y, inSite, roadWorld, mapToWorld } from "./sites";
 import { groundMat } from "./ground";
+import { waterMaterial } from "./water";
 
 export const SEA_Y = -12.5;
 const STEP = 2, TILE = 32;                       // a vertex every 2 m, 32 cells (64 m) a tile
@@ -271,7 +274,7 @@ export const deepWater = (x, z) => coastAt(x, z) < -4.5 && !onBridge(x, z);
 const TERRAIN_V = `attribute vec4 aW;
 varying vec4 vW;
 varying vec3 tWP, tWN;`;
-const TERRAIN_F = `uniform sampler2D tGrass, tDirt, tGrassN, tDirtN;
+const TERRAIN_F = `uniform sampler2D tGrass, tDirt, tGrassN, tDirtN, tIce, tIceN;
 varying vec4 vW;
 varying vec3 tWP, tWN;
 float tHash( vec2 p ) { vec3 p3 = fract( vec3( p.xyx ) * 0.1031 ); p3 += dot( p3, p3.yzx + 33.33 ); return fract( ( p3.x + p3.y ) * p3.z ); }
@@ -298,17 +301,38 @@ const TERRAIN_MAP = `
 	tCol = mix( tCol, mix( tD, vec3( tLum ), 0.35 ) * vec3( 1.08, 1.04, 1.0 ), tRock );
 	float tSand = smoothstep( ${(SEA_Y + 0.75).toFixed(2)}, ${(SEA_Y + 0.25).toFixed(2)}, tWP.y );   // by the water: sand
 	tCol = mix( tCol, vec3( 0.80, 0.72, 0.54 ) * ( 0.75 + 0.5 * tLum ), tSand * ( 1.0 - tRock ) );
-	tCol = mix( tCol, vec3( 0.13, 0.27, 0.31 ), smoothstep( ${(SEA_Y + 0.05).toFixed(2)}, ${(SEA_Y - 2.2).toFixed(2)}, tWP.y ) * 0.85 );   // under the water: its colour
+	tCol = mix( tCol, vec3( 0.06, 0.18, 0.32 ), smoothstep( ${(SEA_Y + 0.05).toFixed(2)}, ${(SEA_Y - 2.2).toFixed(2)}, tWP.y ) * 0.85 );   // under the water: its colour (water.js)
 	float tSnow = vW.y * ( 1.0 - tRock * 0.6 );
 	tCol = mix( tCol, vec3( 0.9, 0.93, 0.97 ) * ( 0.82 + 0.36 * tLum ), tSnow );
-	tCol = mix( tCol, vec3( 0.62, 0.8, 0.9 ) * ( 0.85 + 0.3 * tLum ), vW.z );
+	// the ice of the north (the user's ICE009, terreno_ghiaccio.jpg): its photo, 6.5 m a tile, a second one across it
+	// here and there against the repetition; far off, its average a little lighter and bluer (it reads as ice). Only
+	// where there is ice (the photos are not read elsewhere: the phone's work)
+	vec2 tUvI = tWP.xz / 6.5;
+	vec2 tUvI2 = mat2( 0.94, -0.34, 0.34, 0.94 ) * tWP.xz / 9.7 + vec2( 0.31, 0.77 );
+	float tIk2 = smoothstep( 0.35, 0.65, tNoise( tWP.xz * 0.045 + 5.3 ) ) * 0.6;
+	float tIceK = smoothstep( 0.18, 0.6, vW.z + ( tNoise( tWP.xz * 0.09 + 2.9 ) - 0.5 ) * 0.3 );
+	if ( tIceK > 0.0 ) {
+		vec3 tI = mix( texture2D( tIce, tUvI ).rgb, texture2D( tIce, tUvI2 ).rgb, tIk2 ) * vec3( 1.04, 1.07, 1.12 );
+		tI = mix( tI, textureLod( tIce, tUvI, 12.0 ).rgb * vec3( 1.22, 1.27, 1.34 ), tFar * 0.7 );
+		tCol = mix( tCol, tI, tIceK );
+	}
 	diffuseColor.rgb *= tCol;
-	float tRelief = 1.0 - max( vW.y, vW.z ) * 0.8;
+	float tRelief = 1.0 - vW.y * ( 1.0 - tIceK ) * 0.8;
+`;
+// the ice shines where its photo is smooth (its roughness map, in the blue of its normal map)
+const TERRAIN_ROUGH = `#include <roughnessmap_fragment>
+	if ( tIceK > 0.0 ) roughnessFactor = mix( roughnessFactor, mix( texture2D( tIceN, tUvI ).b, 1.0, 0.25 + tFar * 0.5 ), tIceK );
 `;
 const TERRAIN_NORMAL = `
 #ifdef USE_NORMALMAP_TANGENTSPACE
 	vec3 tMapN = mix( texture2D( tGrassN, tUv ).xyz, texture2D( tDirtN, tUvD ).xyz, clamp( tDry * 0.6 + tRock, 0.0, 1.0 ) ) * 2.0 - 1.0;
 	tMapN.xy *= normalScale * tRelief * ( 1.0 - tFar * 0.7 );
+	// the ice's own relief (x turned: this frame's tangent is -x, the photo's +x; its z rebuilt: blue is roughness)
+	if ( tIceK > 0.0 ) {
+		vec2 tIn = mix( texture2D( tIceN, tUvI ).xy, texture2D( tIceN, tUvI2 ).xy, tIk2 ) * 2.0 - 1.0;
+		tIn *= vec2( -1.0, 1.0 ) * ( 1.0 - tFar * 0.65 );
+		tMapN = mix( tMapN, vec3( tIn, sqrt( max( 0.0, 1.0 - dot( tIn, tIn ) ) ) ), tIceK );
+	}
 	vec3 tN = normalize( tWN ), tT = normalize( cross( vec3( 0.0, 0.0, 1.0 ), tN ) ), tB = cross( tN, tT );
 	normal = normalize( ( viewMatrix * vec4( normalize( tT * tMapN.x + tB * tMapN.y + tN * tMapN.z ), 0.0 ) ).xyz );
 #endif
@@ -318,13 +342,14 @@ function terrainMat(renderer, far = false) {
   if (mats[far]) return mats[far];
   const L2 = new THREE.TextureLoader(), aniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const tex = (src, srgb) => { const t = L2.load(src); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = aniso; if (srgb) t.colorSpace = THREE.SRGBColorSpace; return t; };
-  const grass = tex(ERBA, true), dirt = tex(TERRA, true), grassN = tex(ERBA_N), dirtN = tex(TERRA_N);
+  const grass = tex(ERBA, true), dirt = tex(TERRA, true), grassN = tex(ERBA_N), dirtN = tex(TERRA_N), ice = tex(GHIACCIO, true), iceN = tex(GHIACCIO_N);
   // (map and normalMap only switch three.js' code for them on: the terrain samples its own textures)
   const mat = new THREE.MeshStandardMaterial({ map: grass, normalMap: grassN, roughness: 1, metalness: 0 });
   mat.onBeforeCompile = (sh) => {
-    Object.assign(sh.uniforms, { tGrass: { value: grass }, tDirt: { value: dirt }, tGrassN: { value: grassN }, tDirtN: { value: dirtN } });
+    Object.assign(sh.uniforms, { tGrass: { value: grass }, tDirt: { value: dirt }, tGrassN: { value: grassN }, tDirtN: { value: dirtN }, tIce: { value: ice }, tIceN: { value: iceN } });
     sh.vertexShader = TERRAIN_V + "\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tvW = aW; tWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz; tWN = normal;");
-    sh.fragmentShader = `#define T_FAR ${far}\n` + TERRAIN_F + sh.fragmentShader.replace("#include <map_fragment>", far ? TERRAIN_MAP : TERRAIN_MAP.replace(`< ${SPLIT}.0`, `< ${SPLIT + 10}.0`)).replace("#include <normal_fragment_maps>", TERRAIN_NORMAL);
+    sh.fragmentShader = `#define T_FAR ${far}\n` + TERRAIN_F + sh.fragmentShader.replace("#include <map_fragment>", far ? TERRAIN_MAP : TERRAIN_MAP.replace(`< ${SPLIT}.0`, `< ${SPLIT + 10}.0`))
+      .replace("#include <roughnessmap_fragment>", TERRAIN_ROUGH).replace("#include <normal_fragment_maps>", TERRAIN_NORMAL);
   };
   mat.customProgramCacheKey = () => (far ? "terrain-far" : "terrain-1");
   return (mats[far] = mat);
@@ -431,17 +456,8 @@ export function createTerrain(scene, renderer, opts = {}) {
   const material = terrainMat(renderer), tiles = new Map(), group = new THREE.Group();
   group.userData.world = true; scene.add(group);
   const farGround = buildFar(terrainMat(renderer, true)); group.add(farGround);   // (beyond SPLIT: hills, mountains, coasts)
-  // the sea: a wide plane following the camera, a little rippled
-  const seaMat = new THREE.MeshStandardMaterial({ color: "#2a5a6c", roughness: 0.3, metalness: 0.05, transparent: true, opacity: 0.9 });
-  seaMat.onBeforeCompile = (sh) => {
-    sh.uniforms.sTime = { value: 0 }; seaMat.userData.sh = sh;
-    sh.vertexShader = "varying vec3 sWP;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n\tsWP = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;");
-    sh.fragmentShader = "uniform float sTime;\nvarying vec3 sWP;\n" + sh.fragmentShader.replace("#include <normal_fragment_maps>", `
-	vec2 sP = sWP.xz * 0.35;
-	vec3 sN = normalize( vec3( sin( sP.x * 1.3 + sTime * 1.1 ) * 0.06 + sin( sP.y * 1.9 - sTime * 0.8 + sP.x * 0.4 ) * 0.05, 1.0,
-		cos( sP.y * 1.1 + sTime * 0.9 ) * 0.06 + sin( sP.x * 2.3 + sTime * 1.3 + sP.y * 0.6 ) * 0.04 ) );
-	normal = normalize( ( viewMatrix * vec4( sN, 0.0 ) ).xyz );`);
-  };
+  // the sea: a wide plane following the camera, the user's calm sea on it (water.js); it fills the rivers too
+  const seaMat = waterMaterial(renderer, MAP);
   const sea = new THREE.Mesh(new THREE.PlaneGeometry(2400, 2400), seaMat);   // (as far as the camera sees)
   sea.rotation.x = -Math.PI / 2; sea.position.y = SEA_Y; sea.renderOrder = 1; sea.userData.world = true;
   scene.add(sea);
@@ -473,7 +489,7 @@ export function createTerrain(scene, renderer, opts = {}) {
     /** Builds the tiles near p (all of them at once with `all`), drops the far ones; moves the sea. far: beyond it
      *  (the fog) the tiles are not drawn. */
     update(p, dt = 0, all = false, far = Infinity) {
-      seaMat.userData.sh && (seaMat.userData.sh.uniforms.sTime.value = (performance.now() - t0) / 1000);
+      seaMat.userData.update((performance.now() - t0) / 1000, scene.fog?.color);
       sea.position.x = Math.round(p.x / 32) * 32; sea.position.z = Math.round(p.z / 32) * 32;
       const ti = Math.floor((p.x + MAP.ox) / (TILE * STEP)), tj = Math.floor((p.z + MAP.oz) / (TILE * STEP));
       let budget = all ? Infinity : 2;                    // (a couple of new tiles a frame: no stutter)

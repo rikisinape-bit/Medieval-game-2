@@ -25,6 +25,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `items.js` | `ITEMS`, `SHOPS`, `LOOT_OF`, riduzione danni, prezzi |
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
 | `nav.js` | La strada dei personaggi intorno agli ostacoli: A* su una griglia di 0,5 m fatta al bisogno (case, mura, alberi, rocce, acqua profonda), porte che solo alcuni possono aprire |
+| `water.js` | L'acqua del mare e dei fiumi: il mare calmo dell'utente (`mare_calmo_n.jpg`, da `tools/bake-mare.py`) in tre misure che si muovono, colore per profondità, cielo riflesso, schiuma sulle rive del mare |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
 | `mine.js` | Miniera a cunicoli: gallerie in discesa da campo di distanza + marching cubes, vene d'argento, torce; altezza del pavimento, collisioni; luce del cielo spenta solo dentro la montagna |
 | `castle.js`, `castle_layout.js` | Interno del castello di Valdoro, "stanza a parte" lontana dal mondo (`CASTLE`): pezzi, aree calpestabili, ostacoli e luci (`castle_layout.js`, solo dati); caricamento dei modelli alla prima entrata, pavimenti, strade da stanza a stanza (`castle.js`) |
@@ -554,20 +555,39 @@ torre, grotte; poi il serpente marino).
   attraversa (dentro ↔ piazza). Le guardie di Valdoro aprono le **celle delle prigioni** (le chiavi del carceriere) e
   quelle di Roccanera la **gabbia** (girano fino alla sua porta) per venirti a prendere, da fuori o da dentro; non la
   cella o la gabbia dove ti hanno chiuso loro (lì ti lasciano marcire, come prima). Prova: `inseguimento.cjs`.
+- **Mare e fiumi (27/11, file dell'utente `mare_calmo.blend`)**: il file è una superficie del modificatore Ocean di
+  Blender (spettro di Phillips, 50 m per periodo, onde fino a ~0,8 m, niente schiuma) con un materiale blu
+  (0,149, 0,457, 0,8 lineare); l'immagine `mare.jpg` che usava non è nel file. `web/tools/bake-mare.py` (Python 3.13
+  con `bpy`, numpy, pillow) apre il file, prende un periodo della superficie (senza giunture) e ne fa
+  `mare_calmo_n.jpg` (512 px: R, G la normale, B l'altezza). `water.js`: l'acqua (il piano del mare a `SEA_Y`, che
+  riempie anche i fiumi) la usa a 50, 13,7 e 4,3 m, girata e in movimento in tre direzioni (più calma in lontananza);
+  colore: il blu dell'utente più scuro al largo, più chiaro e trasparente vicino a riva (profondità dalla distanza dalla
+  costa, `mondo/costa.png`, come la scava `heightAt`); il cielo vi si riflette verso l'orizzonte (Fresnel, più blu in
+  alto), il sole luccica sulle onde, una schiuma sottile va e viene sulle rive del mare (non dei fiumi). Il fondo sotto
+  l'acqua prende il blu nuovo. I fiumi non scorrono ancora (la mappa non dice da dove nascono e dove sfociano).
+- **Ghiaccio del nord (27/11, texture dell'utente ICE009)**: dove la mappa disegna il ghiaccio (le tre zone azzurre del
+  nord, strato `ice` di `suolo.png`) il terreno ha la foto del ghiaccio (`terreno_ghiaccio.jpg`, 1024 px, una
+  piastrella ogni 6,5 m più una seconda di traverso qua e là, più chiara e azzurra in lontananza), il suo rilievo e la
+  sua lucentezza (`terreno_ghiaccio_n.jpg`: normale in R, G, ruvidità in B), letti solo dove c'è ghiaccio. Fatte da
+  `node tools/build-ground.mjs ghiaccio` dagli originali in `assets/sorgenti/terreno/ice009/`. La neve e le
+  **montagne** restano come prima: l'utente dirà come cambiarle. Prova: `acqua.cjs` (foto prima/dopo).
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
 - **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
   `claude/threejs-godot-port-83bphh`; le PR le unisce l'utente da GitHub (l'unione fatta da Claude è bloccata dai
   permessi). Unite: #13 (fasi 1–2), #14 (alberi nuovi, erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa
-  ingrandibile, schermo intero). Aperta: #16 (inseguimenti e porte). Controllare sempre che le PR aperte siano unite;
+  ingrandibile, schermo intero), #16 (inseguimenti e porte). Aperta: #17 (mare, fiumi, ghiaccio). Controllare sempre che le PR aperte siano unite;
   se la PR del ramo è stata unita, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
   solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
   dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
-- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `produzione.cjs`.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `produzione.cjs`.
+- **Originali dell'utente** (non nel repository, `assets/sorgenti/`, da rimettere lì in una sessione nuova se servono):
+  `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare). Le texture fatte da loro
+  sono nel repository; gli strumenti servono solo per rifarle.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
 - **Livelli**: altopiano a 0 (Roccanera, colline, miniera), **Valdoro sul suo altopiano a `VALDORO_Y = 12`**, terre basse

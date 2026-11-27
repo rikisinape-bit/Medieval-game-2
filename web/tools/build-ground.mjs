@@ -2,7 +2,7 @@
 // little darker) and terreno_<name>_n.jpg (normal map: the ground answers the sun's light), and the leaf texture
 // foglia.jpg of the ground-cover leaves (leaves.js), from the texture sets in assets/sorgenti/ (third-party originals:
 // not in the repository). engine.js lays the ground in world space (groundMat), terrain.js the open country.
-// Usage: node tools/build-ground.mjs [erba terra crepe pietra foglia]   (default: all; a set whose originals are
+// Usage: node tools/build-ground.mjs [erba terra crepe pietra ghiaccio foglia]   (default: all; a set whose originals are
 // missing is skipped and its textures stay as they are)
 // (assets/sorgenti/terreno/Vol_16_2 is the old dirt with stones, kept for later.)
 import fs from "node:fs";
@@ -17,16 +17,20 @@ const STONE = "pietra_castello/Stone Ground Textures/";
 // The meadow: the photo of a lawn of the "Grass" material in the user's grass.blend (images packed in the file, 2048 px,
 // seamless, about 2.4 m of lawn; probably from BlenderKit), read straight out of the .blend.
 const GRASS = "terreno/grass.blend";
+// The ice of the north: the user's ICE009 (27/11, a seamless PBR set, 2048 px: ice and snow over dark rock).
+const ICE = "terreno/ice009/ice009_";
 // name -> files and grading towards the game's palette: saturation, brightness, contrast (< 1 calms the painted light
 // and shade: the relief comes from the normal map and the sun instead); dx: the normal map has its green pointing down
 // the picture (DirectX), turned to the game's way (green up); size / nsize: size of the colour / normal map;
 // mean: the average colour to end with (the light of the scene stays as it was tuned with the old painted grass);
-// level: the normal map leans on average (the lawn's leans ~6 degrees): moved back to flat
+// level: the normal map leans on average (the lawn's leans ~6 degrees): moved back to flat; rough: a roughness map,
+// put in the normal map's blue channel (its z is rebuilt from x and y: terrain.js); q: the colour's JPEG quality
 const SETS = {
   erba: { col: [GRASS, "grass-1_diffuse.jpg"], nrm: [GRASS, "grass-1_diffuse_normals.jpg"], sat: 0.75, bri: 1, con: 0.8, mean: [93, 110, 72], level: true, size: 1024 },   // meadow
   terra: { col: `${ROCK}diff_2k.jpg`, ao: `${ROCK}ao_2k.jpg`, nrm: `${ROCK}nor_2k.jpg`, sat: 0.8, bri: 1.08, con: 0.8 },   // dirt (the rock of rocks.blend)
   crepe: { ...vol("Vol_19_4"), sat: 0.75, bri: 1.55, con: 0.85 },                                             // cracked earth (bandits' camp)
   pietra: { col: `${STONE}Albedo.jpg`, nrm: `${STONE}Normal.jpg`, sat: 0.8, bri: 0.86, con: 0.95, nsize: 512 },   // flagstones (Valdoro)
+  ghiaccio: { col: `${ICE}Base Color.jpeg`, ao: `${ICE}Ambient Occlusion.jpeg`, nrm: `${ICE}Normal.jpeg`, dx: true, rough: `${ICE}Roughness.jpeg`, sat: 1, bri: 1, con: 1, size: 1024, nsize: 512, q: 80 },   // ice (north)
 };
 const ONLY = process.argv.slice(2);
 
@@ -68,7 +72,7 @@ function jpegFromBlend(file, image) {
 // an original: a file in assets/sorgenti/, or [a .blend there, the name of an image packed in it]; null if missing
 const source = (f) => (Array.isArray(f) ? (fs.existsSync(SRC + f[0]) ? jpegFromBlend(SRC + f[0], f[1]) : null) : fs.existsSync(SRC + f) ? SRC + f : null);
 
-for (const [name, { col: colF, ao: aoF, nrm, dx, sat, bri, con, mean, level, size = 512, nsize = 256 }] of Object.entries(SETS)) {
+for (const [name, { col: colF, ao: aoF, nrm, dx, rough, sat, bri, con, mean, level, size = 512, nsize = 256, q }] of Object.entries(SETS)) {
   if (ONLY.length && !ONLY.includes(name)) continue;
   const colS = source(colF), nrmS = source(nrm);
   if (!colS || !nrmS) { console.log(`terreno_${name}: originali mancanti in ${SRC}, resta com'è`); continue; }
@@ -80,7 +84,7 @@ for (const [name, { col: colF, ao: aoF, nrm, dx, sat, bri, con, mean, level, siz
     const k = ao ? Math.pow(ao[i] / 255, 0.6) : 1;
     for (let c = 0; c < 3; c++) col[i * 3 + c] = Math.max(0, Math.min(255, Math.round((avg[c] + (col[i * 3 + c] - avg[c]) * con) * k * gain[c])));
   }
-  await sharp(col, { raw: info }).jpeg({ quality: size > 512 ? 58 : 82, mozjpeg: true }).toFile(`${OUT}terreno_${name}.jpg`);   // (a noisy lawn hides the JPEG)
+  await sharp(col, { raw: info }).jpeg({ quality: q || (size > 512 ? 58 : 82), mozjpeg: true }).toFile(`${OUT}terreno_${name}.jpg`);   // (a noisy lawn hides the JPEG)
   const { data: n, info: ni } = await sharp(nrmS).resize(nsize, nsize).removeAlpha().raw().toBuffer({ resolveWithObject: true });
   if (dx) for (let i = 1; i < n.length; i += 3) n[i] = 255 - n[i];
   if (level) for (let c = 0; c < 2; c++) {
@@ -88,6 +92,7 @@ for (const [name, { col: colF, ao: aoF, nrm, dx, sat, bri, con, mean, level, siz
     const shift = 128 - t / (n.length / 3);
     for (let i = c; i < n.length; i += 3) n[i] = Math.max(0, Math.min(255, Math.round(n[i] + shift)));
   }
+  if (rough) { const r = await sharp(source(rough)).resize(nsize, nsize).greyscale().raw().toBuffer(); for (let i = 0; i < r.length; i++) n[i * 3 + 2] = r[i]; }
   await sharp(n, { raw: ni }).jpeg({ quality: 90 }).toFile(`${OUT}terreno_${name}_n.jpg`);
   const st = await sharp(`${OUT}terreno_${name}.jpg`).stats();
   console.log(`terreno_${name}: media ${st.channels.slice(0, 3).map((c) => Math.round(c.mean)).join(", ")}, ${(fs.statSync(`${OUT}terreno_${name}.jpg`).size / 1024).toFixed(0)} KB`);
