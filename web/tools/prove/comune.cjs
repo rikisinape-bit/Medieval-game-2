@@ -10,11 +10,12 @@ const mw = (px, py) => [px - 860, py - 708];
 async function open(width = 860, height = 420) {
   const browser = await chromium.launch({ args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   const page = await browser.newPage({ viewport: { width, height } });
-  const errors = [];
+  const errors = [], requests = [];
+  page.on('request', (r) => requests.push(r.url()));                   // (all of them, from the very start)
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text().slice(0, 200)); });
   await page.goto(URL, { waitUntil: 'load' });
   await page.waitForSelector('[data-testid=hud3d]', { timeout: 120000 });
-  return { browser, page, errors, shot: (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) }) };
+  return { browser, page, errors, requests, shot: (name) => page.screenshot({ path: path.join(OUT, `${name}.png`) }) };
 }
 module.exports = { open, mw, OUT };
