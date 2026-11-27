@@ -25,6 +25,7 @@ Mobile-first: joystick, pulsanti touch, avviso "ruota il telefono".
 | `items.js` | `ITEMS`, `SHOPS`, `LOOT_OF`, riduzione danni, prezzi |
 | `ai.js` | AI dei PNG: priorità combattimento > panico > allerta > sospetto > ordini > routine; `hear` (rumore) |
 | `nav.js` | La strada dei personaggi intorno agli ostacoli: A* su una griglia di 0,5 m fatta al bisogno (case, mura, alberi, rocce, acqua profonda), porte che solo alcuni possono aprire |
+| `goblin.js` | Il goblin: uno solo, solo di notte, vicino al bosco innevato del nord-ovest; ti caccia e ti artiglia, all'alba se ne va |
 | `wolves.js` | I lupi: il branco della grande foresta (tana a sud di Roccanera), quello che si arrende, il lupo addomesticato che ti segue, combatte con te e prende ordini (resta qui / seguimi) |
 | `water.js` | L'acqua del mare e dei fiumi: il mare calmo dell'utente (`mare_calmo_n.jpg`, da `tools/bake-mare.py`) in tre misure che si muovono, colore per profondità, cielo riflesso, schiuma sulle rive del mare |
 | `fparm.js` | Braccio della spada in prima persona: pose dei colpi risolte (pugno, lama, filo, gomito) e mescolate per articolazione |
@@ -51,6 +52,7 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 - Negozi, inventario, equipaggiamento (mano, corpo, testa, mano sinistra), bottino dai morti
 - Imboscate dei banditi nel bosco (pedaggio, intimidazione, combattimento), Capo Morn, missione testa
 - Miniera con argento, carrozza della Corona derubabile, cavalli montabili
+- Un goblin di notte vicino al bosco innevato del nord-ovest (uno solo; ucciso, torna la notte dopo)
 - Branco di lupi nella grande foresta; uno si arrende e con un prosciutto (una coscia di maiale: il modello dell'utente) diventa il tuo lupo (ti segue, combatte, resta/segue a comando)
 
 ### Costanti del mondo
@@ -614,6 +616,23 @@ torre, grotte; poi il serpente marino).
   al lupo": il dialogo (`dialogs.js` "lupo") offre **Resta qui** (si siede dov'è e ci resta anche se te ne vai,
   difendendosi solo se lo attaccano) e **Seguimi**. Suoni sintetizzati: ululato, ringhio, morso, guaito, uggiolio
   (`audio.js`). Salvato in `S.flags.lupi` (morti, arreso, il tuo lupo, resta/segue e dove, vita). Prova: `lupi.cjs`.
+- **Goblin (27/11, "da rigare e creare mosse di attacco, deve comparire solo la notte, solo uno, vicino al bosco di
+  ghiaccio per ora")** (`goblin.js`): il modello dell'utente (`output_mesh.glb`: una mesh ferma di 5197 triangoli,
+  colore, rilievo e ruvidità già cotti; curvo, braccia lunghe, artigli) non aveva scheletro: `tools/goblin-glb.py`
+  (Python con `bpy`) gli costruisce uno **scheletro** di 20 ossa (articolazioni lette dalle sue viste di fronte e di
+  fianco), lo **lega con i pesi automatici** di Blender (vertici uniti alle cuciture, nessuno rimasto senza peso), lo
+  porta a 1,35 m e gli fa le **animazioni**: fermo (respira), cammina, corre, `attack` e `attack2` (artigliata di
+  destra e di sinistra: carica, colpo, ritorno), `hit` (barcolla), `death` (cade sulla schiena) →
+  `public/models/goblin.glb` (724 KB; colore 1024 px, rilievo 512). **Uno solo e solo di notte**: al calar della notte
+  esce vicino alla sua tana `LAIR = [-230, -193]` (pixel 630, 515: il bordo del bosco sotto la neve del nord-ovest
+  verso Roccanera, ~290 m da Roccanera), dove non lo vedi; ci gira curvo. Vede bene al buio (22 m davanti, 8 tutto
+  intorno, metà se sei furtivo) e ti sente correre: **strilla** e ti corre addosso, artiglia con una mano e poi con
+  l'altra (la carica si vede: schivala o parala; la parata perfetta lo fa barcollare), barcolla ai colpi forti, ti gira
+  attorno tra un colpo e l'altro; lontano dalla tana rinuncia. 110 di vita, 12 di danno. **All'alba** se ne va (se
+  non combatte) fino alla notte dopo; **ucciso** lascia 15–30 monete d'oro e non torna prima della notte seguente
+  (`S.flags.goblin`: notti contate, notte in cui è stato ucciso). Il tuo lupo lo combatte e lui può rivoltarsi contro
+  il lupo. Suoni: sibilo e stridio (`audio.js`). Prova: `goblin.cjs`. (Le animazioni sono fatte in codice: se
+  l'utente ne avrà di migliori, per esempio da Mixamo, si possono mettere al loro posto con gli stessi nomi.)
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -623,17 +642,18 @@ torre, grotte; poi il serpente marino).
   suo permesso esplicito i controlli della sessione bloccavano l'unione). Unite: #13 (fasi 1–2), #14 (alberi nuovi,
   erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
   porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi), #20 (il
-  prosciutto per il lupo, da ogni mercante). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
+  prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
   stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
   solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
   dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
-- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `lupi.cjs`, `produzione.cjs`.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `lupi.cjs`, `goblin.cjs`, `produzione.cjs`.
 - **Originali dell'utente** (non nel repository, `assets/sorgenti/`, da rimettere lì in una sessione nuova se servono):
   `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare), `rocce/` (le rocce:
-  `FreePack-RocksStylized.blend`, `Rocks_Stylized_Color.png`), `lupo/` (`wolf.blend`, `wolf_color.png`, `wolf_ao.png`).
+  `FreePack-RocksStylized.blend`, `Rocks_Stylized_Color.png`), `lupo/` (`wolf.blend`, `wolf_color.png`, `wolf_ao.png`),
+  `goblin/goblin.glb` (il goblin dell'utente, senza scheletro: `python tools/goblin-glb.py assets/sorgenti/goblin/goblin.glb`).
   Le texture e i modelli fatti da loro sono nel repository; gli strumenti servono solo per rifarli.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
