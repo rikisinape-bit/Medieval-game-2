@@ -106,6 +106,11 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
       const c = chase ? chase(n) : { x: P.x, z: P.z, d, here: true };   // (the player, or the castle's door on its way)
       // whom it fights: the player, or for a while the player's wolf that bit it (c.foe, wolves.js)
       const T = c.foe || P, tdx = T.x - n.x, tdz = T.z - n.z, td = Math.hypot(tdx, tdz);
+      // its place round the player when others fight it too (engine.js slotFighters: n.slotA, a bearing from the
+      // player): near, it goes there instead of straight at the player, and between blows it moves round to it; so a
+      // group surrounds you (27/11, the user: "se combatti contro tre cavalieri ... ti circonderanno come i lupi")
+      const slot = !c.foe && c.here && n.slotA != null && td < 7 ? [T.x + Math.sin(n.slotA) * 1.5, T.z + Math.cos(n.slotA) * 1.5] : null;
+      const off = slot ? Math.hypot(slot[0] - n.x, slot[1] - n.z) : 0;
       if (n.foeT > 0) n.foeT -= dt;
       if (n.kb > 0) { n.kb -= dt; n.x -= (dx / (d || 1)) * 5 * dt; n.z -= (dz / (d || 1)) * 5 * dt; }
       // its guard: raised against a blow of yours it sees coming (decided once a blow, after its reaction time), held
@@ -131,10 +136,11 @@ export function createAI({ P, S, npcs, say, hurtPlayer, grace, snd, houseOf, rou
       } else if (n.state === "swing") {
         n.k += dt / 0.3; out.mode = "swing"; out.k = n.k;
         if (n.k >= 1) { n.state = "idle"; n.cd = 0.8 + Math.random() * 0.7; n.side = Math.random() < 0.5 ? -1 : 1; }
-      } else if (!c.here || td > 1.8 || route(n.x, n.z, T.x, T.z, n)) step(c.x, c.z, F.sp, true);
+      } else if (!c.here || td > 1.8 || route(n.x, n.z, T.x, T.z, n)) step(slot ? slot[0] : c.x, slot ? slot[1] : c.z, F.sp, true);
       else {
         face(T.x, T.z, 8);
         if (n.blocking) { /* behind its guard: it waits for your blow */ }
+        else if (n.cd > 0 && slot && off > 0.5) { const s = Math.min(off, 1.8 * dt); n.x += ((slot[0] - n.x) / off) * s; n.z += ((slot[1] - n.z) / off) * s; out.walk = true; }   // (round to its place)
         else if (n.cd > 0) { n.x += (tdz / (td || 1)) * (n.side || 1) * 0.9 * dt; n.z -= (tdx / (td || 1)) * (n.side || 1) * 0.9 * dt; out.walk = true; }
         else { n.state = "windup"; n.k = 0; n.atk = ATTACKS[Math.floor(Math.random() * ATTACKS.length)]; }
       }

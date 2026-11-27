@@ -33,7 +33,9 @@ export const JAIL = { x: 25.6, z: 0.1, yaw: -Math.PI / 2, cell: "c" };   // wher
 const put = (room, id, x, y, z, q = 0, o = {}) => PIECES.push({ room, id, x, y, z, q, ...o });
 const area = (x0, x1, z0, z1, y, ceil, ramp, door) => AREAS.push({ x0, x1, z0, z1, y, ceil, ramp, door });   // door: walkable only while that cell is open
 const solid = (x, z, r) => SOLIDS.push({ x, z, r });
-const light = (x, y, z, intensity = 6, distance = 10, color = "#ffb060") => LIGHTS.push({ x, y, z, color, intensity, distance });
+// (27/11, the user: "dentro al castello non si vede nulla": every light 2.8 times as strong and reaching half as far
+// again as first written here)
+const light = (x, y, z, intensity = 6, distance = 10, color = "#ffb060") => LIGHTS.push({ x, y, z, color, intensity: intensity * 2.8, distance: distance * 1.5 });
 const SIDE = { N: 0, W: 1, S: 2, E: 3 };
 // a wall torch on the inner face of a wall (side: the wall it hangs on), its light a little out in the room
 const torch = (room, x, y, z, side) => {

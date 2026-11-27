@@ -708,6 +708,26 @@ torre, grotte; poi il serpente marino).
     viene chiamato durante la preparazione (prima del ciclo di gioco) deve essere già definito sopra, o essere una
     `function`.
 
+- **Corpi che non si attraversano e luce nel castello (27/11, "non si può passare attraverso i corpi degli altri esseri
+  tipo npc o animali, stessa cosa tra loro, quindi se combatti contro tre cavalieri non saranno più sovrapposti ma ti
+  circonderanno come i lupi. Inoltre le luci dentro al castello ... non si vede nulla")**:
+  - **Corpi** (`engine.js`, "Bodies"): il giocatore (0,3 m; a cavallo 0,65), le persone in piedi o che camminano (non chi
+    dorme nel letto né il cocchiere a cassetta; a cavallo 0,65), i lupi (0,32), il goblin (0,38), i cavalli fermi (0,6)
+    sono cerchi che restano separati (`gatherBodies` una volta a fotogramma). Il giocatore si ferma contro di loro; una
+    persona tranquilla spinta cede un po' (40% della sovrapposizione, applicata nel suo movimento, dentro i suoi muri:
+    tra la folla si passa, piano); i nemici no. Chi si muove viene spinto fuori dagli altri e scivola attorno, sempre
+    alla sua destra (`awayFromBodies`: due che si vengono incontro si scansano). Lupi e goblin dopo il loro passo
+    (`settleBody`, con `placeBody`). Le funzioni sono `function` (niente chiamate prima che esistano).
+  - **Accerchiamento** (`slotFighters`, `ai.js`): con due o più che combattono contro il giocatore (entro 9 m) ognuno
+    ha un posto attorno a lui (`slotA`: il suo angolo, allargato finché tra due vicini ci sono almeno ~108° con tre, o
+    parti uguali con di più); vicino ci va invece di puntare dritto al giocatore, e tra un colpo e l'altro gira fino al
+    suo posto. Prova `tools/prove/corpi.cjs`: tre cavalieri arrivati tutti da nord finiscono a 104°, 106°, 150° l'uno
+    dall'altro; mai più vicini di 0,60 m tra loro; contro una persona ferma il giocatore non va oltre 0,61 m.
+  - **Luce del castello**: dentro (regione `castello`) niente sole né luna, la stessa luce di giorno e di notte
+    (`CASTLE_LOOK`: cielo emisferico caldo 1,9, niente nebbia notturna) e torce, candele, lampadari e camino 2,8 volte
+    più forti e con portata 1,5 volte (`castle_layout.js light`). Luminosità media delle foto (prima → dopo, di notte):
+    ingresso 29 → 57, trono 13 → 34, banchetti 25 → 52, prigioni 11 → 30, studio 24 → 52.
+
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
 - **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
@@ -719,7 +739,8 @@ torre, grotte; poi il serpente marino).
   prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte), #22 (alberi della neve e pino pronti), #23
   (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
   verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte), #26 (salvataggio senza
-  costante, errore con traccia e browser), #27 (il gioco riparte anche se salvato nella gabbia). Controllare sempre che non restino PR aperte;
+  costante, errore con traccia e browser), #27 (il gioco riparte anche se salvato nella gabbia), #28 (corpi che non si
+  attraversano, accerchiamento, luce nel castello). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
