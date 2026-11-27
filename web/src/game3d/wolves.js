@@ -6,7 +6,7 @@
 // between bites; far from their den they give up and go back. One of them (which one, you see only then) does not
 // fight to the death: about to be beaten it crouches to the ground (lupo.glb "submit": belly low, ears back, tail
 // tucked) and no longer fights; hit again it yelps and runs to the den, where it waits crouched. With a pork leg
-// (coscia di maiale, sold at the Boar Inn) you can give it to it: it eats and it is yours. Then it follows you
+// (the ham, prosciutto: the user's model, sold by every merchant) you can give it to it: it eats and it is yours. Then it follows you
 // everywhere (into the castle and the mine too, running beside your horse), bites whoever fights you (they may turn
 // on it), falls when beaten and gets up again after a while; looked at, it takes an order (dialogs.js "lupo"): stay
 // here (it sits where it is, defending only itself) or follow me. Saved in S.flags.lupi.
@@ -185,7 +185,7 @@ export function createWolves(ctx) {
     if (w.yields && w.hp <= w.hpMax * 0.35) {                            // about to be beaten: it gives in
       w.hp = Math.max(1, w.hp); w.sub = true; w.biting = false; w.hostile = false; save.sub = true;
       play(w, "submit", { fade: 0.4 }); ctx.sfx.whine(ctx.vAt(w.x, w.z));
-      ctx.say(`Un lupo si accuccia a terra, le orecchie basse: si arrende.${P.inv.coscia ? " Hai una coscia di maiale..." : ""}`);
+      ctx.say(`Un lupo si accuccia a terra, le orecchie basse: si arrende.${P.inv.prosciutto ? " Hai un prosciutto..." : ""}`);
       return;
     }
     if (w.hp <= 0) {
@@ -333,12 +333,13 @@ export function createWolves(ctx) {
     /** the nearest wolf fighting you (the HUD's bar) */
     foe: () => wolves.filter((w) => w.alive && w.hostile && !w.sub && !w.tame).sort((a, b) => Math.hypot(a.x - P.x, a.z - P.z) - Math.hypot(b.x - P.x, b.z - P.z))[0] || null,
     hunting: (r = 14) => pack.hunt && wolves.some((w) => w.alive && !w.tame && !w.sub && Math.hypot(w.x - P.x, w.z - P.z) < r),
-    /** what you can do with a wolf near you: give the one that gave in a pork leg; give yours an order */
+    /** what you can do with a wolf near you: give the one that gave in a ham; give yours an order. (w < 0: it goes
+     *  before a thing on the ground beside it, e.g. a pelt of the pack) */
     candidate(near) {
       for (const w of wolves) {
         if (!w.alive || !w.mesh || ctx.zoneOf(w.x, w.z) !== ctx.zoneOf(P.x, P.z)) continue;
-        if (w.sub && !w.flee && near(w.x, w.z, 2.8)) return { kind: "lupo", id: w.id, x: w.x, z: w.z, label: P.inv.coscia ? "Dai la coscia di maiale al lupo" : "Lupo arreso (vuole una coscia di maiale)" };
-        if (w.tame && w.down <= 0 && w.eating <= 0 && near(w.x, w.z, 3.2)) return { kind: "lupo", id: "ordini", x: w.x, z: w.z, label: "Dai un ordine al lupo" };
+        if (w.sub && !w.flee && near(w.x, w.z, 2.8)) return { kind: "lupo", id: w.id, x: w.x, z: w.z, w: -1.5, label: P.inv.prosciutto ? "Dai il prosciutto al lupo" : "Lupo arreso (vuole un prosciutto)" };
+        if (w.tame && w.down <= 0 && w.eating <= 0 && near(w.x, w.z, 3.2)) return { kind: "lupo", id: "ordini", x: w.x, z: w.z, w: -1.5, label: "Dai un ordine al lupo" };
       }
       return null;
     },
@@ -347,11 +348,11 @@ export function createWolves(ctx) {
       if (c.id === "ordini") return true;
       const w = wolves.find((o) => o.id === c.id);
       if (!w || !w.sub) return false;
-      if (!P.inv.coscia) { ctx.note("Il lupo ha fame e paura: con una coscia di maiale potresti conquistarlo. Bodo la vende alla Locanda del Cinghiale."); return false; }
-      take("coscia");
+      if (!P.inv.prosciutto) { ctx.note("Il lupo ha fame e paura: con un prosciutto potresti conquistarlo. Lo vendono tutti i mercanti, anche Lena al mercato di Roccanera."); return false; }
+      take("prosciutto");
       Object.assign(w, { sub: false, tame: true, yields: false, hostile: false, eating: 2.6, hpMax: TAME.hp, hp: TAME.hp * 0.6, dmg: TAME.dmg, name: "Il tuo lupo", target: null, foe: null });
       Object.assign(save, { sub: false, tame: w.id, stay: false, at: null, hp: w.hp });
-      ctx.say("Il lupo divora la coscia di maiale e ti annusa la mano: ora è con te. Guardalo e premi Usa per dargli un ordine.");
+      ctx.say("Il lupo divora il prosciutto e ti annusa la mano: ora è con te. Guardalo e premi Usa per dargli un ordine.");
       return false;
     },
     /** an order (dialogs.js): stay (where it is now) or follow */

@@ -13,7 +13,8 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
   chiusa (la guardia la apre); tu nella gabbia di Roccanera chiusa (una sua guardia gira fino alla porta e la apre).
   I tempi sono in secondi veri: con SwiftShader il gioco va a ~1/4 della velocità.
 - `node tools/prove/lupi.cjs` — i lupi: il branco ti caccia vicino alla tana, un colpo vero (J) ne ferisce uno, uno si
-  arrende e gli altri muoiono (pellicce a terra), il messaggio senza e con la coscia di maiale, l'addomesticamento, il
+  arrende e gli altri muoiono (pellicce a terra), il messaggio senza prosciutto, il prosciutto comprato da Lena al
+  mercato di Roccanera (il suo negozio), il messaggio con il prosciutto, l'addomesticamento, il
   lupo che ti segue, "Resta qui" (resta seduto mentre ti allontani) e "Seguimi" dal suo dialogo, il lupo che morde un
   bandito che ti attacca, il lupo che entra con te nel castello. I tempi in secondi di gioco.
 - `node tools/prove/acqua.cjs [prefisso]` — foto dell'acqua e del ghiaccio: il mare da una spiaggia vicino a Valdoro e
