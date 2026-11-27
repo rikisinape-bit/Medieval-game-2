@@ -24,6 +24,8 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
   torna; il giorno dopo il corpo sparisce, la notte dopo esce di nuovo; all'alba, se non combatte, se ne va.
 - `node tools/prove/acqua.cjs [prefisso]` — foto dell'acqua e del ghiaccio: il mare da una spiaggia vicino a Valdoro e
   dalla costa di Roccanera, il fiume dai due ponti, i tre campi di ghiaccio del nord (`SOLO=nome1,nome2` solo quelle).
+- `node tools/prove/corpi.cjs` — i corpi: tre cavalieri che ti combattono ti circondano (angoli attorno a te, distanze tra
+  loro), nessuno dentro un altro, non si passa attraverso una persona ferma.
 - `node tools/prove/gabbia.cjs` — il gioco salvato mentre sei chiuso nella gabbia di Roccanera riparte (la guardia torna a
   sorvegliare); `URL=...` per provarlo sulla versione pubblicata.
 - `URL=http://localhost:4173/ node tools/prove/produzione.cjs` — la versione pubblicata (`npm run build:artifact`, poi

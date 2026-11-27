@@ -767,6 +767,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // (the places' buildings beyond FAR_THINGS are not drawn: by then the haze already veils them)
   const DAYLOOK = { forest: ["#6a8a78", "#4e6a52", 12, 75, 0.9, 0.6], village: ["#9cc4e4", "#b8d0e0", 40, 440, 1.6, 0.9], valdoro: ["#a8c4dc", "#c0d0dc", 35, 400, 1.5, 0.9], wild: ["#9cc4e4", "#bcd2e2", 45, 520, 1.6, 0.9] };
   const NIGHT = ["#070a14", "#0a0e1a", 10, 42];
+  // inside the castle (27/11, the user: "non si vede nulla"): no sun nor moon, the same light by day and by night, warm
+  // like its torches' (the hemisphere's colours too), and the haze of a hall instead of the night's fog
+  const CASTLE_LOOK = ["#120d0a", "#1c140e", 30, 90, 0, 1.9];
   // in the great forests of the open country (the map's): darker, the fog nearer (wildF: how deep in one)
   const SELVA = ["#6f8c7e", "#566e5e", 14, 90, 0.75, 0.55];   // (the leaves above let little sunlight through)
   let wildF = 0;
@@ -776,16 +779,18 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     const el = -Math.cos(S.dayT * Math.PI * 2), dayK = clamp((el + 0.08) * 4, 0, 1), dusk = clamp(1 - Math.abs(el - 0.05) / 0.2, 0, 1);
     S.night = el < 0.05;
     if (region === "wild") wildF += (clamp((layersAt(P.x, P.z).forest - 0.35) / 0.4, 0, 1) - wildF) * Math.min(1, dt * 1.5);
-    const d = region === "wild" ? DAYLOOK.wild.map((v, i) => (typeof v === "number" ? v + (SELVA[i] - v) * wildF : cB.set(v).lerp(cA.set(SELVA[i]), wildF).getStyle())) : DAYLOOK[region === "mine" || region === "castello" ? "village" : region];
-    cA.set(NIGHT[0]).lerp(cB.set(d[0]), dayK).lerp(cB.set("#d8784a"), dusk * 0.45); const bg = cA.clone();
-    cA.set(NIGHT[1]).lerp(cB.set(d[1]), dayK); const fog = cA.clone();
-    let near = NIGHT[2] + (d[2] - NIGHT[2]) * dayK, far = NIGHT[3] + (d[3] - NIGHT[3]) * dayK;
+    const inCastle = region === "castello", dk = inCastle ? 1 : dayK;
+    const d = inCastle ? CASTLE_LOOK : region === "wild" ? DAYLOOK.wild.map((v, i) => (typeof v === "number" ? v + (SELVA[i] - v) * wildF : cB.set(v).lerp(cA.set(SELVA[i]), wildF).getStyle())) : DAYLOOK[region === "mine" ? "village" : region];
+    cA.set(NIGHT[0]).lerp(cB.set(d[0]), dk).lerp(cB.set("#d8784a"), inCastle ? 0 : dusk * 0.45); const bg = cA.clone();
+    cA.set(NIGHT[1]).lerp(cB.set(d[1]), dk); const fog = cA.clone();
+    let near = NIGHT[2] + (d[2] - NIGHT[2]) * dk, far = NIGHT[3] + (d[3] - NIGHT[3]) * dk;
     if (import.meta.env.DEV && window.__nofog) { near = 4000; far = 8000; }   // dev only: no fog (tests: the whole map from above)
     // the light comes from the sun by day, from the moon by night (sky.js: opposite to it; pale blue, weak): the
     // shadows follow them round the sky
     const L = sunDir(S.dayT, _sunV), byDay = L.y > -0.03;
     if (!byDay) L.negate();
-    const si = byDay ? d[4] * clamp(el * 2.2, 0, 1) : 0.32 * clamp(-el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dayK);
+    const si = inCastle ? 0 : byDay ? d[4] * clamp(el * 2.2, 0, 1) : 0.32 * clamp(-el * 2.2, 0, 1), hi = d[5] * (0.12 + 0.88 * dk);
+    hemi.color.set(inCastle ? "#ffd2a0" : "#cfe4ff"); hemi.groundColor.set(inCastle ? "#6a4a30" : "#4a3a22");
     sun.color.set(byDay ? "#fff0d0" : "#a9bcff");
     const k = Math.min(1, dt * 2.5);
     scene.background.lerp(cA.set(bg), k); scene.fog.color.lerp(cA.set(fog), k);
@@ -978,6 +983,59 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     companion: () => wolves.tamed(), hitWolf: (w, dmg, by) => wolves.hit(w, dmg, by),
   });
   if (import.meta.env.DEV) window.__goblin = goblin;                   // dev only (tests)
+
+  // ---- Bodies (27/11, the user: "non si può passare attraverso i corpi degli altri esseri, tipo npc o animali, stessa
+  // cosa tra loro"): the player, the people standing or walking, the wolves, the goblin and the horses standing about
+  // are round bodies that keep apart (gathered each frame: gatherBodies). The player stops against them; a calm person
+  // pressed by the player gives way a little (one squeezes past, slowly; its nudge is applied in its own move, within
+  // its walls). Whoever else moves is pushed out of the others, sliding round them, always to its right (two coming
+  // face to face pass each other instead of standing nose to nose). The fighters round the player take places round
+  // it (slotFighters; ai.js), as the wolves do: three knights surround you instead of standing one inside the other.
+  // (functions, not constants: nothing here may be called before it exists, see the cage, 27/11)
+  const BODY = 0.3;
+  let bodies = [];
+  function isBody(n) {                                                  // (a person standing or walking: not a sleeper in bed, the coachman on his box)
+    return n.alive && !(n.id === "cocchiere" && !n.hostile && !n.panic) && !(n.sleepAt && Math.hypot(n.x - n.sleepAt[0], n.z - n.sleepAt[1]) < 0.5);
+  }
+  function gatherBodies() {
+    bodies = [{ o: P, r: P.mounted ? 0.65 : BODY }];
+    npcs.forEach((n) => { if (isBody(n)) bodies.push({ o: n, r: n.riding ? 0.65 : BODY, calm: !n.hostile && !n.panic && !n.riding, npc: true }); if (n.horse && !n.riding) bodies.push({ o: n.horse, r: 0.6 }); });
+    wolves.all.forEach((w) => { if (w.alive && w.mesh) bodies.push({ o: w, r: 0.32, calm: w.tame }); });
+    goblin.targets().forEach((g) => bodies.push({ o: g, r: 0.38 }));
+    horses.forEach((h) => { if (h.id !== P.mounted) bodies.push({ o: h, r: 0.6 }); });
+  }
+  // a body of radius rad moving to (x, z), pushed out of the others (who: itself); slide: round them to its right;
+  // give: a calm one pressed gives way by that share of the overlap (the player's push)
+  function awayFromBodies(x, z, rad, who, slide = 0, give = 0) {
+    for (const b of bodies) {
+      if (b.o === who) continue;
+      const dx = x - b.o.x, dz = z - b.o.z, d = Math.hypot(dx, dz), m = b.r + rad;
+      if (d >= m || Math.abs(dx) > m || Math.abs(dz) > m) continue;
+      const ux = d > 1e-4 ? dx / d : 1, uz = d > 1e-4 ? dz / d : 0, over = m - d;
+      const g = give && b.calm ? give : 0;
+      if (g) { const nb = b.o.nudge || (b.o.nudge = [0, 0]); nb[0] -= ux * over * g; nb[1] -= uz * over * g; }
+      x += ux * over * (1 - g) - uz * over * slide; z += uz * over * (1 - g) + ux * over * slide;
+    }
+    return [x, z];
+  }
+  // a wolf or the goblin, once it has moved: out of the others, within its walls
+  function settleBody(o, rad) {
+    const [x, z] = awayFromBodies(o.x, o.z, rad, o, 0.5);
+    if (x !== o.x || z !== o.z) [o.x, o.z] = placeBody(x, z, o.x, o.z);
+  }
+  // the places round the player of those fighting it (two or more): their bearings from it, spread at least ~108 degrees
+  // apart (with three) or evenly (with more), each kept on the side it came from (ai.js goes there: slotA)
+  function slotFighters() {
+    const f = [];
+    npcs.forEach((n) => { n.slotA = null; if (n.alive && n.hostile && n.fights && !n.riding && !(n.foeT > 0) && Math.hypot(n.x - P.x, n.z - P.z) < 9 && ai.sameZone(n)) f.push(n); });
+    if (f.length < 2) return;
+    const a = f.map((n) => Math.atan2(n.x - P.x, n.z - P.z)), sep = Math.min(2.1, (Math.PI * 2) / f.length) * 0.9;
+    for (let it = 0; it < 8; it++) for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) {
+      const d = angDiff(a[j], a[i]);
+      if (Math.abs(d) < sep) { const p = ((sep - Math.abs(d)) / 2) * (d < 0 ? -1 : 1); a[i] -= p; a[j] += p; }
+    }
+    f.forEach((n, i) => { n.slotA = a[i]; });
+  }
 
   const killNpc = (n, seen) => {
     n.alive = false; n.hostile = false; n.spar = false; n.sleepAt = null; n.deadX = n.x; n.deadZ = n.z; unmountNpc(n); n.ms = "dead";
@@ -1625,6 +1683,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     return Math.abs(c * dx - s2 * dz) < r.hw + 0.15 && Math.abs(s2 * dx + c * dz) < r.hd + 0.15;
   });
   const collide = (x, z) => {
+    [x, z] = awayFromBodies(x, z, P.mounted ? 0.65 : BODY, P, 0, 0.4);   // (the others' bodies: calm people give way a little)
     [x, z] = pushOut(x, z);
     if (S.flags.cage && !S.flags.cageOpen) { const m = CAGE.half - 0.46; return [clamp(x, CAGE.x - m, CAGE.x + m), clamp(z, CAGE.z - m, CAGE.z + m)]; }   // locked in the cage
     if (castle.inZone(x, z)) return castle.inZone(P.x, P.z) ? castle.move(P.x, P.z, x, z) : castle.constrain(x, z);   // in the castle's rooms (step by step)
@@ -1857,6 +1916,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     updateEncounter();
     if (keys.arrowleft) P.yaw += dt * 2.2; if (keys.arrowright) P.yaw -= dt * 2.2;
     if (keys.arrowup) pitch = clamp(pitch + dt * 1.5, -1.2, 1.2); if (keys.arrowdown) pitch = clamp(pitch - dt * 1.5, -1.2, 1.2);
+    gatherBodies(); slotFighters();
     const ix = input.x + (keys.d ? 1 : 0) - (keys.a ? 1 : 0), iy = input.y + (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
     const mag = Math.min(1, Math.hypot(ix, iy));
     const fwx = Math.sin(P.yaw), fwz = Math.cos(P.yaw), rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
@@ -1912,6 +1972,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     if (scanT <= 0) { scanT = 0.5; ai.scanBodies(); }
     const seeFar = Math.min(scene.fog.far + 4, 160);   // characters hidden by the fog or too far are not drawn (the simulation still runs)
     wolves.update(dt, seeFar); goblin.update(dt, seeFar);
+    wolves.all.forEach((w) => { if (w.alive && w.mesh) settleBody(w, 0.32); }); goblin.targets().forEach((g) => settleBody(g, 0.38));
     npcs.forEach((n) => {
       n.mesh.visible = Math.hypot(n.x - P.x, n.z - P.z) < seeFar;
       if (n.horse) { at(n.horse.mesh, n.horse.x, floorY(n.horse.x, n.horse.z), n.horse.z, n.horse.yaw); n.horse.mesh.visible = Math.hypot(n.horse.x - P.x, n.horse.z - P.z) < seeFar; }
@@ -1928,6 +1989,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       n.cd -= dt; n.stagger -= dt; n.flash -= dt;
       if (!n.hostile && n.hp < n.hpMax) n.hp = Math.min(n.hpMax, n.hp + 2 * dt);   // wounds heal slowly (not at once)
       const ox = n.x, oz = n.z;
+      if (n.nudge) { n.x += clamp(n.nudge[0], -0.2, 0.2); n.z += clamp(n.nudge[1], -0.2, 0.2); n.nudge = null; }   // (pressed by the player: it gave way)
       const r = n.scripted && !n.hostile && !n.panic ? scriptUpdate(n, dt) : ai.update(n, dt);
       if (n.hostile && n.fights) {                                          // through the castle's door after the player
         const inC = castle.inZone(n.x, n.z);
@@ -1936,6 +1998,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
           if (Math.hypot(n.x - ax, n.z - az) < 1.2) { const [bx, bz] = inC ? DOOR_OUT : [castleSpawn.x, castleSpawn.z]; n.x = bx + (Math.random() - 0.5) * 0.8; n.z = bz + (Math.random() - 0.5) * 0.8; n.nav = null; }
         } else openFor(n, inC);
       }
+      if (!n.riding && isBody(n)) [n.x, n.z] = awayFromBodies(n.x, n.z, BODY, n, r.walk ? 0.5 : 0);   // (out of the others' bodies, then out of the walls)
       if (!n.riding && !(n.id === "cocchiere" && !n.hostile && !n.panic)) [n.x, n.z] = pushOut(n.x, n.z);
       if (mine.inZone(n.x, n.z)) [n.x, n.z] = mine.constrain(n.x, n.z);                // in the mine: along the tunnels
       else if (castle.inZone(n.x, n.z)) [n.x, n.z] = castle.inZone(ox, oz) ? castle.move(ox, oz, n.x, n.z) : castle.constrain(n.x, n.z);   // in the castle: in its rooms
