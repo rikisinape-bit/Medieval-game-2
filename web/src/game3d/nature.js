@@ -23,6 +23,7 @@ export const NATURE = {
   // the user's trees of 27/11, big (looking up in their woods little sky is left): a pine of 12.4 m, a tree under snow
   // of 9.6 m (12.5 m wide), a bare one with snow on its branches of 9.7 m
   pino_4m: { s: 2.8, shadow: true }, albero_neve: { s: 6.6, shadow: true }, albero_spoglio_neve: { s: 5, shadow: true },
+  pino_neve: { s: 2.8, shadow: true },   // (the same pine with a little snow on its needles: loadNature)
   contorto_1: { s: 0.62, shadow: true }, contorto_2: { s: 0.56, shadow: true }, morto: { s: 0.5, shadow: true },
   cespuglio: { s: 0.8 }, cespuglio_fiorito: { s: 0.75 }, felce: { s: 0.13 }, pianta_grande: { s: 0.8 }, pianta: { s: 0.8 },
   trifoglio: { s: 0.45 }, fiori: { s: 0.4 }, petali: { s: 0.7 }, erba: { s: 0.6 }, erba_alta: { s: 0.42 }, fungo: { s: 0.55 },
@@ -138,10 +139,40 @@ export function crownShading(mat) {
   };
 }
 
+// A little snow on a material (the user, 27/11: "ai pini una colorazione un po' più bianca, come se ci fosse un po' di
+// neve"): over the whole crown, more on its top and sides than underneath (its normals: trees only turn round, so up
+// is up), on the lighter needles (the dark ones stay dark: white specks, not a grey veil), in patches (a random number
+// from each corner's place). amount: how much (0..1). Kept in userData.frost: the far pictures and the fading copies
+// of vegetation.js put it on again (a copy of a material loses its shader changes).
+export function frostShading(mat, amount) {
+  mat.userData.frost = amount;
+  const prev = Object.hasOwn(mat, "onBeforeCompile") ? mat.onBeforeCompile : null, key = mat.customProgramCacheKey;
+  mat.onBeforeCompile = (sh, r) => {
+    prev?.call(mat, sh, r);
+    sh.vertexShader = sh.vertexShader.replace("#include <common>", "#include <common>\nvarying float vFrostUp, vFrostR;")
+      .replace("#include <begin_vertex>", `#include <begin_vertex>
+	vFrostUp = normalize( normal ).y; vFrostR = fract( sin( dot( position.xz * 7.1 + position.y * 3.3, vec2( 12.9898, 78.233 ) ) ) * 43758.5453 );`);
+    sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nvarying float vFrostUp, vFrostR;")
+      .replace("#include <map_fragment>", `#include <map_fragment>
+	{ float fl = dot( diffuseColor.rgb, vec3( 0.3, 0.59, 0.11 ) );
+	  float fk = ${amount.toFixed(3)} * mix( 0.4, 1.0, smoothstep( -0.3, 0.8, vFrostUp ) ) * smoothstep( 0.01, 0.07, fl ) * ( 0.5 + vFrostR );
+	  diffuseColor.rgb = mix( diffuseColor.rgb, vec3( 0.8, 0.84, 0.9 ), min( fk, 0.9 ) ); }`);
+  };
+  mat.customProgramCacheKey = () => `${key.call(mat)}-frost${amount}`;
+  return mat;
+}
+
 // Loads the vegetation and the medieval building kit. Either can fail on its own (the game has fallbacks).
 export async function loadNature() {
   lib = null; kitOk = false;
   try { lib = await loadLib("natura"); } catch (e) { console.warn("Natura non caricata: restano gli alberi procedurali", e); }
+  // the pine of the snow: the user's pine, its needles and branches with a little snow (the same geometry, no download)
+  if (lib?.pino_4m) lib.pino_neve = lib.pino_4m.map((p) => {
+    if (!/^Leaves/.test(p.material.name)) return p;
+    const m = p.material.clone();
+    if (p.material.userData.crown) crownShading(m);
+    return { geometry: p.geometry, material: frostShading(m, /Branch/.test(m.name) ? 0.3 : 0.45) };
+  });
   try { const kit = await loadLib("kit", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...kit }; kitOk = true; } catch (e) { console.warn("Kit medievale non caricato: restano gli edifici procedurali", e); }
   // village props (market stalls, crates, buckets, carts, lamp posts, torches, woodpile, campfire, fence: tools/build-props.mjs)
   propsOk = false;

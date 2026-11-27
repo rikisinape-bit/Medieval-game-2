@@ -652,15 +652,40 @@ torre, grotte; poi il serpente marino).
   - **Dove**: nella neve 60% pini, 20% innevati, 20% spogli, uno per cella (fitti: le chiome si toccano, guardando in
     alto si vede poco cielo); nella **grande foresta a sud** (`southForest`: il riquadro x −300..150, z 100..720) circa
     un albero su tre è un pino. I tronchi fermano chi cammina: pino 0,22 m, innevato 0,85, spoglio 0,7 (per k).
-  - **Sagome per tutti**: `makeImpostors` fotografa ora tutti i 10 alberi (i 6 del kit, i 3 nuovi, il morto) in un
-    atlante solo di 2048×976: un blocco di 8 viste per albero, impilati a scaffali; celle di 80×160 px per quelli del
+  - **Sagome per tutti**: `makeImpostors` fotografa ora tutti i 10 alberi (i 6 del kit, i 3 nuovi, il morto; poi 11 con
+    il pino innevato, vedi sotto) in un atlante solo di 2048×976: un blocco di 8 viste per albero, impilati a scaffali; celle di 80×160 px per quelli del
     kit, più grandi per i nuovi (pino 160×256, innevato 256×192, spoglio 160×208); le mipmap fatte una volta alla fine;
     per ogni istanza un `vec4` (inizio del blocco e misura della cella). Le forme semplici (cono, palla, tronco) restano
-    solo se le sagome non si possono fare. Così anche il bosco innevato non cambia forma da lontano.
+    solo se le sagome non si possono fare. Così anche il bosco innevato non cambia forma da lontano. Sotto i pixel
+    trasparenti di ogni sagoma c'è il colore medio del suo albero (`IMP_RIM`), scritto da un quadrato: un colore di
+    pulizia viene moltiplicato per la sua trasparenza (0) e diventava nero, e da lontano gli aghi sottili dei pini si
+    mescolavano con quel nero (pini neri oltre i 34 m; anche le sagome del kit sono un po' più chiare ai bordi).
   - **Misure** (`foto.cjs`, prima → dopo): bosco innevato da dentro 159 → 276 mila triangoli, 74 → 69 chiamate (come la
     grande foresta, 264 → 273 mila con i pini); bosco innevato da 150 m 168 → 88 mila (le forme semplici costavano più
     delle sagome). Pacchetto `natura.glb` 1,17 → 2,23 MB (neve e aghi a 1024 px). `foto.cjs` ha tre foto nuove: il
     bosco innevato da dentro, il cielo sopra di esso, da 150 m.
+
+- **Pini con un po' di neve e foresta più alta verso il centro (27/11, "i pini dagli una colorazione un po' più bianca
+  come se ci fosse un po' di neve"; "nella grande foresta più ci addentriamo e più gli alberi devono essere alti ...
+  fuori dalla foresta va bene")**:
+  - **Pini innevati** (`pino_neve`): nella neve i pini sono una variante del pino dell'utente fatta all'avvio
+    (`nature.js loadNature`: stessa geometria, nessun file in più) con `frostShading`: gli aghi più chiari virano al
+    bianco della neve, a chiazze (un numero a caso dai vertici), di più in alto e sui fianchi della chioma che sotto
+    (aghi 0,45, rami 0,3). La neve è anche nelle loro sagome (la foto all'avvio la rifà) e nelle copie che sfumano
+    (`fading`). Nella grande foresta a sud i pini restano verdi (lì non c'è neve).
+  - **Foresta più alta verso il centro**: `terrain.js forestDepthAt` dice quanto un punto è dentro una foresta (metri
+    dal bordo dello strato foreste: una trasformata di distanza fatta la prima volta; la grande foresta a sud è
+    profonda 139 m nel cuore, quelle a est ~50, i boschetti ~20). Da 10 a 120 m dentro (`deepAt`) gli alberi del kit e
+    quelli morti crescono (`growth`): nel cuore 1,9 volte più alti (un albero medio ~15 m, come i pini; i giganti meno,
+    ~18–21 m), le chiome 0,6 di quella crescita più larghe; e ci sono meno alberelli piccoli e più giganti (le taglie
+    spinte in su). I giovani nati piccoli restano "giovani" (niente ombre, sagoma a 26 m). Fuori dalle foreste e al
+    loro bordo tutto come prima; i pini non cambiano. Anche gli alberi del vecchio mondo (`addFixed`) crescono così.
+    Ogni albero ha ora `k` (larghezza) e `h` (altezza in più): modello, sagoma e forma semplice si allungano insieme.
+    Misure dal bordo al cuore (`foto.cjs`, "foresta dal bordo al cuore": altezza media degli alberi del kit entro 30 m,
+    giovani compresi): fuori 6,9 m, bordo 8,8, metà 10,6, cuore 12,0 (prima ~6,8–8,2 ovunque); `foto.cjs` foresta 273 →
+    284 mila triangoli.
+  - Le celle delle sagome degli alberi del kit sono più grandi (96×192 invece di 80×160: ora sono più alti);
+    l'atlante è 2048×1296.
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -671,7 +696,8 @@ torre, grotte; poi il serpente marino).
   erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
   porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi), #20 (il
   prosciutto per il lupo, da ogni mercante), #21 (il goblin di notte), #22 (alberi della neve e pino pronti), #23
-  (alberi della neve e pini nel mondo, sagome per tutti gli alberi). Controllare sempre che non restino PR aperte;
+  (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
+  verso il centro). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati

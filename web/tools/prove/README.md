@@ -5,8 +5,9 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
 - `node tools/prove/gioco.cjs` — si cammina fuori da Roccanera, i messaggeri, la miniera, la piazza di Valdoro, l'uscita
   dal castello, l'agguato nel bosco dei banditi, oggetti e persone nella loro regione.
 - `node tools/prove/foto.cjs` — altezze dei luoghi e foto: scarpata di Valdoro, ponti, foresta, piedi delle montagne,
-  colline, il bosco innevato del nord-ovest (da dentro, il cielo sopra, da 150 m); triangoli e chiamate di disegno in
-  ognuna (il peso sul telefono).
+  colline, la grande foresta dal bordo al cuore (altezza media dei suoi alberi, il cielo nel cuore), il bosco innevato
+  del nord-ovest (da dentro, il cielo sopra, da 150 m); triangoli e chiamate di disegno in ognuna (il peso sul
+  telefono).
 - `node tools/prove/alto.cjs` — il centro della mappa dall'alto senza nebbia.
 - `node tools/prove/inseguimento.cjs` — gli inseguitori trovano la strada (`nav.js`) e le porte si aprono per chi ha il
   diritto: un bandito dietro una casa di Roccanera; una guardia dentro Valdoro con la saracinesca chiusa e tu fuori (la
@@ -31,6 +32,6 @@ fotogrammi al secondo): i tempi di attesa sono larghi apposta. Agganci di svilup
 `window.__P` (giocatore), `window.__S` (stato), `window.__picks`, `window.__terrain` (`surfaceAt`, `toWorld`,
 `toLegacy`, `regionOf`, `camera`, `terrain`), `window.__veg` (alberi: `counts`, `trunksIn`), `window.__nav` (`path`),
 `window.__npcs`, `window.__ai`, `window.__wolves` (`all`, `hit`, `order`), `window.__goblin` (`g`, `hit`, `summon`), `window.__veg.rocksNear`,
-`window.__veg.treesNear`, `window.__veg.addFixed` (alberi in più per una prova), `window.__impostors` (atlante delle
-sagome: misura, millisecondi per farlo), `window.__ri` (triangoli e chiamate
+`window.__veg.treesNear`, `window.__veg.heightOf` (altezza di un albero), `window.__veg.addFixed` (alberi in più per
+una prova), `window.__impostors` (atlante delle sagome: misura, millisecondi per farlo, i suoi due bersagli), `window.__ri` (triangoli e chiamate
 dell'ultimo fotogramma), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera), `window.__nofog = true`.
