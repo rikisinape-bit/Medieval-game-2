@@ -549,6 +549,9 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   terrain.update(P, 0, true); veg.update(P, 140, true);                // (the ground and the trees round the player, at once)
   if (!SWORDS[P.eq.hand]) P.eq.hand = "corta";
   if (TWO_HANDED.has(P.eq.hand) && P.eq.off) { P.inv[P.eq.off] = (P.inv[P.eq.off] || 0) + 1; P.eq.off = null; }   // (a save from before: two hands on the sword)
+  // (a save from the morning of 27/11: its pork leg is now the ham, the user's model, which tames a wolf)
+  if (P.inv.coscia) { P.inv.prosciutto = (P.inv.prosciutto || 0) + P.inv.coscia; delete P.inv.coscia; }
+  S.drops.forEach((d) => { if (d.item === "coscia") d.item = "prosciutto"; });
   ["body", "head", "off"].forEach((k) => { if (P.eq[k] && !ITEMS[P.eq[k]]) P.eq[k] = null; });
   if (!P.inv || typeof P.inv !== "object") P.inv = {};
   P.mounted = null; delete P.zone; delete P.sword; delete P.armor;
@@ -952,7 +955,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   // ---- The wolves (wolves.js; the user, 27/11): the pack of the great forest, and the one you may tame. A wolf's body is
   // kept out of walls and deep water, in the castle's rooms and the mine's tunnels like everyone's.
   const placeBody = (x, z, ox, oz) => {
-    if (deepWater(x, z)) return [ox, oz];
+    const inside = castle.inZone(x, z) || mine.inZone(x, z);
+    if (!inside && deepWater(x, z)) return [ox, oz];                    // (the castle is off the map: no sea there)
     [x, z] = pushOut(x, z, 0.35);
     if (mine.inZone(x, z)) return mine.constrain(x, z);
     if (castle.inZone(x, z)) return castle.inZone(ox, oz) ? castle.move(ox, oz, x, z) : castle.constrain(x, z);

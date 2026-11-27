@@ -51,7 +51,7 @@ Non rilevanti: componenti `components/ui/*` di shadcn (es. accordion).
 - Negozi, inventario, equipaggiamento (mano, corpo, testa, mano sinistra), bottino dai morti
 - Imboscate dei banditi nel bosco (pedaggio, intimidazione, combattimento), Capo Morn, missione testa
 - Miniera con argento, carrozza della Corona derubabile, cavalli montabili
-- Branco di lupi nella grande foresta; uno si arrende e con una coscia di maiale diventa il tuo lupo (ti segue, combatte, resta/segue a comando)
+- Branco di lupi nella grande foresta; uno si arrende e con un prosciutto (una coscia di maiale: il modello dell'utente) diventa il tuo lupo (ti segue, combatte, resta/segue a comando)
 
 ### Costanti del mondo
 - Villaggio Roccanera al centro (0,0); foresta a nord (z negativo, da `FZ = -36`); mura di Valdoro a `WZ = FZ - 68 = -104`; miniera a ovest (`CX = -45`)
@@ -601,9 +601,12 @@ torre, grotte; poi il serpente marino).
   (8 di danno, la parata funziona come con le persone), lontani dalla tana più di ~120 m o da te più di 40 m
   rinunciano. Hanno 60 di vita; morti lasciano spesso una **pelliccia**. **Uno solo** (`lupo2`, ma non si vede prima)
   quando gli resta il 35% della vita si accuccia e non combatte più (guaisce); colpito di nuovo scappa alla tana e lì
-  aspetta accucciato (non muore). Vicino a lui: "Lupo arreso (vuole una coscia di maiale)", o con la **coscia di
-  maiale** (nuovo cibo `coscia`, +30 vita, 8 oro: la vende Bodo alla Locanda del Cinghiale, la può avere l'oste)
-  "Dai la coscia di maiale al lupo": la mangia e diventa **il tuo lupo** (90 di vita, morso 14). **Ti segue ovunque**
+  aspetta accucciato (non muore). Vicino a lui: "Lupo arreso (vuole un prosciutto)", o con il **prosciutto** (la
+  coscia di maiale dell'utente: il suo modello in `cibo.glb`, +35 vita, 9 oro; dal 27/11 lo vendono **tutti i
+  mercanti**, anche Lena al mercato di Roccanera: l'utente, "fai in modo che si possa vendere anche a roccanera o in
+  ogni mercante"; una prima versione aveva un cibo nuovo `coscia`, nei salvataggi diventa prosciutto) "Dai il
+  prosciutto al lupo" (prima di una cosa a terra lì accanto, come una pelliccia): lo mangia e diventa **il tuo lupo**
+  (90 di vita, morso 14). **Ti segue ovunque**
   (un po' dietro di te, al tuo passo, di corsa accanto al cavallo; se resta indietro di 70 m o tu entri nel castello o
   nella miniera ti raggiunge subito), **morde chi ti combatte** entro 14 m (persone ostili e lupi), e chi viene morso
   può rivoltarsi contro di lui per qualche secondo (`n.foe`, `ai.js hurtFoe`); sconfitto resta a terra 25 s e si
@@ -619,7 +622,8 @@ torre, grotte; poi il serpente marino).
   maniera automatica e aggiorna sempre tutto fino in fondo su github"; fino al 26/11 le univa l'utente, perché senza il
   suo permesso esplicito i controlli della sessione bloccavano l'unione). Unite: #13 (fasi 1–2), #14 (alberi nuovi,
   erba, sagome, vista lontana), #15 (altopiano di Valdoro, mappa ingrandibile, schermo intero), #16 (inseguimenti e
-  porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
+  porte), #17 (mare, fiumi, ghiaccio), #18 (regola del merge), #19 (alberi, cespugli, rocce, lupi), #20 (il
+  prosciutto per il lupo, da ogni mercante). Controllare sempre che non restino PR aperte; dopo l'unione, ripartire con lo
   stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati

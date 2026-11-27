@@ -1,6 +1,6 @@
-// The wolves (wolves.js): the pack hunts you by its den, your blows hurt them, one of them gives in, a pork leg tames
-// it; it follows you, stays and follows again on your orders (its dialog), bites a bandit fighting you and comes into
-// the castle with you. Usage: node tools/prove/lupi.cjs (with `npm run dev` running)
+// The wolves (wolves.js): the pack hunts you by its den, your blows hurt them, one of them gives in, a ham (bought from
+// Lena at Roccanera's market) tames it; it follows you, stays and follows again on your orders (its dialog), bites a
+// bandit fighting you and comes into the castle with you. Usage: node tools/prove/lupi.cjs (with `npm run dev` running)
 const { open } = require('./comune.cjs');
 const WZ = -104;
 (async () => {
@@ -28,9 +28,14 @@ const WZ = -104;
   console.log('caccia:', w.filter((x) => x.hostile).length, 'lupi ostili, il più vicino a', Math.min(...w.map((x) => dist(x, { x: -30, z: 350 }))).toFixed(1), 'm');
   await shot('lupi_caccia');
   // 2. a real blow (J) on the nearest
-  w = await W(); const pos = await me(); const t1 = w.filter((x) => x.alive && !x.sub).sort((a, b) => dist(a, pos) - dist(b, pos))[0];
-  await face(t1); await p.waitForTimeout(200); await p.keyboard.press('j'); await wait(1);
-  const t1b = (await W()).find((x) => x.id === t1.id);
+  // (it may step aside before the blade comes down: up to three tries, facing it again each time)
+  let t1, t1b;
+  for (let k = 0; k < 3; k++) {
+    w = await W(); const pos = await me(); t1 = w.filter((x) => x.alive && !x.sub).sort((a, b) => dist(a, pos) - dist(b, pos))[0];
+    await face(t1); await p.waitForTimeout(200); await p.keyboard.press('j'); await wait(1);
+    t1b = (await W()).find((x) => x.id === t1.id);
+    if (t1b.hp < t1.hp) break;
+  }
   console.log('colpo vero:', t1.id, 'vita', t1.hp, '->', t1b.hp);
   // 3. the one that gives in, the others killed
   for (const x of await W()) {
@@ -44,17 +49,32 @@ const WZ = -104;
   w = await W();
   console.log('dopo la lotta:', w.map((x) => `${x.id} ${x.alive ? (x.sub ? 'si è arreso' : 'vivo') : 'morto'}`).join(', '));
   console.log('pellicce a terra:', await p.evaluate(() => window.__S.drops.filter((d) => d.item === 'pelliccia').length));
-  // 4. no pork leg, then a pork leg: tamed
+  // 4. no ham: it wants one; a ham bought from Lena at Roccanera's market (her shop); back to it: tamed
   const sub = w.find((x) => x.sub);
-  await p.evaluate(() => { delete window.__P.inv.coscia; });
+  await p.evaluate(() => { delete window.__P.inv.prosciutto; });
   await face(sub, 1.6); await wait(1);
-  console.log('senza coscia:', JSON.stringify(await prompt()));
-  await p.evaluate(() => { window.__P.inv.coscia = 1; }); await wait(1);
-  console.log('con la coscia:', JSON.stringify(await prompt()));
+  console.log('senza prosciutto:', JSON.stringify(await prompt()));
+  const lenaAt = () => p.evaluate(() => ({ x: window.__S.npcs.lena.x, z: window.__S.npcs.lena.z }));
+  await face(await lenaAt(), 1.4); await wait(2);
+  for (let k = 0; k < 8 && !(await prompt()).includes('Lena'); k++) {      // (she may have taken a step; others pass by her stall)
+    await face(await lenaAt(), 1.1 + (k % 3) * 0.2); await p.waitForTimeout(900);
+  }
+  console.log('davanti a Lena:', JSON.stringify(await prompt()));
+  await p.keyboard.press('e');
+  await p.waitForSelector('[data-testid=interact-options][data-ready="1"]', { timeout: 15000 });
+  await p.click('[data-testid=interaction-dialog] button:has-text("Commercia")');
+  await p.waitForSelector('[data-testid=shop-buy-prosciutto-btn]', { timeout: 15000 });
+  const gold0 = await p.evaluate(() => window.__P.gold);
+  await p.click('[data-testid=shop-buy-prosciutto-btn]'); await p.waitForTimeout(600);
+  await shot('lupi_negozio');
+  console.log('da Lena:', await p.evaluate(() => window.__P.inv.prosciutto || 0), 'prosciutto per', gold0 - (await p.evaluate(() => window.__P.gold)), 'oro');
+  await p.click('[data-testid=shop-close]'); await p.waitForTimeout(600);
+  await face(sub, 1.6); await wait(1);
+  console.log('con il prosciutto:', JSON.stringify(await prompt()));
   await shot('lupi_arreso');
   await p.keyboard.press('e'); await wait(3);
   w = await W(); const tame = w.find((x) => x.tame);
-  console.log('addomesticato:', tame ? `${tame.id} (vita ${tame.hp})` : 'NO', '| coscia rimasta:', await p.evaluate(() => window.__P.inv.coscia || 0));
+  console.log('addomesticato:', tame ? `${tame.id} (vita ${tame.hp})` : 'NO', '| prosciutti rimasti:', await p.evaluate(() => window.__P.inv.prosciutto || 0));
   // 5. it follows
   const start = await me();
   await go(start.x + 22, start.z - 8, Math.PI / 2); await wait(8);
@@ -92,6 +112,11 @@ const WZ = -104;
   await p.keyboard.press('e'); await p.waitForTimeout(6000); await wait(2);
   tw = (await W()).find((x) => x.tame);
   console.log('castello:', (await me()).x > 3000 ? 'sei dentro' : 'NON sei dentro', '| il lupo', tw.x > 3000 ? `è dentro con te (a ${dist(tw, await me()).toFixed(1)} m)` : 'è rimasto fuori');
+  // through the hall: it follows in the castle's rooms too
+  const h0 = await me();
+  await p.keyboard.down('w'); await wait(2.5); await p.keyboard.up('w'); await wait(3);
+  tw = (await W()).find((x) => x.tame);
+  console.log('nelle sale:', `hai fatto ${dist(h0, await me()).toFixed(1)} m, il lupo è a ${dist(tw, await me()).toFixed(1)} m da te`);
   await shot('lupi_castello');
   console.log('salvato:', JSON.stringify(await p.evaluate(() => window.__S.flags.lupi)));
   console.log('errori:', errors.length ? errors.slice(0, 6) : 'nessuno');
