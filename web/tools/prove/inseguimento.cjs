@@ -25,9 +25,10 @@ const WZ = -104;
       await p.waitForTimeout(700);
     }
   };
-  // a house of Roccanera (17, 5, turned -1.4; its door on its local +z side): the bandit behind it, you before it
-  const H = [17, 5, -1.4], W = (lx, lz) => [H[0] + Math.cos(H[2]) * lx + Math.sin(H[2]) * lz, H[1] - Math.sin(H[2]) * lx + Math.cos(H[2]) * lz];
-  const front = W(0, 5), back = W(0, -5);
+  // a house of Roccanera (world.js HOUSES[2]: the thatched T house, its front door on its local +z side, 11.6 x 10.9 m):
+  // the bandit behind it, you before it
+  const H = await p.evaluate(() => { const h = window.__houses[2]; return [h.x, h.z, h.r]; }), W = (lx, lz) => [H[0] + Math.cos(H[2]) * lx + Math.sin(H[2]) * lz, H[1] - Math.sin(H[2]) * lx + Math.cos(H[2]) * lz];
+  const front = W(0, 7.5), back = W(0, -7.5);
   await go(...front); await hunt('bandit1', ...back); await p.waitForTimeout(500);
   console.log('casa:', await reach('bandit1', 25)); await shot('inseguimento_casa');
   await p.evaluate(() => { Object.assign(window.__S.npcs.bandit1, { hostile: false }); });

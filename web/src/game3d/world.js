@@ -36,7 +36,7 @@ export const NPC_DEFS = [
   { id: "silas", name: "Silas l'Esattore", role: "noble", look: "noble", pos: [22.6, 15.2], hp: 35, dmg: 3, loot: 30, home: 2,
     routine: [R(22.6, 15.2, "read", 7), R(2.5, 2.2, "read", 6, { face: [0, 0] }), R(6, 9, "talk", 4)] },
   { id: "marta", name: "Marta", role: "villager", look: "woman", pos: [1.5, 0.9], home: 0,
-    routine: [R(1.5, 0.9, "water", 5, { face: [0, 0] }), R(1.8, 1.6, "drink", 3, { face: [0, 0] }), R(-16.6, 12.8, "sweep", 7), R(-9.6, 5, "talk", 4, { face: [-8, 5.9] })] },
+    routine: [R(1.5, 0.9, "water", 5, { face: [0, 0] }), R(1.8, 1.6, "drink", 3, { face: [0, 0] }), R(-11.3, 11.4, "sweep", 7), R(-9.6, 5, "talk", 4, { face: [-8, 5.9] })] },
   { id: "ugo", name: "Ugo", role: "villager", look: "villager", model: "farmer", tint: "farmerUgo", pos: [5.5, -10.6], home: 4,
     routine: [R(5.5, -10.6, "chop", 8, { face: [5.5, -12] }), R(9, -12.4, "look", 2, { carry: true }), R(3, -6, "eat", 4), R(3, -6, "talk", 3)] },
   { id: "elsa", name: "Elsa", role: "villager", look: "woman", pos: [-11, 13], home: 3,
@@ -95,8 +95,11 @@ export const OBJECTS = [
   // the castle's door in the back wall of the square, and its way out inside (castle_layout.js: EXIT)
   { id: "castello", x: 0, z: WZ - 30.1, label: "Entra nel castello" }, { id: "castello_uscita", x: CASTLE[0], z: CASTLE[1] + 3.0, label: "Esci dal castello" },
 ];
-// [x, z, rotation]; index >= 6 are the stone houses of Valdoro
-export const HOUSES = [[-18, 10, 0.4], [-17, -9, 1.2], [17, 5, -1.4], [-4, 19, 3.1], [9, -16, 0], [21, -11, -0.6], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];
+// [x, z, rotation]; index >= 6 are the stone houses of Valdoro. Roccanera's six (the user's thatched house of 28/11,
+// casa.js: 11.6 x 10.9 m) round the square, 20-26 m from the well, the front door towards it (rotation atan2(-x, -z));
+// the two on the west face east (turned towards the well their backs would reach x < -23.5: the mine's ground in the
+// old map, which sites.js moves to the mine)
+export const HOUSES = [[-17.4, 9.6, Math.PI / 2], [-17.4, -10.6, Math.PI / 2], [24, 5.5, -1.7961], [-3.8, 21.7, 2.9682], [11, -19, -0.5248], [22, -14, -1.0041], [-11, WZ - 10, 1.2], [11, WZ - 10, -1.2], [-11, WZ - 24, 0.6], [11, WZ - 24, -0.6]];
 export const CHESTS = [[["pane", 2], ["patata", 3], ["oro", 8]], [["cuoio", 1], ["torcia", 1]], [["acqua", 1], ["pane", 1], ["pomodoro", 2], ["corda", 1]], [["oro", 15], ["libro", 1]], [["pozione", 1], ["cappuccio", 1]], [["spada_lunga", 1]], [["maglia", 1]], [["oro", 25], ["pozione", 1], ["gemma", 1]], [["carne", 1], ["vino", 2]], [["oro", 10], ["elmo_ferro", 1]]];
 // The silver mine (mine.js): narrow tunnels from the portal in the rock face of the hill (CX + 17) going down and
 // branching into dead ends. Nodes [x, z, floor height]; tunnels [from, to, width]; silver veins on the walls

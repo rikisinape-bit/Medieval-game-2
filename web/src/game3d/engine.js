@@ -10,7 +10,8 @@ import { createFx } from "./fx";
 import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND, LEFT_BELOW } from "./weapons";
-import { hasNature, hasKit, hasProps, addNature, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
+import { hasNature, hasKit, hasProps, hasCase, addNature, addModel, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
+import { CASA_WALLS, CASA_SOLID_BOXES, CASA_SOLID_CIRCLES, CASA_FURNITURE, CASA_DOORS, CASA_DOOR_Y, CASA_VIA, CASA_BEDS, CASA_BED_Y, CASA_BED_FOOT, CASA_CHEST, CASA_FIRE, CASA_DOOR_YARD, casaInside, underCasa, casaBedParts } from "./casa";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
 import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleExit, castleCells, castleJail } from "./castle";
@@ -70,9 +71,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const FAR_THINGS = 220;                                       // the places' things are drawn up to here (atmosphere)
   // gone: a tree that was there before the bandits' camp grew (kept in the list so the forest's random layout does not
   // change, but neither drawn nor solid)
+  // Roccanera's houses (casa.js; world.js HOUSES, the first six) when their file is there: no tree under their roofs
+  const CASE_AT = hasCase() ? HOUSES.slice(0, 6) : [];
   const putTree = (pine, x, z, ry = 0, r = 0, gone = false) => {
     if (mountainHeight(x, z) > 0.4) return;                    // no trees half-buried in the mountain
     if (z > WZ && z < WZ + 10) return;                         // (before Valdoro's gate: the forest is elsewhere now)
+    gone = gone || underCasa(CASE_AT, x, z, 1.4);              // (under a house: kept in the list like those of the bandits' camp)
     treeSpots.push({ pine: !!pine, x, z, ry, gone }); if (r && !gone) obstacles.push({ x, z, r });
   };
   const toWorld = (x, z, ry, lx, lz) => [x + Math.cos(ry) * lx + Math.sin(ry) * lz, z - Math.sin(ry) * lx + Math.cos(ry) * lz];
@@ -103,7 +107,10 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   ROADS.forEach(([x, z, w, d, ry = 0]) => put(flat(new THREE.BoxGeometry(w, 0.02, d), G.road), x, z, ry));
 
   // Houses: hinged doors, interiors, chests, beds
-  // Roccanera (option A): our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
+  // Roccanera (the user, 28/11): the thatched T house of the Pure3d pack (casa.js, models/case.glb) at the first six
+  // places of world.js HOUSES, round the square, the front door towards the well: two doors that open, a hearth lit
+  // day and night, two beds, a chest, a table, a pantry. (Without its file: the old houses below, at the same places.)
+  // Valdoro: our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
   // [kit house, cut height, quarter turn, height stretch, extra turn of the whole top]
   const KIT_TOPS = [["house_03", 1.75, true, 1.25, 0], ["house_04", 1.7, false, 1.25, 0], ["house_05", 2.5, false, 1.1, 0],
     ["house_02", 1.85, true, 1.2, 0], ["house_03", 1.75, true, 1.25, Math.PI], ["house_07", 0.6, false, 1.1, 0],
@@ -113,18 +120,54 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const kitHouse = kitWall && kitBeam ? { wall: kitWall, beam: kitBeam } : null, houseTops = [];
   // Valdoro's ground floors are of dressed stone, like the castle (the kit's other wall texture)
   const kitStone = kitHouse && kitMaterial("Wall_Tile_01_Mat"), kitTown = kitStone ? { ...kitHouse, wall: kitStone } : kitHouse;
+  const CASA = hasCase(), casaItems = [], casaPlanks = CASA && kitMaterial("Casa_Assi");
+  const BLANKETS = ["#7a2a22", "#2a4a6a", "#56602a", "#6a3a5a", "#7a5a2a", "#33585a"];
+  const cloth = new THREE.MeshLambertMaterial({ vertexColors: true, name: "Kit_Casa_Stoffe" }); cloth.userData.cast = true;   // (the beds' mattresses, blankets, pillows)
+  // the yaw of a body lying with its head towards the local direction (hx, hz) of a house turned by r (its feet the
+  // other way: the sleeping pose turns "YXZ", the head away from where the yaw faces)
+  const lieYaw = (r, hx, hz) => Math.atan2(-(Math.cos(r) * hx + Math.sin(r) * hz), -(-Math.sin(r) * hx + Math.cos(r) * hz));
+  const casaHouse = (x, z, r, i) => {
+    const W = (lx, lz) => toWorld(x, z, r, lx, lz);
+    casaItems.push({ id: "casa_paglia", x, z, ry: r });
+    CASA_FURNITURE.forEach(([id, lx, lz, ry, k = 1, y = 0]) => { const [wx, wz] = W(lx, lz); casaItems.push({ id: "arredo_" + id, x: wx, z: wz, ry: r + ry, k, y: y + 0.02 }); });
+    [...CASA_WALLS, ...CASA_SOLID_BOXES].forEach(([lx, lz, hw, hd]) => { const [cx, cz] = W(lx, lz); rects.push({ cx, cz, hw, hd, ry: r }); });
+    CASA_SOLID_CIRCLES.forEach(([lx, lz, rr]) => { const [ox, oz] = W(lx, lz); obstacles.push({ x: ox, z: oz, r: rr }); });
+    // the doors: a pivot on the hinge turned with the house, the leaf turning in it (open: towards the inside)
+    const doors = CASA_DOORS.map(({ hinge, mid }) => {
+      const pivot = new THREE.Group(), leaf = kitObject("casa_porta");
+      pivot.position.y = CASA_DOOR_Y; pivot.add(leaf); put(pivot, ...W(...hinge), r);
+      const [dx, dz] = W(...mid);
+      return { door: leaf, dx, dz, open: 0 };
+    });
+    // the hearth's fire: a light (day and night: the house is dark inside) and a flame
+    const [fx, fz] = W(CASA_FIRE[0], CASA_FIRE[2]), fire = new THREE.Object3D();
+    fire.position.set(fx, CASA_FIRE[1], fz); fire.userData.anchor = { color: "#ff9a48", intensity: 14, distance: 11 }; scene.add(fire);
+    const flame = makeFlame(0.75), [flx, flz] = W(0, -4.35); flame.position.set(flx, 0.22, flz); scene.add(flame);
+    const beds = CASA_BEDS.map(({ at: [bx0, bz0], head, edge: [ex0, ez0] }, b) => {
+      const id = `casa_letto_${i}_${b}`, [wx, wz] = W(bx0, bz0);         // (merged with the village by chunk: nature.js)
+      addModel(id, casaBedParts(casaPlanks, cloth, BLANKETS[i % BLANKETS.length], head)); casaItems.push({ id, x: wx, z: wz, ry: r, y: 0.02 });
+      const [bx, bz] = W(bx0 - head * CASA_BED_FOOT, bz0), [ex, ez] = W(ex0, ez0);
+      return { bed: [bx, bz], edge: [ex, ez, lieYaw(r, head, 0)], y: CASA_BED_Y };
+    });
+    const [chx, chz] = W(...CASA_CHEST);
+    return { i, x, z, r, casa: true, doors, door: doors[0].door, dx: doors[0].dx, dz: doors[0].dz, chx, chz, beds, via: CASA_VIA.map(([lx, lz]) => W(lx, lz)), open: 0 };
+  };
   const houses = HOUSES.map(([x, z, r], i) => {
+    if (CASA && i < 6) return casaHouse(x, z, r, i);
     const stone = i >= 6, top = kitHouse && KIT_TOPS[i];
     const id = top && kitHouseTop(top[0], { cut: top[1], turn: top[2], sy: top[3], w: 4.7, d: 4.1 });
     if (id) houseTops.push({ id, x, z, y: HOUSE_H + 0.1, ry: r + top[4] });
     const g = put(makeHouse(stone ? "#9a948a" : i % 2 ? "#b89a6a" : "#a8886a", stone ? "#5a3a3a" : i % 3 ? "#7a4a22" : "#5a3a22", stone, id ? (stone ? kitTown : kitHouse) : null), x, z, r);
     HOUSE_RECTS.forEach(([lx, lz, hw, hd]) => { const [cx, cz] = toWorld(x, z, r, lx, lz); rects.push({ cx, cz, hw, hd, ry: r }); });
     const [dx, dz] = toWorld(x, z, r, 0, 1.9), [chx, chz] = toWorld(x, z, r, CHEST_LOCAL[0], CHEST_LOCAL[1]);
-    const [bx, bz] = toWorld(x, z, r, -1.3, -0.9), [ex, ez] = toWorld(x, z, r, -1.3, 0.55), [vx, vz] = toWorld(x, z, r, 0, 3.2), [ix, iz] = toWorld(x, z, r, 0, 0.9);
-    const [mx, mz] = toWorld(x, z, r, 0, -1.0), [mex, mez] = toWorld(x, z, r, 0, 0.3);
-    const beds = [{ bed: [bx, bz], edge: [ex, ez, r + Math.PI], y: 0.62 }, { bed: [mx, mz], edge: [mex, mez, r + Math.PI], y: 0.2 }];
+    // where a sleeper's feet go (the body's origin): the foot of the bed and of the straw mattress; the pillows at
+    // local -z: heads that way
+    const [bx, bz] = toWorld(x, z, r, -1.3, -0.05), [ex, ez] = toWorld(x, z, r, -1.3, 0.55), [vx, vz] = toWorld(x, z, r, 0, 3.2), [ix, iz] = toWorld(x, z, r, 0, 0.9);
+    const [mx, mz] = toWorld(x, z, r, 0, -0.1), [mex, mez] = toWorld(x, z, r, 0, 0.3);
+    const beds = [{ bed: [bx, bz], edge: [ex, ez, lieYaw(r, 0, -1)], y: 0.62 }, { bed: [mx, mz], edge: [mex, mez, lieYaw(r, 0, -1)], y: 0.2 }];
     return { i, x, z, r, g, door: g.userData.door, dx, dz, chx, chz, beds, via: [[vx, vz], [ix, iz]], open: 0 };
   });
+  if (casaItems.length) addNatureL(casaItems);
   if (houseTops.length) addNatureL(houseTops);
   // Valdoro: whole kit houses (not enterable) against the town walls, facing the square, with their collisions:
   // tall narrow ones on the side walls, low ones in the corners by the gate. [kit house, x, z, turn, scale]
@@ -138,10 +181,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const houseOf = (x, z) => {
     for (const h of houses) {
       const dx = x - h.x, dz = z - h.z, lx = Math.cos(h.r) * dx - Math.sin(h.r) * dz, lz = Math.sin(h.r) * dx + Math.cos(h.r) * dz;
-      if (Math.abs(lx) < 2.2 && Math.abs(lz) < 1.9) return h.i;
+      if (h.casa ? casaInside(lx, lz) : Math.abs(lx) < 2.2 && Math.abs(lz) < 1.9) return h.i;
     }
     return -1;
   };
+  if (import.meta.env.DEV) { window.__houses = houses; window.__houseOf = houseOf; }   // dev only (tests)
 
   put(makeForge(), 14, -5, 0); obstacles.push({ x: 12.8, z: -6, r: 1 }, { x: 14.6, z: -4.6, r: 0.5 });
   const rack = put(makeSwordRack(), 15.6, -6.5, 0);
@@ -400,7 +444,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     // Village surroundings (outside the square and the dirt roads)
     const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
     const villageOk = (m) => (x, z) => !ROADS.some((r) => inRoad(x, z, r, 1))
-      && !HOUSES.some(([hx, hz]) => Math.hypot(x - hx, z - hz) < 4.3) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
+      && !HOUSES.some(([hx, hz], i) => i >= CASE_AT.length && Math.hypot(x - hx, z - hz) < 4.3) && !underCasa(CASE_AT, x, z, 0.6) && !CASE_AT.some(([hx, hz, r]) => [CASA_VIA[0], CASA_DOOR_YARD].some(([lx, lz]) => Math.hypot(x - hx - Math.cos(r) * lx - Math.sin(r) * lz, z - hz + Math.sin(r) * lx - Math.cos(r) * lz) < 2.4)) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
       && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && mountainHeight(x - 1.5, z) < 0.1 && freeOf(x, z, m);
     scatter("erba", 55, villagePt, villageOk(0.4));
     scatter("erba_alta", 36, villagePt, villageOk(0.4));
@@ -831,9 +875,10 @@ export function createGame(canvas, hooks, saved, opts = {}) {
   const anchors = [], wp = new THREE.Vector3();
   scene.traverse((o) => { const a = o.userData.anchor; if (a) { o.getWorldPosition(wp); anchors.push({ ...a, x: wp.x, y: wp.y, z: wp.z }); } });
   const pool = Array.from({ length: 6 }, () => { const l = new THREE.PointLight("#ffb050", 0, 10); scene.add(l); return l; });
+  if (import.meta.env.DEV) window.__anchors = anchors;   // dev only (tests)
   let lightT = 0, lightsOn = true, lightsWanted = true;
   const setLightsOn = (v) => { if (v !== lightsOn) { lightsOn = v; [...pool, torchLamp].forEach((l) => { l.visible = v; }); } };
-  if (import.meta.env.DEV) window.__lights = () => ({ on: lightsOn, wanted: lightsWanted, programs: renderer.info.programs.length });   // dev only (tests)
+  if (import.meta.env.DEV) window.__lights = () => ({ on: lightsOn, wanted: lightsWanted, programs: renderer.info.programs.length, pool: pool.map((l) => [+l.position.x.toFixed(1), +l.position.y.toFixed(1), +l.position.z.toFixed(1), +l.intensity.toFixed(1), l.distance]) });   // dev only (tests)
   atmosphere(1);
 
   const makeHostile = (ids) => ids.forEach((id) => { const n = S.npcs[id]; if (n?.alive) n.hostile = true; });
@@ -1834,7 +1879,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (n.home == null || !n.alive) return;
       const h = houses[n.home];
       if (night && !n.hostile && !n.panic) { if (!n.sleepAt) { const b = h.beds[Math.min(bedSlot[n.id] || 0, h.beds.length - 1)]; n.sleepAt = b.edge; n.sleepVia = h.via; n.viaI = 0; n.bedAt = b.bed; n.bedY = b.y; } }
-      else if (!night && n.sleepAt) { n.sleepAt = null; n.exitTo = [h.via[1], h.via[0]]; n.exitI = 0; }
+      else if (!night && n.sleepAt) { n.sleepAt = null; n.exitTo = [...h.via].reverse(); n.exitI = 0; }
     });
   }
 
@@ -1846,13 +1891,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       n.jailAnger = (n.jailAnger || 0) + dt;
       if (n.jailAnger > 8) { n.jailAnger = 0; Object.assign(n, { hostile: false, alert: 0, actT: null, state: "idle" }); say(`${n.name}: "Marcisci lì dentro."`); }
     });
-    houses.forEach((h) => {
-      const near = Math.hypot(P.x - h.dx, P.z - h.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo || n.hostile || n.alert > 0) && Math.hypot(n.x - h.dx, n.z - h.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
+    houses.forEach((h) => (h.doors || [h]).forEach((d) => {          // (Roccanera's houses have two doors)
+      const near = Math.hypot(P.x - d.dx, P.z - d.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo || n.hostile || n.alert > 0) && Math.hypot(n.x - d.dx, n.z - d.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
       const target = near ? 1.9 : 0;
-      if (target && h.open < 0.05) sfx.creak(vAt(h.dx, h.dz));
-      h.open += (target - h.open) * Math.min(1, dt * 5);
-      h.door.rotation.y = h.open;
-    });
+      if (target && d.open < 0.05) sfx.creak(vAt(d.dx, d.dz));
+      d.open += (target - d.open) * Math.min(1, dt * 5);
+      d.door.rotation.y = d.open;
+    }));
     // Valdoro's gate: open to whoever the Crown trusts (or has paid), shut while its guards hunt someone, but raised for
     // its own guards when their way goes through it (gateCall: to come out after the player, or in), then shut again
     const open = ((S.known.crown >= 30 || !!S.flags.gateBribed) && !npcs.some((n) => n.valdoro && n.guard && n.alive && n.hostile)) || gateCall > 0;
@@ -2006,7 +2051,8 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const nt = time + n.pos[0];
       // characters hidden in the fog are only moved, not posed (the pose of dozens of skeletons costs on a phone)
       const shown = n.mesh.visible;
-      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], n.bedY ?? 0.62, n.bedAt[1], n.yaw); n.mesh.rotation.x = -Math.PI / 2; if (shown) poseHuman(n.mesh, 0, false, "sleep"); }
+      if (r.mode === "sleep") { at(n.mesh, n.bedAt[0], (n.bedY ?? 0.62) + floorY(n.bedAt[0], n.bedAt[1]), n.bedAt[1], n.yaw); n.mesh.rotation.order = "YXZ";   // (+ the floor: Valdoro's stands 12 m up)
+        n.mesh.rotation.x = -Math.PI / 2; if (shown) poseHuman(n.mesh, 0, false, "sleep"); }   // (YXZ: laid along the bed, head away from the yaw)
       else {
         n.mesh.userData.atk = n.atk;
         const y = shown ? (n.lastY = poseHuman(n.mesh, nt, r.walk, r.mode, r.k)) : n.lastY ?? 0;
