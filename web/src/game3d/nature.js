@@ -31,8 +31,9 @@ export const NATURE = {
   ...Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`sasso_${i + 1}`, { s: 1, shadow: true }])),   // the user's rocks (real size)
 };
 
-let lib = null, natureOk = false, kitOk = false, propsOk = false;
+let lib = null, natureOk = false, kitOk = false, propsOk = false, caseOk = false;
 export const hasNature = () => natureOk;
+export const hasCase = () => caseOk;
 export const hasKit = () => kitOk;
 export const hasProps = () => propsOk;
 
@@ -50,8 +51,12 @@ async function loadLib(name, { keepNormals = false, castAll = false } = {}) {
     if (!mats.has(m)) {
       const cut = m.transparent || m.alphaTest > 0 || /Leaves|Flowers|Grass/.test(m.name);
       if (m.map) m.map.colorSpace = THREE.SRGBColorSpace;
-      const lm = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, emissive: m.emissive, alphaTest: cut ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide, name: (castAll ? "Kit_" : "") + m.name });
-      lm.userData.cast = castAll || CASTS.test(m.name);
+      const glass = m.name === "Casa_Vetri";               // leaded windows (case.glb): see-through panes, not cut out
+      const lm = new THREE.MeshLambertMaterial({ map: m.map, color: m.color, emissive: m.emissive, alphaTest: cut && !glass ? 0.5 : 0, side: cut ? THREE.DoubleSide : THREE.FrontSide, name: (castAll ? "Kit_" : "") + m.name });
+      lm.userData.cast = (castAll || CASTS.test(m.name)) && !glass;
+      if (m.normalMap) { lm.normalMap = m.normalMap; lm.normalScale.copy(m.normalScale); }   // (the houses' planks, thatch...)
+      if (glass) { lm.transparent = true; lm.depthWrite = false; }
+      if (m.name === "Casa_Scandole") lm.side = THREE.DoubleSide;   // (the pantry's little roof has no inner face)
       if (CROWN.test(m.name)) crownShading(lm);
       // the snow on the user's trees of 27/11 as bright as the ground's (terrain.js); the crown under snow a soft
       // volume like the leafy ones (snowCrown), which receives no shadows: its clumps would darken each other
@@ -179,14 +184,19 @@ export async function loadNature() {
   try { const props = await loadLib("props", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...props }; propsOk = true; } catch (e) { console.warn("Oggetti del villaggio non caricati: restano quelli fatti a codice", e); }
   // the foods of the user's models (cibo_pane, cibo_prosciutto, cibo_pomodoro, cibo_patata: tools/build-food.mjs)
   try { const food = await loadLib("cibo", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...food }; } catch (e) { console.warn("Cibi non caricati: restano quelli fatti a codice", e); }
+  // Roccanera's houses (the user's thatched house of 28/11, its door, the furniture: tools/build-case.mjs)
+  caseOk = false;
+  try { const c = await loadLib("case", { keepNormals: true, castAll: true }); lib = { ...(lib || {}), ...c }; caseOk = !!c.casa_paglia; } catch (e) { console.warn("Case di Roccanera non caricate: restano quelle di prima", e); }
   natureOk = !!lib && !!lib.albero_a1;
   return natureOk;
 }
 
 /** How a model of the nature pack is scaled when placed (addNature). */
 export const natureScale = (id) => NATURE[id]?.s || 1;
-/** The parts ({ geometry, material }) of a model of the loaded GLBs (natura, kit, props, cibo), or null. */
+/** The parts ({ geometry, material }) of a model of the loaded GLBs (natura, kit, props, cibo, case), or null. */
 export const libParts = (id) => lib?.[id] || null;
+/** A model made in code, laid like the loaded ones (addNature: merged with them by chunk and material). parts: [{ geometry, material }] */
+export const addModel = (id, parts) => { if (lib) lib[id] = parts; };
 
 const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler();
 /**

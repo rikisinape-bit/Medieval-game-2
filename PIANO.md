@@ -728,6 +728,45 @@ torre, grotte; poi il serpente marino).
     più forti e con portata 1,5 volte (`castle_layout.js light`). Luminosità media delle foto (prima → dopo, di notte):
     ingresso 29 → 57, trono 13 → 34, banchetti 25 → 52, prigioni 11 → 30, studio 24 → 52.
 
+- **Le case di Roccanera col tetto di paglia (28/11, "ti mando in 2 o tre mandate dei file per modificare le case nel
+  gioco sia di Roccanera che Valdoro che i prossimi villaggi ... ora guardiamo a Roccanera")**: l'utente ha mandato una
+  casa del pacchetto Pure3d "Medieval" (`p3d_medieval_enterable_bld-13`: OBJ, FBX, 3DS, MAX) e le texture della sua
+  cartella `textures` (TGA: colore `-d`, rilievo `-n`, lucido `-s`, a volte `-disp`/`-opac`). È una casa a graticcio,
+  tetto di paglia, pianta a T (11,6 × 10,9 m, alta 5,5 m), un piano, vuota dentro e percorribile (pareti di assi,
+  pavimento, finestre a piombo, travi a vista), due vani porta senza ante, 8.391 triangoli.
+  - **Modello**: `web/tools/casa-paglia.py <obj> <cartella texture>` (Blender, `bpy`) → `assets/models/architetture/
+    casa_paglia.glb`: metri, porta principale al centro del lato +z, pavimento a 2 cm, materiali `Casa_*` (travi,
+    intonaco, vetri, scandole, assi, paglia, pavimento) con colore e rilievo ridotti (paglia 1024 px, il resto 512 o
+    meno); più `casa_porta` (la porta di assi col chiavistello ritagliata da `wood_doors-d`, cardine sull'origine).
+    **Manca `walls_plaster-d.tga`** (il colore dell'intonaco: non era tra i file): lo script lo ricava dal rilievo e dal
+    lucido dell'intonaco (bianco calce caldo, macchie, crepe più scure); se l'utente lo manda, va messo al suo posto in
+    `MATS` e rifatto il modello. Poi `node web/tools/build-case.mjs` → `web/public/models/case.glb` (1,35 MB: WebP,
+    meshopt) con dentro anche i mobili del pacchetto del castello (`arredo_<nome>`: camino, legna, tavolo, sgabelli,
+    piatti, barili, sacco, secchio, scaffale, baule, tappeto), copiati da `castello.glb` (stessa texture a tavolozza).
+  - **Nel gioco** (`casa.js`: tutte le misure nella casa; `engine.js` "Houses"; `nature.js` carica `case` e tiene i
+    rilievi e i vetri trasparenti): le prime sei case di `world.js HOUSES` sono queste, attorno alla piazza a 20–26 m
+    dal pozzo con la porta verso il pozzo; le due a ovest guardano a est (girate verso il pozzo il loro retro finiva
+    oltre x −23,5, che nella vecchia mappa è terreno della miniera e `sites.js` lo sposta alla miniera: i loro pezzi
+    sparivano là). Muri come scatole (`CASA_WALLS`), due porte che si aprono verso l'interno quando ci si avvicina
+    (`h.doors`), il camino acceso giorno e notte (luce `anchor` 14, portata 11, e una fiamma), due letti (assi della
+    casa, pagliericcio, coperta di un colore per casa; fusi con il resto del villaggio per pezzi: `addModel`), il baule
+    ai piedi del letto (stessi `CHESTS`), tavolo con sgabelli e piatti nel corpo della T, dispensa con barili.
+    `houseOf` riconosce la T (`casaInside`); alberi e sottobosco restano fuori dai tetti (`underCasa`; gli alberi sotto
+    un tetto restano nell'elenco come quelli del campo dei banditi, così il resto non cambia posto) e davanti alle porte.
+    Chi ci abita entra dalla porta, passa il corpo della T e va al suo letto (`CASA_VIA`); al mattino rifà la strada
+    al contrario (`exitTo` = tutta la strada rovesciata, anche per le case vecchie). Marta ora spazza davanti alla
+    casa 0. Senza `case.glb` restano le case di prima negli stessi posti.
+  - **Chi dorme sta disteso lungo il letto** (prima tutti in direzione nord-sud qualunque fosse il letto): posa del sonno
+    con rotazione `YXZ`, la testa verso il cuscino, i piedi in fondo (`lieYaw`, `CASA_BED_FOOT`), e all'altezza del suo
+    pavimento: a Valdoro (altopiano a 12 m) chi dormiva finiva 11 m sotto terra.
+  - Peso dal pozzo (4 direzioni, mezzogiorno): prima 719 mila triangoli e 740 chiamate, ora 851 mila e 660.
+    Prova `tools/prove/case.cjs` (dall'alto, da fuori, dentro, porta e muro, Elsa che va a letto da sola e esce al
+    mattino, tutti a letto di notte); `inseguimento.cjs` aggira la casa 2 nuova.
+  - **Valdoro** (dopo, quando lo dice l'utente): le sue case restano quelle del kit; l'utente propone le texture Kenney
+    "Retro Textures Fantasy" (zip mandato il 28/11: 64×64 px, CC0) mantenendo le finestre a piombo del pacchetto
+    Pure3d. Proposta fatta: una prova su una casa sola con foto da vicino e da lontano; se i quadretti si vedono troppo,
+    le texture realistiche del pacchetto Pure3d (pietra `bricks_edged`, intonaco, travi, scandole).
+
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
 - **Ramo**: si lavora nel ramo `ccr-56033106-oyy5p3` e si apre una PR verso il ramo principale
@@ -740,14 +779,14 @@ torre, grotte; poi il serpente marino).
   (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
   verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte), #26 (salvataggio senza
   costante, errore con traccia e browser), #27 (il gioco riparte anche se salvato nella gabbia), #28 (corpi che non si
-  attraversano, accerchiamento, luce nel castello). Controllare sempre che non restino PR aperte;
+  attraversano, accerchiamento, luce nel castello), #29 (case di Roccanera col tetto di paglia). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
   (`publish_files` con `base_version` = versione pubblicata) e togliere il vecchio `assets/index-*.js`. Di solito cambiano
   solo `index.html` e `assets/index-*.js`; il CSS cambia nome quando cambiano le classi Tailwind. Le immagini sono
   dentro il codice (`vite.config.js`): la pagina pubblicata non serve file immagine.
-- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `lupi.cjs`, `goblin.cjs`, `produzione.cjs`.
+- **Prove**: `web/tools/prove/` (vedi il suo README): `gioco.cjs`, `foto.cjs`, `alto.cjs`, `inseguimento.cjs`, `acqua.cjs`, `lupi.cjs`, `goblin.cjs`, `corpi.cjs`, `gabbia.cjs`, `case.cjs`, `produzione.cjs`.
 - **Originali dell'utente** (non nel repository, `assets/sorgenti/`, da rimettere lì in una sessione nuova se servono):
   `terreno/grass.blend` (erba), `terreno/ice009/` (ghiaccio), `mare/mare_calmo.blend` (mare), `rocce/` (le rocce:
   `FreePack-RocksStylized.blend`, `Rocks_Stylized_Color.png`), `lupo/` (`wolf.blend`, `wolf_color.png`, `wolf_ao.png`),
@@ -755,6 +794,8 @@ torre, grotte; poi il serpente marino).
   Gli alberi della neve e il pino (zip winter_tree8, winter_tree14, Pine4m) sono già convertiti e nel repository
   (`assets/models/natura/albero_neve.glb`, `albero_spoglio_neve.glb`, `pino_4m.glb`): gli zip servono solo per rifarli
   (`python tools/alberi-neve.py <winter_tree8> <winter_tree14> <Pine4m>`, le cartelle scompattate).
+  La casa col tetto di paglia (Pure3d `p3d_medieval_enterable_bld-13.obj` e le sue texture TGA) è già convertita
+  (`assets/models/architetture/casa_paglia.glb`): gli originali servono solo per rifarla (`tools/casa-paglia.py`).
   Le texture e i modelli fatti da loro sono nel repository; gli strumenti servono solo per rifarli.
 - **Coordinate**: mondo = pixel della mappa − (860, 708); 1 pixel = 1 m; x verso est, z verso sud. Il vecchio contenuto
   resta in coordinate legacy (`world.js`) e si sposta con `sites.js` (`SITES`: posizione, rotazione, altezza `y`).
