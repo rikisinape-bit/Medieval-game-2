@@ -28,7 +28,8 @@ Script usati per provare il mondo di Vasilad. Con il server di sviluppo acceso (
   loro), nessuno dentro un altro, non si passa attraverso una persona ferma.
 - `node tools/prove/case.cjs` — le case di Roccanera (tetto di paglia, 28/11): il villaggio dall'alto, due case dalla
   piazza e da vicino, dentro una (dalla porta al camino, lungo l'ala), si entra dalla porta e un muro ferma, Elsa va a
-  letto da sola di notte ed esce al mattino, di notte tutti a letto (`SOLO=alto,fuori,dentro,muri,cammino,notte`).
+  letto da sola di notte ed esce al mattino, si usa solo ciò che sta sotto il punto centrale (il baule guardando dritto,
+  in basso, girati; Elsa in terza persona), di notte tutti a letto (`SOLO=alto,fuori,dentro,muri,cammino,mira,notte`).
 - `node tools/prove/gabbia.cjs` — il gioco salvato mentre sei chiuso nella gabbia di Roccanera riparte (la guardia torna a
   sorvegliare); `URL=...` per provarlo sulla versione pubblicata.
 - `URL=http://localhost:4173/ node tools/prove/produzione.cjs` — la versione pubblicata (`npm run build:artifact`, poi
@@ -42,4 +43,5 @@ fotogrammi al secondo): i tempi di attesa sono larghi apposta. Agganci di svilup
 `window.__veg.treesNear`, `window.__veg.heightOf` (altezza di un albero), `window.__veg.addFixed` (alberi in più per
 una prova), `window.__impostors` (atlante delle sagome: misura, millisecondi per farlo, i suoi due bersagli), `window.__ri` (triangoli e chiamate
 dell'ultimo fotogramma), `window.__topcam = [x,y,z, lx,ly,lz]` (telecamera libera), `window.__nofog = true`, `window.__houses` e
-`window.__houseOf` (le case: posto, porte, letti; in quale casa è un punto), `window.__anchors` (i punti luce).
+`window.__houseOf` (le case: posto, porte, letti; in quale casa è un punto), `window.__anchors` (i punti luce),
+`window.__pitch(v)` (lo sguardo in alto/in basso: per usare qualcosa bisogna averla sotto il punto centrale).

@@ -3,8 +3,9 @@
 #   assets/models/architetture/casa_paglia.glb
 #     casa_paglia   the house (8391 triangles, 11.6 x 10.9 m, 5.5 m high), in metres; its main doorway (1 m wide, in the
 #                   gable of the T's stem) in the middle of the +z side (three.js: x right, y up, z towards the doorway);
-#                   the floor 2 cm above the ground (the model sinks 10 cm: its sills and posts reach below its floor)
-#     casa_porta    a door for its doorways (1 x 1.95 m, 6 cm thick): its hinge on the local origin, the leaf along +x
+#                   the floor 2 cm above the ground (the model sinks 10 cm: its sills and posts reach below its floor);
+#                   with a floor in its pantry and its side doorway walled up (child casa_paglia_aggiunte: the user, 28/11)
+#     casa_porta    a door for its doorway (1 x 1.95 m, 6 cm thick): its hinge on the local origin, the leaf along +x
 #                   (the plank door with the iron latch of wood_doors-d)
 # Materials (Casa_*): base colour and normal map of the pack's textures, shrunk; the plaster's colour map (walls_plaster-d)
 # was not among the files: it is made here from its normal and specular maps (a warm lime white, stains where the
@@ -75,17 +76,44 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 bpy.ops.wm.obj_import(filepath=obj)
 house = [o for o in bpy.context.scene.objects if o.type == "MESH"][0]
 house.name = house.data.name = "casa_paglia"
-# centimetres -> metres; the main doorway's middle (x 0.25 m in the file) on x = 0; 10 cm into the ground; half a turn
-# (its doorway, on the file's +y, comes to -y: the exporter's +z)
+# centimetres -> metres (the turn into the game's frame comes after the additions below)
 house.data.transform(house.matrix_world)                  # (the importer turns the object, not its mesh: y up -> z up)
 house.matrix_world = Matrix.Identity(4)
-house.data.transform(Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation((-0.25, 0, -0.1)) @ Matrix.Scale(0.01, 4))
+house.data.transform(Matrix.Scale(0.01, 4))
+NEW = {}
 for slot in house.material_slots:
     src = slot.material.name.split(".")[0]
     name, color, csize, normal, nsize = MATS[src]
     im = color(); alpha = im.mode == "RGBA"
-    slot.material = material(name, save(im.convert("RGBA" if alpha else "RGB"), name, csize, alpha),
-                             normal and save(Image.open(T(normal)).convert("RGB"), name + "_n", nsize), alpha)
+    slot.material = NEW[src] = material(name, save(im.convert("RGBA" if alpha else "RGB"), name, csize, alpha),
+                                        normal and save(Image.open(T(normal)).convert("RGB"), name + "_n", nsize), alpha)
+
+# The user, 28/11: "un lato dove ci sono i barili c'è l'erba al posto del legno nel pavimento" (the pantry beside the
+# stem has no floor in the file: the ground showed through) and "lascia solo la porta nel corridoio, l'altra toglila"
+# (the side doorway in the wing's front wall, x 2.77..3.89 in the file, is walled up: plaster outside, planks inside).
+# Each new face goes on with its neighbours' texture: their mapping, read off the stem's floor and the panels beside
+# the doorway (metres, the file's axes: x, y on the ground, z up). A child of the house (exported with it).
+EXTRA = [   # (material, corners [(x, y, z)], uv(x, y, z), the side its face looks to)
+    ("wood_floor", [(1.79, -0.25, 0.12), (3.18, -0.25, 0.12), (3.18, 2.03, 0.12), (1.79, 2.03, 0.12)],
+     lambda x, y, z: (1.9776 - 0.3333 * (y + 1.64), 1.0056 + 0.3078 * (x + 1.394)), (0, 0, 1)),
+    ("walls_plaster", [(2.772, -1.593, 0.118), (3.885, -1.593, 0.118), (3.885, -1.593, 2.178), (2.772, -1.593, 2.178)],
+     lambda x, y, z: (0.9995 - 0.333 * (x - 1.845), 0.5 + 0.1656 * (z - 0.118)), (0, 1, 0)),
+    ("wood_planks", [(2.772, -1.636, 0.118), (3.885, -1.636, 0.118), (3.885, -1.636, 2.178), (2.772, -1.636, 2.178)],
+     lambda x, y, z: (0.0224 + 0.3184 * (x - 1.845), 0.0176 + 0.3183 * (z - 0.118)), (0, -1, 0)),
+]
+bm = bmesh.new(); uvx = bm.loops.layers.uv.new()
+extra_me = bpy.data.meshes.new("casa_paglia_aggiunte")
+for i, (src, corners, uvf, side) in enumerate(EXTRA):
+    extra_me.materials.append(NEW[src])
+    f = bm.faces.new([bm.verts.new(c) for c in corners]); f.material_index = i; f.normal_update()
+    if f.normal.dot(side) < 0: f.normal_flip()
+    for l in f.loops: l[uvx].uv = uvf(*l.vert.co)
+bm.to_mesh(extra_me); bm.free()
+extra = bpy.data.objects.new("casa_paglia_aggiunte", extra_me); bpy.context.scene.collection.objects.link(extra)
+# the main doorway's middle (x 0.25 m in the file) on x = 0; 10 cm into the ground; half a turn (its doorway, on the
+# file's +y, comes to -y: the exporter's +z)
+for me in (house.data, extra_me): me.transform(Matrix.Rotation(math.pi, 4, "Z") @ Matrix.Translation((-0.25, 0, -0.1)))
+extra.parent = house
 
 # the door: a board 1 x 1.95 x 0.06 m, its hinge on the origin, the leaf along +x; the door's picture on both faces
 # (each seen the right way round), its edges of the same wood

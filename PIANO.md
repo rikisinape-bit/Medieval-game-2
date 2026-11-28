@@ -762,10 +762,29 @@ torre, grotte; poi il serpente marino).
   - Peso dal pozzo (4 direzioni, mezzogiorno): prima 719 mila triangoli e 740 chiamate, ora 851 mila e 660.
     Prova `tools/prove/case.cjs` (dall'alto, da fuori, dentro, porta e muro, Elsa che va a letto da sola e esce al
     mattino, tutti a letto di notte); `inseguimento.cjs` aggira la casa 2 nuova.
-  - **Valdoro** (dopo, quando lo dice l'utente): le sue case restano quelle del kit; l'utente propone le texture Kenney
-    "Retro Textures Fantasy" (zip mandato il 28/11: 64×64 px, CC0) mantenendo le finestre a piombo del pacchetto
-    Pure3d. Proposta fatta: una prova su una casa sola con foto da vicino e da lontano; se i quadretti si vedono troppo,
-    le texture realistiche del pacchetto Pure3d (pietra `bricks_edged`, intonaco, travi, scandole).
+  - **Valdoro** (dopo, quando lo dice l'utente): le sue case restano quelle del kit. Le texture Kenney "Retro Textures
+    Fantasy" (zip del 28/11) **non si usano più** (l'utente, 28/11: "eliminiamo le texture di Kenney, ho trovato altre
+    case da mettere in città"): aspettare le case nuove che manderà.
+  - **Ritocchi (28/11, "un lato dove ci sono i barili c'è l'erba al posto del legno nel pavimento, e lascia solo la porta
+    nel corridoio, l'altra toglila")**: la dispensa ha un pavimento di legno (nel file non c'era: si vedeva l'erba del
+    terreno) e il vano della porta laterale (nella facciata dell'ala) è chiuso, intonaco fuori e assi dentro, ognuno con
+    la texture che continua quella dei pannelli accanto (`casa-paglia.py`, figlio `casa_paglia_aggiunte`: 6 triangoli in
+    più). Una sola porta, quella del corpo della T (`CASA_DOORS`), e il muro dell'ala senza varco (`CASA_WALLS`).
+
+- **Terza persona e punto centrale (28/11, "la 3ª persona ... bisogna che si veda un po' più vicino da dietro, sempre un
+  po' dall'alto, però il punto centrale deve essere come nella visione in prima persona: se un oggetto non è indicato
+  con il punto è come se non lo guardasse")**:
+  - Telecamera più vicina (`engine.js`, "Camera"): 2,1 m dietro (a cavallo 3,2; prima 3 e 4,2), 0,3 m a destra (prima
+    0,55), ~0,7 m sopra la testa (prima ~1,75), e puntata dove guardano gli occhi 3 m avanti: lì il punto centrale è su
+    ciò che il personaggio guarda, come in prima persona.
+  - **Si usa solo ciò che sta sotto il punto**, in tutte e due le viste (`candidates`): il raggio dal centro dello
+    schermo deve passare dentro la cosa (un bastone verticale dal suo piede alla sua cima, grosso quanto lei: `AIM`,
+    `OBJ_AIM`; chi dorme si mira sul letto), sempre entro la portata di prima dal giocatore; tra più cose, la più
+    centrata (e più vicina). Niente sotto il punto: niente scritta "[E] ...", "Usa" non fa nulla (a cavallo resta
+    "Smonta"). Per un baule o un oggetto a terra bisogna guardare in basso. Prova `case.cjs` (`SOLO=mira`): il baule
+    guardando dritto no, guardando giù sì, girati no; in terza persona Elsa sotto il punto sì, di lato no. Le prove
+    che usano qualcosa ora mirano anche in altezza (`window.__pitch`).
+
 
 ### Per riprendere in una nuova chat (dopo la fase 2)
 
@@ -779,7 +798,8 @@ torre, grotte; poi il serpente marino).
   (alberi della neve e pini nel mondo, sagome per tutti gli alberi), #24 (pini con un po' di neve, foresta più alta
   verso il centro), #25 (meno memoria grafica all'avvio, messaggio se il gioco non parte), #26 (salvataggio senza
   costante, errore con traccia e browser), #27 (il gioco riparte anche se salvato nella gabbia), #28 (corpi che non si
-  attraversano, accerchiamento, luce nel castello), #29 (case di Roccanera col tetto di paglia). Controllare sempre che non restino PR aperte;
+  attraversano, accerchiamento, luce nel castello), #29 (case di Roccanera col tetto di paglia), #30 (dispensa col pavimento, una sola porta, terza persona e punto
+  centrale). Controllare sempre che non restino PR aperte;
   dopo l'unione, ripartire con lo stesso nome dal ramo principale aggiornato. **Pagina pubblicata** (privata dell'utente): artifact
   "Roccanera e Valdoro", slug `df42774e-10c7-49f2-ad85-65f8adda5596`. Per aggiornarla: `cd web && npm run build:artifact`,
   confrontare le impronte sha256 di `web/dist` con i file pubblicati (`list_files`), caricare solo i cambiati
