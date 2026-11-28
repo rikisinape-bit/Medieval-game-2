@@ -11,7 +11,7 @@ import { createAudio } from "./audio";
 import { repSummary } from "./reputation";
 import { SHIELD_KIND, LEFT_BELOW } from "./weapons";
 import { hasNature, hasKit, hasProps, hasCase, addNature, addModel, kitObject, kitMaterial, kitHouseTop, kitSize, kitPartBox } from "./nature";
-import { CASA_WALLS, CASA_SOLID_BOXES, CASA_SOLID_CIRCLES, CASA_FURNITURE, CASA_DOORS, CASA_DOOR_Y, CASA_VIA, CASA_BEDS, CASA_BED_Y, CASA_BED_FOOT, CASA_CHEST, CASA_FIRE, CASA_DOOR_YARD, casaInside, underCasa, casaBedParts } from "./casa";
+import { CASA_WALLS, CASA_SOLID_BOXES, CASA_SOLID_CIRCLES, CASA_FURNITURE, CASA_DOORS, CASA_DOOR_Y, CASA_VIA, CASA_BEDS, CASA_BED_Y, CASA_BED_FOOT, CASA_CHEST, CASA_FIRE, casaInside, underCasa, casaBedParts } from "./casa";
 import { groundMat } from "./ground";
 import { buildMine } from "./mine";
 import { castle, buildCastle, castleAnchors, castleSolids, castleSpawn, castleExit, castleCells, castleJail } from "./castle";
@@ -108,7 +108,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
 
   // Houses: hinged doors, interiors, chests, beds
   // Roccanera (the user, 28/11): the thatched T house of the Pure3d pack (casa.js, models/case.glb) at the first six
-  // places of world.js HOUSES, round the square, the front door towards the well: two doors that open, a hearth lit
+  // places of world.js HOUSES, round the square, the front door towards the well: a door that opens, a hearth lit
   // day and night, two beds, a chest, a table, a pantry. (Without its file: the old houses below, at the same places.)
   // Valdoro: our enterable ground floor, upper floors and roof from the kit (cut at the first floor).
   // [kit house, cut height, quarter turn, height stretch, extra turn of the whole top]
@@ -186,6 +186,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     return -1;
   };
   if (import.meta.env.DEV) { window.__houses = houses; window.__houseOf = houseOf; }   // dev only (tests)
+  if (import.meta.env.DEV) window.__pitch = (v) => (v == null ? pitch : (pitch = v));   // dev only: the look up/down (tests)
 
   put(makeForge(), 14, -5, 0); obstacles.push({ x: 12.8, z: -6, r: 1 }, { x: 14.6, z: -4.6, r: 0.5 });
   const rack = put(makeSwordRack(), 15.6, -6.5, 0);
@@ -444,7 +445,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
     // Village surroundings (outside the square and the dirt roads)
     const villagePt = () => { const a = nr() * 6.28, d = 12.5 + nr() * 17.5; return [Math.cos(a) * d, Math.sin(a) * d]; };
     const villageOk = (m) => (x, z) => !ROADS.some((r) => inRoad(x, z, r, 1))
-      && !HOUSES.some(([hx, hz], i) => i >= CASE_AT.length && Math.hypot(x - hx, z - hz) < 4.3) && !underCasa(CASE_AT, x, z, 0.6) && !CASE_AT.some(([hx, hz, r]) => [CASA_VIA[0], CASA_DOOR_YARD].some(([lx, lz]) => Math.hypot(x - hx - Math.cos(r) * lx - Math.sin(r) * lz, z - hz + Math.sin(r) * lx - Math.cos(r) * lz) < 2.4)) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
+      && !HOUSES.some(([hx, hz], i) => i >= CASE_AT.length && Math.hypot(x - hx, z - hz) < 4.3) && !underCasa(CASE_AT, x, z, 0.6) && !CASE_AT.some(([hx, hz, r]) => { const [lx, lz] = CASA_VIA[0]; return Math.hypot(x - hx - Math.cos(r) * lx - Math.sin(r) * lz, z - hz + Math.sin(r) * lx - Math.cos(r) * lz) < 2.4; }) && !(Math.abs(x + 10) < 3 && Math.abs(z + 4.8) < 2.5) && Math.hypot(x - 14, z + 5) > 4.5
       && Math.hypot(x - 12.5, z - 22.5) > 3.5 && Math.hypot(x + 8, z - 8) > 3 && mountainHeight(x - 1.5, z) < 0.1 && freeOf(x, z, m);
     scatter("erba", 55, villagePt, villageOk(0.4));
     scatter("erba_alta", 36, villagePt, villageOk(0.4));
@@ -1308,6 +1309,11 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (!n.dragged && !n.lift) n.lift = null;
     });
   };
+  // How big the things one can use are, to aim at them with the central dot: [from y, to y, thickness] over their floor
+  const AIM = { npc: [0.1, 1.8, 0.3], steal: [0.1, 1.8, 0.3], body: [0, 0.45, 0.6], obj: [0, 1.6, 0.8], chest: [0, 0.72, 0.5], pick: [-0.05, 0.3, 0.3],
+    horse: [0.5, 2.0, 0.7], lupo: [0, 0.85, 0.4], ore: [0.2, 2.2, 0.55], cage: [0, 2.3, 0.7], cell: [0, 2.3, 0.7] };
+  const OBJ_AIM = { well: [0, 1.4, 1.1], rack: [0, 1.7, 0.9], carriage: [0, 2.4, 1.6], fountain: [0, 2.1, 1.8], castello: [0, 4, 1.5], castello_uscita: [0, 3.5, 1.5] };
+  const _aimF = new THREE.Vector3();
   const candidates = () => {
     const list = [];
     const near = (x, z, r = 2.6) => Math.hypot(x - P.x, z - P.z) < r;
@@ -1316,10 +1322,12 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       const x = n.alive ? n.x : n.cx ?? n.x, z = n.alive ? n.z : n.cz ?? n.z;            // a body: where it lies, not where its feet are
       if (!(zoneOk(x, z) && near(x, z, 2.8) && !n.hostile && !n.panic && !(n.alive === false && n.looted) && !(n.role === "bandit" && n.alive && enc.state === "approach"))) return;
       if (n.alive && P.sneak) { if (!n.riding && near(x, z, 1.9)) list.push({ kind: "steal", id: n.id, x, z, label: `Ruba a ${n.name}` }); return; }   // sneaking: pickpocket instead of talking
-      list.push({ kind: "npc", id: n.id, x, z, label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name} (tieni: trascina)` });
+      const abed = n.alive && n.sleepAt && n.bedAt && Math.hypot(n.x - n.sleepAt[0], n.z - n.sleepAt[1]) < 0.4;   // asleep: aimed at on the bed
+      list.push({ kind: "npc", id: n.id, x, z, ...(abed ? { ax: n.bedAt[0] - Math.sin(n.yaw) * 0.85, az: n.bedAt[1] - Math.cos(n.yaw) * 0.85, aim: [0.3, 0.9, 0.6] } : n.alive ? {} : { aim: AIM.body }),
+        label: n.alive ? `Parla con ${n.name}` : `Fruga ${n.name} (tieni: trascina)` });
     });
-    OBJS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, label: o.label }); });
-    houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
+    OBJS.forEach((o) => { if (near(o.x, o.z, 3)) list.push({ kind: "obj", id: o.id, x: o.x, z: o.z, aim: OBJ_AIM[o.id], label: o.label }); });
+    houses.forEach((h) => { if (near(h.chx, h.chz, 1.8) && houseOf(P.x, P.z) === h.i) list.push({ kind: "obj", id: `chest${h.i}`, x: h.chx, z: h.chz, aim: AIM.chest, label: S.flags.chests?.[h.i] ? "Baule vuoto" : "Apri il baule" }); });
     picks.forEach((pk) => { if (!pk.carried && near(pk.x, pk.z, 2.2)) list.push({ kind: "pick", pk, x: pk.x, z: pk.z, label: `Raccogli ${ITEMS[pk.item]?.name || pk.item}${pk.qty > 1 ? ` (${pk.qty})` : ""} (tieni: sposta)` }); });
     if (!P.mounted) horses.forEach((h) => { if (near(h.x, h.z, 2.8)) list.push({ kind: "horse", id: h.id, x: h.x, z: h.z, w: 1.2, label: "Monta a cavallo" }); });
     { const wc = wolves.candidate(near); if (wc) list.push(wc); }        // the wolf that gave in, or yours
@@ -1335,9 +1343,24 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       if (P.inv.chiave_celle) list.push({ kind: "cell", id: c.id, x: c.x, z: c.z, label: open ? "Chiudi la cella" : "Apri la cella" });
       else if (!open) list.push({ kind: "cell", id: c.id, x: c.x, z: c.z, w: 2, label: "Cella chiusa a chiave" });   // (the jailer first, if he is near)
     });
-    if (P.mounted) list.push({ kind: "dismount", id: "d", x: P.x, z: P.z, label: "Smonta da cavallo" });
-    const score = (c) => Math.hypot(c.x - P.x, c.z - P.z) + (c.w || 0) + (c.kind === "dismount" ? 0 : Math.abs(angDiff(Math.atan2(c.x - P.x, c.z - P.z), P.yaw)) > 1.1 ? 3 : 0);
-    return list.sort((a, b) => score(a) - score(b))[0] || null;
+    // Only what is under the central dot counts (the user, 28/11: "se un oggetto non è indicato con il punto è come se
+    // non lo guardasse"), in both views: the ray through the middle of the screen, from the camera (the eyes; in third
+    // person from behind the shoulders, aimed where the eyes look 3 m ahead), must pass within the thing (a stick
+    // from y0 to y1 over its floor, r thick, a little thicker farther away); of those, the best centred (the nearer one
+    // if two overlap).
+    const cam = camera.position, f = camera.getWorldDirection(_aimF);
+    const offRay = (c) => {
+      const [y0, y1, r] = c.aim || AIM[c.kind] || [0, 1.5, 0.5], X = c.ax ?? c.x, Z = c.az ?? c.z, gy = floorY(X, Z);
+      let best = Infinity;
+      for (let i = 0; i <= 6; i++) {
+        const dx = X - cam.x, dy = gy + y0 + ((y1 - y0) * i) / 6 - cam.y, dz = Z - cam.z, t = dx * f.x + dy * f.y + dz * f.z;
+        if (t > 0) best = Math.min(best, Math.hypot(dx - f.x * t, dy - f.y * t, dz - f.z * t) / (r + 0.02 * t) + 0.05 * t);
+      }
+      return best;
+    };
+    let pick = null, pickD = 1;
+    list.forEach((c) => { const d = offRay(c); if (d < pickD) { pick = c; pickD = d; } });
+    return pick || (P.mounted ? { kind: "dismount", id: "d", x: P.x, z: P.z, label: "Smonta da cavallo" } : null);
   };
 
   const api = (targetId) => ({
@@ -1891,7 +1914,7 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       n.jailAnger = (n.jailAnger || 0) + dt;
       if (n.jailAnger > 8) { n.jailAnger = 0; Object.assign(n, { hostile: false, alert: 0, actT: null, state: "idle" }); say(`${n.name}: "Marcisci lì dentro."`); }
     });
-    houses.forEach((h) => (h.doors || [h]).forEach((d) => {          // (Roccanera's houses have two doors)
+    houses.forEach((h) => (h.doors || [h]).forEach((d) => {          // (h.doors: Roccanera's houses, casa.js)
       const near = Math.hypot(P.x - d.dx, P.z - d.dz) < 2.2 || npcs.some((n) => n.alive && (n.sleepAt || n.exitTo || n.hostile || n.alert > 0) && Math.hypot(n.x - d.dx, n.z - d.dz) < 2.2 && !(n.sleepAt && n.bedAt && Math.hypot(n.x - n.bedAt[0], n.z - n.bedAt[1]) < 1.6));
       const target = near ? 1.9 : 0;
       if (target && d.open < 0.05) sfx.creak(vAt(d.dx, d.dz));
@@ -2087,11 +2110,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       at(pm, P.x, P.mounted ? saddleY(pm, 1.87) + gy : gy + ny, P.z, P.yaw);
       pm.userData.hipL.rotation.z = P.mounted ? 0.5 : 0; pm.userData.hipR.rotation.z = P.mounted ? -0.5 : 0; followSkirt(pm.userData);
       pm.rotation.x = dodgeT > 0 ? 0.25 : 0;
-      // Camera behind the right shoulder; pulled in if a wall is in the way.
+      // Camera behind, a little to the right and above (the user, 28/11: "un po' più vicino da dietro, sempre un po'
+      // dall'alto"; before: 3 m back, 0.55 m to the side, ~1.75 m over the head); pulled in if a wall is in the way.
+      // What is under the central dot is what one looks at (candidates).
       const headY = gy + (P.mounted ? 2.45 : 1.75) - crouch;
       const rx = -Math.cos(P.yaw), rz = Math.sin(P.yaw);
-      const want = P.mounted ? 4.2 : 3.0, side = 0.55;
-      const bx = -lookX, by = 0.35 - lookY * 0.8, bz = -lookZ;
+      const want = P.mounted ? 3.2 : 2.1, side = 0.3;
+      const bx = -lookX, by = 0.12 - lookY * 0.8, bz = -lookZ;
       let dist = want;
       for (let t = 0.3; t <= want; t += 0.2) {
         const cx = P.x + bx * t + rx * side * (t / want), cz = P.z + bz * t + rz * side * (t / want);
@@ -2099,11 +2124,13 @@ export function createGame(canvas, hooks, saved, opts = {}) {
       }
       const f = dist / want;
       const cx = P.x + bx * dist + rx * side * f, cz = P.z + bz * dist + rz * side * f, cg = floorY(cx, cz);
-      let cy = Math.max(cg + 0.4, headY + 0.7 + by * dist);
+      let cy = Math.max(cg + 0.4, headY + 0.45 + by * dist);
       if (mine.inZone(cx, cz)) cy = Math.min(cy, mine.roofY(cx, cz));              // under the tunnel's roof
       else if (castle.inZone(cx, cz)) cy = Math.min(cy, castle.roofY(cx, cz));      // under the castle's vaults
       camera.position.set(cx + shk, cy, cz);
-      camera.lookAt(P.x + rx * side * f + lookX * 4, headY + lookY * 4, P.z + rz * side * f + lookZ * 4);
+      // aimed where the eyes look, 3 m ahead: there the central dot is on what the character looks at, as in first person
+      const eyes = gy + (P.mounted ? 2.55 : 1.62) - crouch;
+      camera.lookAt(P.x + lookX * 3, eyes + lookY * 3, P.z + lookZ * 3);
     } else {
       camera.position.set(P.x + shk * 0.8, eyeY, P.z);
       camera.lookAt(P.x + lookX, eyeY + lookY, P.z + lookZ);

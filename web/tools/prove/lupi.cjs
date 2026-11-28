@@ -12,7 +12,9 @@ const WZ = -104;
   const gameT = () => p.evaluate(() => window.__S.dayT * 600);
   const wait = async (s) => { const t0 = await gameT(); while ((await gameT()) - t0 < s) { await heal(); await p.waitForTimeout(500); } };
   const prompt = () => p.evaluate(() => document.querySelector('[data-testid=village3d-prompt]')?.textContent || '');
-  const face = (w, d = 1.7) => p.evaluate(([wx, wz, d]) => { const P = window.__P, a = Math.atan2(P.x - wx, P.z - wz); P.x = wx + Math.sin(a) * d; P.z = wz + Math.cos(a) * d; P.yaw = Math.atan2(wx - P.x, wz - P.z); P.hp = 100; }, [w.x, w.z, d]);
+  // d metres from it, facing it, the central dot on it (what is not under the dot is not looked at: h, the height
+  // aimed at, half a wolf's or a person's)
+  const face = (w, d = 1.7, h = w.h ?? 0.45) => p.evaluate(([wx, wz, d, h]) => { const P = window.__P, a = Math.atan2(P.x - wx, P.z - wz); P.x = wx + Math.sin(a) * d; P.z = wz + Math.cos(a) * d; P.yaw = Math.atan2(wx - P.x, wz - P.z); P.hp = 100; window.__pitch(Math.atan2(h - 1.62, d)); }, [w.x, w.z, d, h]);
   const order = async (label) => {
     await p.keyboard.press('e');
     await p.waitForSelector('[data-testid=interact-options][data-ready="1"]', { timeout: 15000 });
@@ -54,7 +56,7 @@ const WZ = -104;
   await p.evaluate(() => { delete window.__P.inv.prosciutto; });
   await face(sub, 1.6); await wait(1);
   console.log('senza prosciutto:', JSON.stringify(await prompt()));
-  const lenaAt = () => p.evaluate(() => ({ x: window.__S.npcs.lena.x, z: window.__S.npcs.lena.z }));
+  const lenaAt = () => p.evaluate(() => ({ x: window.__S.npcs.lena.x, z: window.__S.npcs.lena.z, h: 1.1 }));
   await face(await lenaAt(), 1.4); await wait(2);
   // (she may have taken a step; others pass by her stall, and bodies do not go through each other: from another side)
   for (let k = 0; k < 12 && !(await prompt()).includes('Lena'); k++) {

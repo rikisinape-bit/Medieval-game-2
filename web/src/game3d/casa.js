@@ -8,20 +8,21 @@
 //              pantry ┌────┤        │
 //    (x -2.95..-1.5,  │    ╎        │
 //     z -0.27..2.05)  └────┤        │
-//       z -1.6 ┌──side door──┘        └───────────┐
+//       z -1.6 ┌─────────────┘        └───────────┐
 //              │  west wing     hearth     east wing │   (x -4.65..4.85)
 //       z -4.75└───────────────────────────────────┘
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
-// The walls as boxes [x, z, half width (x), half depth (z)], doorways left open (the main door x -0.51..0.51 in the
-// stem's gable, the side door x -3.6..-2.6 in the west wing's front, the pantry's opening in the stem's side).
+// The walls as boxes [x, z, half width (x), half depth (z)], doorways left open (the front door x -0.51..0.51 in the
+// stem's gable, the pantry's opening in the stem's side). The side door the file had in the west wing's front, the
+// user had it walled up (28/11: "lascia solo la porta nel corridoio, l'altra toglila": casa-paglia.py).
 export const CASA_WALLS = [
   [1.62, 1.6, 0.15, 3.2], [-1.5, -0.78, 0.15, 0.85], [-1.5, 3.18, 0.15, 1.6],                       // the stem's sides
   [1.07, 4.75, 0.56, 0.15], [-1.0, 4.75, 0.5, 0.15],                                                 // its gable, beside the door
   [-2.22, 2.05, 0.73, 0.12], [-2.95, 0.89, 0.12, 1.2], [-2.22, -0.27, 0.73, 0.12],                   // the pantry
   [0.1, -4.75, 4.8, 0.15], [4.85, -3.15, 0.15, 1.65], [-4.65, -3.18, 0.15, 1.6],                    // the wing: back, ends
-  [3.24, -1.55, 1.65, 0.15], [-2.05, -1.6, 0.55, 0.15], [-4.13, -1.6, 0.53, 0.15],                  // its front (side door)
+  [3.24, -1.55, 1.65, 0.15], [-3.08, -1.6, 1.58, 0.15],                                              // its front
 ];
 // Inside (where a point counts as "in the house": the AI's sight, the chest): stem, wing, pantry [x0, x1, z0, z1]
 const ROOMS = [[-1.5, 1.62, -1.6, 4.75], [-4.65, 4.85, -4.75, -1.55], [-2.95, -1.5, -0.27, 2.05]];
@@ -33,10 +34,9 @@ export const underCasa = (houses, x, z, m = 0) => houses.some(([hx, hz, r]) => {
   const dx = x - hx, dz = z - hz, lx = Math.cos(r) * dx - Math.sin(r) * dz, lz = Math.sin(r) * dx + Math.cos(r) * dz;
   return lx > CASA_ROOF[0] - m && lx < CASA_ROOF[1] + m && lz > CASA_ROOF[2] - m && lz < CASA_ROOF[3] + m;
 });
-// Doors: the hinge [x, z] (the leaf goes along +x from it, 1 m; it opens inwards) and the doorway's middle
-export const CASA_DOORS = [{ hinge: [-0.5, 4.73], mid: [0, 4.75] }, { hinge: [-3.6, -1.6], mid: [-3.1, -1.6] }];
+// The door: the hinge [x, z] (the leaf goes along +x from it, 1 m; it opens inwards) and the doorway's middle
+export const CASA_DOORS = [{ hinge: [-0.5, 4.73], mid: [0, 4.75] }];
 export const CASA_DOOR_Y = 0.1;
-export const CASA_DOOR_YARD = [-3.6, 0.2];   // outside the side door (and CASA_VIA[0] outside the front one): nothing grows there
 // The way in for whoever lives here (from outside the front door to the hearth's carpet), then to their bed
 export const CASA_VIA = [[0, 6.3], [0, 3.9], [-0.55, 0.6], [0, -2.5]];
 // Beds: the middle, which way the head is (+1: towards +x), where one stands beside it to lie down

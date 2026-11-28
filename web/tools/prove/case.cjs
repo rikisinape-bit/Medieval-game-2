@@ -1,7 +1,8 @@
 // Roccanera's houses (28/11, the user's thatched house): the village from above, two houses from the square, inside one
 // (from the door to the hearth, along the wing), walking in through the front door and against a wall, a villager
-// walking home to her bed at night and out in the morning, the people of a house asleep in its beds at night.
-// Usage: node tools/prove/case.cjs   (SOLO=alto,fuori,dentro,muri,cammino,notte: only those)
+// walking home to her bed at night and out in the morning, only what is under the central dot looked at (first and
+// third person), the people of a house asleep in its beds at night.
+// Usage: node tools/prove/case.cjs   (SOLO=alto,fuori,dentro,muri,cammino,mira,notte: only those)
 const { open } = require('/home/user/Medieval-game-2/web/tools/prove/comune.cjs');
 const ONLY = process.env.SOLO ? process.env.SOLO.split(',') : null, want = (k) => !ONLY || ONLY.includes(k);
 (async () => {
@@ -77,6 +78,31 @@ const ONLY = process.env.SOLO ? process.env.SOLO.split(',') : null, want = (k) =
       if (e.home < 0 && !e.exit) { out = (await gameT()) - t1; break; }
     }
     console.log('Elsa uscita di casa al mattino:', out != null ? `sì, in ${out.toFixed(0)} s di gioco` : 'NO');
+  }
+  if (want('mira')) {
+    // only what is under the central dot is looked at (28/11): the chest of house 3 from 1.3 m, looking straight on
+    // (over it) and then down at it; turned away. Third person (nearer, from behind and above): Elsa 2.2 m ahead (within reach), then aside
+    await p.evaluate(() => { window.__S.dayT = 0.45; });
+    const prompt = () => p.evaluate(() => document.querySelector('[data-testid=village3d-prompt]')?.textContent || '');
+    const h = H[3], [cx, cz] = W(h, 2.15, -3.0);
+    const stand = (x, z, yaw, pitch) => p.evaluate(([x, z, yaw, pitch]) => { Object.assign(window.__P, { x, z, yaw }); window.__pitch(pitch); }, [x, z, yaw, pitch]);
+    await stand(cx, cz, h.r + Math.PI, 0); await p.waitForTimeout(2500);
+    const a = await prompt();
+    await stand(cx, cz, h.r + Math.PI, Math.atan2(0.4 - 1.62, 1.3)); await p.waitForTimeout(2500);
+    const b = await prompt();
+    await stand(cx, cz, h.r + Math.PI / 2, Math.atan2(0.4 - 1.62, 1.3)); await p.waitForTimeout(2500);
+    const c = await prompt();
+    console.log('baule: dritto', JSON.stringify(a), '| giù sul baule', JSON.stringify(b), '| girato', JSON.stringify(c));
+    await p.click('[data-testid=village3d-camera-btn]'); await p.waitForTimeout(500);
+    const elsa = async (dyaw) => {
+      await p.evaluate((dyaw) => { const n = window.__S.npcs.elsa, P = window.__P, a = 0.6; n.actT = 99; n.goTo = null; P.x = n.x + Math.sin(a) * 2.2; P.z = n.z + Math.cos(a) * 2.2; P.yaw = Math.atan2(n.x - P.x, n.z - P.z) + dyaw; window.__pitch(0); }, dyaw);   // (Elsa stays where she is)
+      await p.waitForTimeout(2500); return prompt();
+    };
+    const e1 = await elsa(0); await shot('case_terza');
+    const cam = await p.evaluate(() => { const c = window.__terrain.camera.position, P = window.__P; return [Math.hypot(c.x - P.x, c.z - P.z), c.y - window.__terrain.surfaceAt(P.x, P.z)]; });
+    const e2 = await elsa(0.6);
+    console.log('terza persona: telecamera a', cam[0].toFixed(2), 'm dietro, alta', cam[1].toFixed(2), 'm | Elsa sotto il punto', JSON.stringify(e1), '| di lato', JSON.stringify(e2));
+    await p.click('[data-testid=village3d-camera-btn]'); await p.waitForTimeout(500);
   }
   if (want('notte')) {
     // night: the people of Roccanera go home; they are brought to their beds' side, and lie down
